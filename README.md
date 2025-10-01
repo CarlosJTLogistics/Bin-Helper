@@ -1,24 +1,25 @@
-# 📦 Bin Helper — Warehouse Inventory Dashboard (Streamlit)
+# Bin Helper Dashboard
 
-**Bin Helper** is a fast, lightweight Streamlit app to monitor warehouse bin status, locate inventory, and keep an eye on damages and missing stock. It’s optimized for daily use, mobile-friendly, and designed to play nicely with OneDrive/Excel saves.
+This is a Streamlit app for warehouse inventory management.
 
----
+## How to Deploy on Streamlit Community Cloud
 
-## ✨ Features
+1. Push these files to a **public GitHub repository**:
+   - `app.py`
+   - `requirements.txt`
+   - `ON_HAND_INVENTORY.xlsx`
+   - `Empty Bin Formula.xlsx`
+   - (Optional) `box_animation.json`
 
-- **Clickable KPI cards** (the card *is* the button)  
-  - Empty Bins, Full Pallet Bins, Empty Partial Bins, Partial Bins  
-  - **Damages (DAMAGE & IBDAMAGE)** and **Missing** split into their own KPIs & tabs
-- **Theme selector** in sidebar  
-  - Metallic Silver (Blue Outline), Neutral Light, Dark Slate, Legacy
-- **Resilient Excel reads**  
-  - Staging layer + retries to avoid OneDrive/Excel lock errors  
-  - Auto-detects file changes and reloads on next rerun
-- **Modern refresh**  
-  - `st.query_params` + `st.rerun()` (no deprecated APIs)
-- **Filters** for SKU, LOT Number, and Pallet ID
-- **Mobile‑responsive UI**
+2. Go to Streamlit Cloud and sign in with GitHub.
 
----
+3. Click **New app**, select your repo, branch, and `app.py`.
 
-## 🗂️ Project structure
+4. Click **Deploy**. Streamlit will install dependencies from `requirements.txt`.
+
+## Local Run
+
+To run locally:
+
+pip install -r requirements.txt
+streamlit run app.py

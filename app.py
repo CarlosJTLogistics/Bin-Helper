@@ -188,8 +188,8 @@ def inject_kpi_theme(theme: str):
 # Files (local; OneDrive-synced) & Safe Staging
 # ======================
 # Use relative names if files live next to app.py. You can also set absolute paths.
-inventory_file = "ON_HAND_INVENTORY.xlsx"
-empty_bins_file = "Empty Bin Formula.xlsx"
+inventory_file = r"C:\Users\carlos.pacheco.MYA-LOGISTICS\OneDrive - JT Logistics\bin-helper\ON_HAND_INVENTORY.xlsx"
+empty_bins_file = r"C:\Users\carlos.pacheco.MYA-LOGISTICS\OneDrive - JT Logistics\bin-helper\Empty Bin Formula.xlsx"
 
 def safe_mtime(path: str):
     try:
@@ -313,7 +313,8 @@ st.sidebar.markdown("### 🔎 Filters")
 staged_inventory = stage_copy(inventory_file, "ON_HAND_INVENTORY.staged.xlsx")
 staged_master    = stage_copy(empty_bins_file, "Empty Bin Formula.staged.xlsx")
 
-inventory_df = read_excel_resilient(staged_inventory, cache_key="cache_inventory_df")
+inventory_dict = read_excel_resilient(staged_inventory, sheet_name=None, cache_key="cache_inventory_df")
+inventory_df = list(inventory_dict.values())[0]
 master_locations_df = read_excel_resilient(staged_master, sheet_name="Master Locations", cache_key="cache_master_df")
 
 # Normalize numeric types

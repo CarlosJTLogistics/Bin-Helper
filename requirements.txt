@@ -1,6 +1,4 @@
-# Bin Helper - Streamlit app requirements
-# Pinned and compatible versions
-streamlit>=1.30
-pandas==2.2.2
-openpyxl==3.1.5
-streamlit-lottie==0.0.5
+streamlit
+pandas
+openpyxl
+streamlit-lottie
