@@ -24,72 +24,36 @@ except ImportError:
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
 # ======================
-# Inline CSS Themes
+# Inline CSS Themes with Hover Animations
 # ======================
 def inject_kpi_theme(theme: str):
-    if theme == "Metallic Silver (Blue Outline)":
-        css = """
-        <style>
-        .stButton button {
-            background-color: #f0f0f0;
-            border: 2px solid #007bff;
-            color: #333;
-            font-weight: bold;
-            border-radius: 8px;
-            padding: 12px;
-            transition: 0.3s;
-        }
-        .stButton button:hover {
-            background-color: #007bff;
-            color: white;
-        }
-        </style>
-        """
-    elif theme == "Neutral Light":
-        css = """
-        <style>
-        .stButton button {
-            background-color: #ffffff;
-            border: 1px solid #ccc;
-            color: #333;
-            border-radius: 6px;
-            padding: 10px;
-        }
-        .stButton button:hover {
-            background-color: #f5f5f5;
-        }
-        </style>
-        """
-    elif theme == "Dark Slate":
-        css = """
-        <style>
-        .stButton button {
-            background-color: #2f4f4f;
-            color: #fff;
-            border: 1px solid #444;
-            border-radius: 6px;
-            padding: 10px;
-        }
-        .stButton button:hover {
-            background-color: #1e3d3d;
-        }
-        </style>
-        """
-    else:  # Legacy
-        css = """
-        <style>
-        .stButton button {
-            background-color: #e0e0e0;
-            border: 1px solid #999;
-            color: #000;
-            border-radius: 4px;
-            padding: 8px;
-        }
-        .stButton button:hover {
-            background-color: #d0d0d0;
-        }
-        </style>
-        """
+    css = """
+    <style>
+    .kpi-surface .stButton>button {
+        width: 100% !important;
+        text-align: left !important;
+        padding: 16px 18px !important;
+        border-radius: 14px !important;
+        white-space: pre-line !important;
+        font-size: 1.9rem !important;
+        font-weight: 800 !important;
+        line-height: 1.15 !important;
+        transition: all 0.3s ease-in-out !important;
+        transform: scale(1) !important;
+    }
+    .kpi-surface .stButton>button::first-line {
+        font-size: 0.95rem !important;
+        font-weight: 600 !important;
+        color: #6b7280 !important;
+    }
+    .kpi-surface .stButton>button:hover {
+        transform: scale(1.03) translateY(-2px) !important;
+        box-shadow: 0 14px 28px rgba(0,0,0,.12) !important;
+    }
+    .main .block-container { padding-top: 1rem; }
+    .kpi-surface .stButton { margin-bottom: 0.5rem; }
+    </style>
+    """
     st.markdown(css, unsafe_allow_html=True)
 
 # ======================
@@ -114,8 +78,14 @@ st.sidebar.markdown("### 📁 Upload Required Files")
 uploaded_inventory = st.sidebar.file_uploader("Upload ON_HAND_INVENTORY.xlsx", type=["xlsx"])
 uploaded_master = st.sidebar.file_uploader("Upload Empty Bin Formula.xlsx", type=["xlsx"])
 
-if not uploaded_inventory or not uploaded_master:
-    st.warning("Please upload both required Excel files to proceed.")
+# Add download link for sample Empty Bin Formula.xlsx
+sample_file_path = "Empty Bin Formula.xlsx"
+if os.path.exists(sample_file_path):
+    with open(sample_file_path, "rb") as f:
+        st.sidebar.download_button("📥 Download Sample Empty Bin Formula.xlsx", f, file_name="Empty Bin Formula.xlsx")
+
+if not uploaded_inventory:
+    st.warning("Please upload ON_HAND_INVENTORY.xlsx to proceed.")
     st.stop()
 
 # ======================
@@ -123,7 +93,11 @@ if not uploaded_inventory or not uploaded_master:
 # ======================
 inventory_dict = pd.read_excel(uploaded_inventory, sheet_name=None, engine="openpyxl")
 inventory_df = list(inventory_dict.values())[0]
-master_locations_df = pd.read_excel(uploaded_master, sheet_name="Master Locations", engine="openpyxl")
+
+if uploaded_master:
+    master_locations_df = pd.read_excel(uploaded_master, sheet_name="Master Locations", engine="openpyxl")
+else:
+    master_locations_df = pd.read_excel(sample_file_path, sheet_name="Master Locations", engine="openpyxl")
 
 # Normalize numeric types
 inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
@@ -227,6 +201,7 @@ def kpi_card(title: str, value: int, tab_name: str, icon: str = "", key: str | N
 # ======================
 st.markdown("## 📦 Bin Helper")
 
+st.markdown('<div class="kpi-surface">', unsafe_allow_html=True)
 c1, c2, c3 = st.columns(3)
 with c1:
     kpi_card("Empty Bins", len(empty_bins_view_df), "Empty Bins", icon="📦")
@@ -234,7 +209,9 @@ with c2:
     kpi_card("Full Pallet Bins", len(full_pallet_bins_df), "Full Pallet Bins", icon="🟩")
 with c3:
     kpi_card("Empty Partial Bins", len(empty_partial_bins_df), "Empty Partial Bins", icon="🟨")
+st.markdown("</div>", unsafe_allow_html=True)
 
+st.markdown('<div class="kpi-surface">', unsafe_allow_html=True)
 c4, c5, c6 = st.columns(3)
 with c4:
     kpi_card("Partial Bins", len(partial_bins_df), "Partial Bins", icon="🟥")
@@ -242,6 +219,7 @@ with c5:
     kpi_card("Damages (QTY)", damage_qty, "Damages", icon="🛠️")
 with c6:
     kpi_card("Missing (QTY)", missing_qty, "Missing", icon="❓")
+st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================
 # Central View
@@ -294,4 +272,3 @@ elif tab == "Missing":
 # ======================
 # Footer
 # ======================
-last_refresh.markdown(f"Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
