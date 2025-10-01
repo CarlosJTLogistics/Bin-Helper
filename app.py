@@ -24,12 +24,19 @@ except ImportError:
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
 # ======================
-# Inline CSS Themes with Hover Animations
+# Inline CSS Themes with Glow Effect
 # ======================
 def inject_kpi_theme(theme: str):
-    css = """
+    glow_color = {
+        "Metallic Silver (Blue Outline)": "#6a95ff",
+        "Neutral Light": "#d1d5db",
+        "Dark Slate": "rgba(147,197,253,.65)",
+        "Legacy": "#d1d5db"
+    }.get(theme, "#6a95ff")
+
+    css = f"""
     <style>
-    .kpi-surface .stButton>button {
+    .kpi-surface .stButton>button {{
         width: 100% !important;
         text-align: left !important;
         padding: 16px 18px !important;
@@ -40,18 +47,20 @@ def inject_kpi_theme(theme: str):
         line-height: 1.15 !important;
         transition: all 0.3s ease-in-out !important;
         transform: scale(1) !important;
-    }
-    .kpi-surface .stButton>button::first-line {
+        box-shadow: 0 0 0 rgba(0,0,0,0) !important;
+    }}
+    .kpi-surface .stButton>button::first-line {{
         font-size: 0.95rem !important;
         font-weight: 600 !important;
         color: #6b7280 !important;
-    }
-    .kpi-surface .stButton>button:hover {
+    }}
+    .kpi-surface .stButton>button:hover {{
         transform: scale(1.03) translateY(-2px) !important;
-        box-shadow: 0 14px 28px rgba(0,0,0,.12) !important;
-    }
-    .main .block-container { padding-top: 1rem; }
-    .kpi-surface .stButton { margin-bottom: 0.5rem; }
+        box-shadow: 0 0 12px {glow_color}, 0 14px 28px rgba(0,0,0,.12) !important;
+        border-color: {glow_color} !important;
+    }}
+    .main .block-container {{ padding-top: 1rem; }}
+    .kpi-surface .stButton {{ margin-bottom: 0.5rem; }}
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
@@ -272,3 +281,4 @@ elif tab == "Missing":
 # ======================
 # Footer
 # ======================
+last_refresh.markdown(f"Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
