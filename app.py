@@ -60,7 +60,7 @@ filtered_inventory_df = inventory_df[inventory_df["LocationName"].apply(is_valid
 occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
 master_locations = set(master_locations_df.iloc[1:, 0].dropna().astype(str).unique())
 
-# ✅ Updated Empty Bin logic
+# Empty Bin logic
 empty_bins = [
     loc for loc in master_locations
     if loc not in occupied_locations
@@ -90,7 +90,7 @@ def get_partial_bins(df):
         df["LocationName"].astype(str).str.endswith("01") &
         ~df["LocationName"].astype(str).str.startswith("111") &
         ~df["LocationName"].astype(str).str.upper().str.startswith("TUN") &
-        ~df["LocationName"].astype(str).str[0].isin(bulk_rules.keys())  # exclude bulk zones
+        ~df["LocationName"].astype(str).str[0].isin(bulk_rules.keys())
     ]
 
 def get_empty_partial_bins(master_locs, occupied_locs):
@@ -106,7 +106,7 @@ def get_missing(df):
     mask = df["LocationName"].astype(str).str.upper().eq("MISSING")
     return df[mask]
 
-# ✅ Discrepancy logic (fixed)
+# ✅ Discrepancy logic
 def find_discrepancies(df):
     discrepancies = []
     for _, row in df.iterrows():
@@ -133,11 +133,14 @@ def find_discrepancies(df):
                     "Qty": qty,
                     "Issue": "Full pallet bin outside expected range (6-15)"
                 })
-    # Multi-pallet rule
+    # ✅ Multi-pallet rule (ignore bulk zones)
     duplicates = df.groupby("LocationName").size()
     multi_pallet_locs = duplicates[duplicates > 1].index.tolist()
     for loc in multi_pallet_locs:
-        if loc.upper() not in ["DAMAGE", "IBDAMAGE", "MISSING"]:
+        if (
+            loc.upper() not in ["DAMAGE", "IBDAMAGE", "MISSING"]
+            and loc[0] not in bulk_rules.keys()
+        ):
             discrepancies.append({
                 "LocationName": loc,
                 "Qty": None,
@@ -206,9 +209,12 @@ st.sidebar.markdown("### 🔎 Filters")
 sku_list = ["All"] + sorted(filtered_inventory_df["WarehouseSku"].dropna().astype(str).unique().tolist())
 lot_list = ["All"] + sorted(filtered_inventory_df["CustomerLotReference"].dropna().astype(str).unique().tolist())
 pallet_list = ["All"] + sorted(filtered_inventory_df["PalletId"].dropna().astype(str).unique().tolist())
+location_list = ["All"] + sorted(filtered_inventory_df["LocationName"].dropna().astype(str).unique().tolist()
+
 sku_filter = st.sidebar.selectbox("SKU", sku_list)
 lot_filter = st.sidebar.selectbox("LOT Number", lot_list)
 pallet_filter = st.sidebar.selectbox("Pallet ID", pallet_list)
+location_filter = st.sidebar.selectbox("Location", location_list)
 
 def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
     out = df
@@ -218,6 +224,8 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         out = out[out["CustomerLotReference"].astype(str) == lot_filter]
     if pallet_filter != "All":
         out = out[out["PalletId"].astype(str) == pallet_filter]
+    if location_filter != "All":
+        out = out[out["LocationName"].astype(str) == location_filter]
     return out
 
 # Navigation state
