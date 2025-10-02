@@ -228,14 +228,6 @@ damage_df = get_damage(filtered_inventory_df)[columns_to_show]
 missing_df = get_missing(filtered_inventory_df)[columns_to_show]
 discrepancy_df = find_discrepancies(filtered_inventory_df)
 
-# Merge discrepancy_df with filtered_inventory_df to get additional columns
-discrepancy_df = discrepancy_df.merge(
-    filtered_inventory_df[["LocationName", "CustomerLotReference", "WarehouseSku", "PalletId"]],
-    on="LocationName",
-    how="left"
-)
-
-
 # Filters
 st.sidebar.markdown("### 🔎 Filters")
 sku_list = ["All"] + sorted(filtered_inventory_df["WarehouseSku"].dropna().astype(str).unique().tolist())
@@ -310,11 +302,3 @@ if tab == "Bulk Locations":
     st.metric(label="Bulk Locations with Inventory", value=f"{bulk_locations_count:,}")
     st.metric(label="Total QTY in Bulk Zones", value=f"{bulk_total_qty:,}")
     st.dataframe(bulk_df)
-
-
-elif tab == "Discrepancies":
-    st.subheader("⚠️ Discrepancies")
-    if discrepancy_df.empty:
-        st.info("No data available for Discrepancies.")
-    else:
-        st.dataframe(discrepancy_df[["LocationName", "Qty", "Issue", "CustomerLotReference", "WarehouseSku", "PalletId"]])
