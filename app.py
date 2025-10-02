@@ -219,6 +219,15 @@ bulk_total_qty = int(bulk_inventory_df[
     (bulk_inventory_df["Qty"] > 0)
 ]["Qty"].sum())
 
+# Prepare other data
+columns_to_show = ["LocationName", "PalletId", "Qty", "CustomerLotReference", "WarehouseSku"]
+full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)[columns_to_show]
+partial_bins_df = get_partial_bins(filtered_inventory_df)[columns_to_show]
+empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locations)
+damage_df = get_damage(filtered_inventory_df)[columns_to_show]
+missing_df = get_missing(filtered_inventory_df)[columns_to_show]
+discrepancy_df = find_discrepancies(filtered_inventory_df)
+
 # Filters
 st.sidebar.markdown("### 🔎 Filters")
 sku_list = ["All"] + sorted(filtered_inventory_df["WarehouseSku"].dropna().astype(str).unique().tolist())
@@ -268,9 +277,9 @@ c4, c5, c6, c7 = st.columns(4)
 with c4:
     kpi_card("Partial Bins", len(partial_bins_df), "Partial Bins", icon="🟥")
 with c5:
-    kpi_card("Damages (QTY)", int(get_damage(filtered_inventory_df)["Qty"].sum()), "Damages", icon="🛠️")
+    kpi_card("Damages (QTY)", int(damage_df["Qty"].sum()), "Damages", icon="🛠️")
 with c6:
-    kpi_card("Missing (QTY)", int(get_missing(filtered_inventory_df)["Qty"].sum()), "Missing", icon="❓")
+    kpi_card("Missing (QTY)", int(missing_df["Qty"].sum()), "Missing", icon="❓")
 with c7:
     kpi_card("Discrepancies", len(discrepancy_df), "Discrepancies", icon="⚠️")
 
