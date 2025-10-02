@@ -111,11 +111,15 @@ def get_missing(df):
     mask = df["LocationName"].astype(str).str.upper().eq("MISSING")
     return df[mask]
 
+# ✅ Updated discrepancy logic
 def find_discrepancies(df):
     discrepancies = []
+    
+    # Existing logic for partial and full pallet bins
     for _, row in df.iterrows():
         loc = str(row["LocationName"])
         qty = row["Qty"]
+        
         # Partial bins rule
         if loc.endswith("01") and not loc.startswith("111") and not loc.upper().startswith("TUN"):
             if qty > 5:
@@ -124,6 +128,7 @@ def find_discrepancies(df):
                     "Qty": qty,
                     "Issue": "Partial bin exceeds max capacity (Qty > 5)"
                 })
+        
         # Full pallet bins rule
         if (loc.isnumeric() and ((not loc.endswith("01")) or loc.startswith("111"))):
             if qty < 6 or qty > 15:
@@ -132,6 +137,17 @@ def find_discrepancies(df):
                     "Qty": qty,
                     "Issue": "Full pallet bin outside expected range (6-15)"
                 })
+    
+    # ✅ New rule: More than one pallet in the same location
+    duplicates = df.groupby("LocationName").size()
+    multi_pallet_locs = duplicates[duplicates > 1].index.tolist()
+    for loc in multi_pallet_locs:
+        discrepancies.append({
+            "LocationName": loc,
+            "Qty": None,
+            "Issue": f"Multiple pallets in same location ({duplicates[loc]} pallets)"
+        })
+    
     return pd.DataFrame(discrepancies)
 
 columns_to_show = ["LocationName", "PalletId", "Qty", "CustomerLotReference", "WarehouseSku"]
@@ -149,7 +165,7 @@ missing_qty = int(missing_df["Qty"].sum()) if not missing_df.empty else 0
 st.sidebar.markdown("### 🔎 Filters")
 sku_list = ["All"] + sorted(filtered_inventory_df["WarehouseSku"].dropna().astype(str).unique().tolist())
 lot_list = ["All"] + sorted(filtered_inventory_df["CustomerLotReference"].dropna().astype(str).unique().tolist())
-pallet_list = ["All"] + sorted(filtered_inventory_df["PalletId"].dropna().astype(str).unique().tolist())
+pallet_list = ["All"] + sorted(filtered_inventory_df["PalletId"].dropna().astype(str).unique().tolist()
 
 sku_filter = st.sidebar.selectbox("SKU", sku_list)
 lot_filter = st.sidebar.selectbox("LOT Number", lot_list)
@@ -227,12 +243,8 @@ elif tab == "Discrepancies":
     if discrepancy_df.empty:
         st.success("No discrepancies found!")
     else:
-        # Show total discrepancies metric
         st.metric(label="Total Discrepancies", value=f"{len(discrepancy_df):,}")
-        
-        # Display table
         st.dataframe(discrepancy_df)
-
         # Export to Excel
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
