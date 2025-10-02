@@ -1,4 +1,3 @@
-
 import os
 import json
 import pandas as pd
@@ -73,8 +72,14 @@ filtered_inventory_df = inventory_df[inventory_df["LocationName"].apply(is_valid
 occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
 master_locations = set(master_locations_df.iloc[1:, 0].dropna().astype(str).unique())
 
-# Empty bins: in master but not occupied
-empty_bins = sorted(master_locations - occupied_locations)
+# ✅ Updated Empty Bin logic (TUN included)
+empty_bins = [
+    loc for loc in master_locations
+    if loc not in occupied_locations
+    and not loc.endswith("01")  # exclude partial bins
+    and "STAGE" not in loc.upper()  # exclude staging
+    and loc.upper() not in ["DAMAGE", "IBDAMAGE", "MISSING"]  # exclude damage/missing
+]
 empty_bins_view_df = pd.DataFrame({"LocationName": empty_bins})
 
 def exclude_damage_missing(df):
@@ -112,16 +117,15 @@ def get_missing(df):
     mask = df["LocationName"].astype(str).str.upper().eq("MISSING")
     return df[mask]
 
-# ✅ Updated discrepancy logic
+# ✅ Discrepancy logic
 def find_discrepancies(df):
     discrepancies = []
     
-    # Existing logic for partial and full pallet bins
+    # Partial bins rule
     for _, row in df.iterrows():
         loc = str(row["LocationName"])
         qty = row["Qty"]
         
-        # Partial bins rule
         if loc.endswith("01") and not loc.startswith("111") and not loc.upper().startswith("TUN"):
             if qty > 5:
                 discrepancies.append({
@@ -130,7 +134,6 @@ def find_discrepancies(df):
                     "Issue": "Partial bin exceeds max capacity (Qty > 5)"
                 })
         
-        # Full pallet bins rule
         if (loc.isnumeric() and ((not loc.endswith("01")) or loc.startswith("111"))):
             if qty < 6 or qty > 15:
                 discrepancies.append({
@@ -139,7 +142,7 @@ def find_discrepancies(df):
                     "Issue": "Full pallet bin outside expected range (6-15)"
                 })
     
-    # ✅ New rule: More than one pallet in the same location (excluding DAMAGE, IBDAMAGE, MISSING)
+    # Multi-pallet rule (excluding DAMAGE, IBDAMAGE, MISSING)
     duplicates = df.groupby("LocationName").size()
     multi_pallet_locs = duplicates[duplicates > 1].index.tolist()
     for loc in multi_pallet_locs:
