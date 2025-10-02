@@ -302,3 +302,32 @@ if tab == "Bulk Locations":
     st.metric(label="Bulk Locations with Inventory", value=f"{bulk_locations_count:,}")
     st.metric(label="Total QTY in Bulk Zones", value=f"{bulk_total_qty:,}")
     st.dataframe(bulk_df)
+
+elif tab == "Empty Bins":
+    st.subheader("📦 Empty Bins")
+    st.dataframe(empty_bins_view_df)
+
+elif tab == "Full Pallet Bins":
+    st.subheader("🟩 Full Pallet Bins")
+    st.dataframe(full_pallet_bins_df)
+
+elif tab == "Empty Partial Bins":
+    st.subheader("🟨 Empty Partial Bins")
+    st.dataframe(empty_partial_bins_df)
+
+elif tab == "Partial Bins":
+    st.subheader("🟥 Partial Bins")
+    st.dataframe(partial_bins_df)
+
+elif tab == "Damages":
+    st.subheader("🛠️ Damaged Inventory")
+    st.dataframe(damage_df)
+
+elif tab == "Missing":
+    st.subheader("❓ Missing Inventory")
+    st.dataframe(missing_df)
+
+elif tab == "Discrepancies":
+    st.subheader("⚠️ Discrepancies")
+    st.dataframe(discrepancy_df)
+
