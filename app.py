@@ -1,3 +1,4 @@
+
 import os
 import json
 import pandas as pd
@@ -138,15 +139,16 @@ def find_discrepancies(df):
                     "Issue": "Full pallet bin outside expected range (6-15)"
                 })
     
-    # ✅ New rule: More than one pallet in the same location
+    # ✅ New rule: More than one pallet in the same location (excluding DAMAGE, IBDAMAGE, MISSING)
     duplicates = df.groupby("LocationName").size()
     multi_pallet_locs = duplicates[duplicates > 1].index.tolist()
     for loc in multi_pallet_locs:
-        discrepancies.append({
-            "LocationName": loc,
-            "Qty": None,
-            "Issue": f"Multiple pallets in same location ({duplicates[loc]} pallets)"
-        })
+        if loc.upper() not in ["DAMAGE", "IBDAMAGE", "MISSING"]:
+            discrepancies.append({
+                "LocationName": loc,
+                "Qty": None,
+                "Issue": f"Multiple pallets in same location ({duplicates[loc]} pallets)"
+            })
     
     return pd.DataFrame(discrepancies)
 
