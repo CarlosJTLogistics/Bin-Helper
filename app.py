@@ -258,6 +258,27 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         out = out[out["LocationName"].astype(str) == location_filter]
     return out
 
+# ---------------- KPI counts aligned to visible tables -----------------
+HIDE_LOCS = {"DAMAGE", "IBDAMAGE", "MISSING", "IB10"}
+
+# Discrepancies KPI (match Discrepancies tab logic: based on full dataset,
+# then hide special locations; does not reflect the search box)
+_discrepancy_kpi_df = find_discrepancies(filtered_inventory_df)
+_discrepancy_kpi_df = _discrepancy_kpi_df[
+    ~_discrepancy_kpi_df["LocationName"].astype(str).str.upper().isin(HIDE_LOCS)
+]
+discrepancy_kpi_count = len(_discrepancy_kpi_df)
+
+# Bulk Discrepancies KPI (match Bulk Discrepancies tab logic: analyze unfiltered bulk,
+# then keep only rows with an Issue and hide special locations)
+_bulk_kpi_df, _empty_kpi, _disc_kpi_raw = analyze_bulk_locations(bulk_inventory_df)
+bulk_disc_kpi_df = _bulk_kpi_df[
+    (_bulk_kpi_df["Issue"].astype(str) != "") &
+    (~_bulk_kpi_df["Location"].astype(str).str.upper().isin(HIDE_LOCS))
+]
+bulk_disc_kpi_count = len(bulk_disc_kpi_df)
+# ----------------------------------------------------------------------
+
 # Navigation state
 if "selected_tab" not in st.session_state:
     st.session_state.selected_tab = "Empty Bins"
@@ -287,14 +308,14 @@ with c5:
 with c6:
     kpi_card("Missing (QTY)", int(missing_df["Qty"].sum()), "Missing", icon="❓")
 with c7:
-    kpi_card("Discrepancies", len(discrepancy_df), "Discrepancies", icon="⚠️")
+    kpi_card("Discrepancies", discrepancy_kpi_count, "Discrepancies", icon="⚠️")
 
 c8, c9, c10 = st.columns(3)
 with c8:
     kpi_card("Empty Bulk Locations", bulk_empty_locations, "Bulk Locations", icon="📦")
 with c9:
-    # Point to the new Bulk Discrepancies tab
-    kpi_card("Bulk Discrepancies", bulk_discrepancies, "Bulk Discrepancies", icon="⚠️")
+    # KPI now matches the Bulk Discrepancies tab view
+    kpi_card("Bulk Discrepancies", bulk_disc_kpi_count, "Bulk Discrepancies", icon="⚠️")
 with c10:
     kpi_card("Bulk Locations", bulk_locations_count, "Bulk Locations", icon="🏗️")
 
@@ -306,7 +327,7 @@ tab = st.session_state.selected_tab
 if tab == "Bulk Locations":
     st.subheader("📦 Bulk Locations Analysis")
     st.metric(label="Empty Bulk Locations", value=f"{bulk_empty_locations:,}")
-    st.metric(label="Bulk Discrepancies", value=f"{bulk_discrepancies:,}")
+    st.metric(label="Bulk Discrepancies", value=f"{bulk_disc_kpi_count:,}")
     st.metric(label="Bulk Locations with Inventory", value=f"{bulk_locations_count:,}")
     st.metric(label="Total QTY in Bulk Zones", value=f"{bulk_total_qty:,}")
     st.dataframe(bulk_df, use_container_width=True)
