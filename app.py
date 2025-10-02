@@ -6,20 +6,6 @@ from datetime import datetime
 import requests
 from io import BytesIO
 
-# Optional: Lottie animation
-try:
-    from streamlit_lottie import st_lottie
-    def load_lottiefile(filepath: str):
-        try:
-            with open(filepath, "r") as f:
-                return json.load(f)
-        except Exception:
-            return None
-    lottie_box = load_lottiefile("box_animation.json")
-except ImportError:
-    st_lottie = None
-    lottie_box = None
-
 # Page configuration
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
@@ -66,7 +52,7 @@ def is_valid_location(loc):
     if pd.isna(loc):
         return False
     loc_str = str(loc).upper()
-    return (loc_str.startswith("TUN") or loc_str in ["DAMAGE", "MISSING", "IBDAMAGE"] or loc_str.isdigit())
+    return (loc_str.startswith("TUN") or loc_str in ["DAMAGE", "MISSING", "IBDAMAGE"] or loc_str.isdigit() or loc_str[0] in ["C","D","E","F","G","H"])
 
 filtered_inventory_df = inventory_df[inventory_df["LocationName"].apply(is_valid_location)]
 occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
@@ -155,6 +141,56 @@ def find_discrepancies(df):
     
     return pd.DataFrame(discrepancies)
 
+# ✅ Bulk Location Logic
+bulk_rules = {"C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4}
+
+def analyze_bulk_locations(df):
+    results = []
+    empty_positions = 0
+    discrepancies = 0
+    
+    for letter, max_pallets in bulk_rules.items():
+        # Filter rows for this letter
+        letter_df = df[df["LocationName"].astype(str).str.startswith(letter)]
+        # Group by slot (e.g., H001)
+        slot_counts = letter_df.groupby("LocationName").size()
+        
+        for slot, count in slot_counts.items():
+            issue = ""
+            empty = 0
+            if count < max_pallets:
+                empty = max_pallets - count
+                empty_positions += empty
+            elif count > max_pallets:
+                issue = f"Too many pallets ({count} > {max_pallets})"
+                discrepancies += 1
+            
+            results.append({
+                "Location": slot,
+                "Current Pallets": count,
+                "Max Allowed": max_pallets,
+                "Empty Positions": empty,
+                "Issue": issue
+            })
+        
+        # Add completely empty slots
+        all_slots = [f"{letter}{str(i).zfill(3)}" for i in range(1, 64)]
+        for slot in all_slots:
+            if slot not in slot_counts:
+                empty_positions += max_pallets
+                results.append({
+                    "Location": slot,
+                    "Current Pallets": 0,
+                    "Max Allowed": max_pallets,
+                    "Empty Positions": max_pallets,
+                    "Issue": ""
+                })
+    
+    return pd.DataFrame(results), empty_positions, discrepancies
+
+bulk_df, bulk_empty_positions, bulk_discrepancies = analyze_bulk_locations(filtered_inventory_df)
+
+# Prepare other data
 columns_to_show = ["LocationName", "PalletId", "Qty", "CustomerLotReference", "WarehouseSku"]
 full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)[columns_to_show]
 partial_bins_df = get_partial_bins(filtered_inventory_df)[columns_to_show]
@@ -215,6 +251,13 @@ with c6:
 with c7:
     kpi_card("Discrepancies", len(discrepancy_df), "Discrepancies", icon="⚠️")
 
+# ✅ New row for Bulk KPIs
+c8, c9 = st.columns(2)
+with c8:
+    kpi_card("Empty Bulk Positions", bulk_empty_positions, "Bulk Locations", icon="📦")
+with c9:
+    kpi_card("Bulk Discrepancies", bulk_discrepancies, "Bulk Locations", icon="⚠️")
+
 # Tab content
 st.markdown(f"### 🔍 Viewing: {st.session_state.selected_tab}")
 tab = st.session_state.selected_tab
@@ -255,6 +298,11 @@ elif tab == "Discrepancies":
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             discrepancy_df.to_excel(writer, index=False, sheet_name='Discrepancies')
         st.download_button("📤 Export Discrepancies to Excel", data=output.getvalue(), file_name="discrepancies.xlsx")
+elif tab == "Bulk Locations":
+    st.subheader("📦 Bulk Locations Analysis")
+    st.metric(label="Empty Bulk Positions", value=f"{bulk_empty_positions:,}")
+    st.metric(label="Bulk Discrepancies", value=f"{bulk_discrepancies:,}")
+    st.dataframe(bulk_df)
 
 # Footer
 st.sidebar.markdown(f"Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
