@@ -47,14 +47,26 @@ except Exception as e:
 inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 
-# Business Rules
-bulk_rules = {"C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4}
+# Bulk zone definitions
+bulk_rules = {
+    "A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4
+}
+slot_ranges = {
+    "A": 59, "B": 64, "C": 64, "D": 64, "E": 64, "F": 64, "G": 64, "H": 64, "I": 64
+}
+future_bulk_zones = ["A", "B", "I"]
 
+# Business Rules
 def is_valid_location(loc):
     if pd.isna(loc):
         return False
     loc_str = str(loc).upper()
-    return (loc_str.startswith("TUN") or loc_str in ["DAMAGE", "MISSING", "IBDAMAGE"] or loc_str.isdigit() or loc_str[0] in bulk_rules.keys())
+    return (
+        loc_str.startswith("TUN") or
+        loc_str in ["DAMAGE", "MISSING", "IBDAMAGE"] or
+        loc_str.isdigit() or
+        loc_str[0] in bulk_rules.keys()
+    )
 
 filtered_inventory_df = inventory_df[inventory_df["LocationName"].apply(is_valid_location)]
 occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
@@ -94,7 +106,10 @@ def get_partial_bins(df):
     ]
 
 def get_empty_partial_bins(master_locs, occupied_locs):
-    partial_candidates = [loc for loc in master_locs if loc.endswith("01") and not loc.startswith("111") and not loc.upper().startswith("TUN") and loc[0] not in bulk_rules.keys()]
+    partial_candidates = [
+        loc for loc in master_locs
+        if loc.endswith("01") and not loc.startswith("111") and not loc.upper().startswith("TUN") and loc[0] not in bulk_rules.keys()
+    ]
     empty_partial = sorted(set(partial_candidates) - set(occupied_locs))
     return pd.DataFrame({"LocationName": empty_partial})
 
@@ -106,18 +121,18 @@ def get_missing(df):
     mask = df["LocationName"].astype(str).str.upper().eq("MISSING")
     return df[mask]
 
-# ✅ Discrepancy logic
+# Discrepancy logic
 def find_discrepancies(df):
     discrepancies = []
     for _, row in df.iterrows():
         loc = str(row["LocationName"])
         qty = row["Qty"]
-        # Partial bin rule (exclude bulk zones)
+        # Partial bin rule
         if (
-            loc.endswith("01")
-            and not loc.startswith("111")
-            and not loc.upper().startswith("TUN")
-            and loc[0] not in bulk_rules.keys()
+            loc.endswith("01") and
+            not loc.startswith("111") and
+            not loc.upper().startswith("TUN") and
+            loc[0] not in bulk_rules.keys()
         ):
             if qty > 5:
                 discrepancies.append({
@@ -133,13 +148,20 @@ def find_discrepancies(df):
                     "Qty": qty,
                     "Issue": "Full pallet bin outside expected range (6-15)"
                 })
-    # ✅ Multi-pallet rule (ignore bulk zones)
+        # Future bulk zones should be empty
+        if loc[0] in future_bulk_zones and qty > 0:
+            discrepancies.append({
+                "LocationName": loc,
+                "Qty": qty,
+                "Issue": "Inventory found in future bulk location"
+            })
+    # Multi-pallet rule (ignore bulk zones)
     duplicates = df.groupby("LocationName").size()
     multi_pallet_locs = duplicates[duplicates > 1].index.tolist()
     for loc in multi_pallet_locs:
         if (
-            loc.upper() not in ["DAMAGE", "IBDAMAGE", "MISSING"]
-            and loc[0] not in bulk_rules.keys()
+            loc.upper() not in ["DAMAGE", "IBDAMAGE", "MISSING"] and
+            loc[0] not in bulk_rules.keys()
         ):
             discrepancies.append({
                 "LocationName": loc,
@@ -148,7 +170,7 @@ def find_discrepancies(df):
             })
     return pd.DataFrame(discrepancies)
 
-# ✅ Bulk Location Logic
+# Bulk Location Logic
 def analyze_bulk_locations(df):
     results = []
     empty_positions = 0
@@ -172,7 +194,7 @@ def analyze_bulk_locations(df):
                 "Empty Positions": empty,
                 "Issue": issue
             })
-        all_slots = [f"{letter}{str(i).zfill(3)}" for i in range(1, 64)]
+        all_slots = [f"{letter}{str(i).zfill(3)}" for i in range(1, slot_ranges[letter])]
         for slot in all_slots:
             if slot not in slot_counts:
                 empty_positions += max_pallets
@@ -187,11 +209,16 @@ def analyze_bulk_locations(df):
 
 bulk_df, bulk_empty_positions, bulk_discrepancies = analyze_bulk_locations(filtered_inventory_df)
 
-# ✅ New metric: Bulk Locations with Qty > 0
-bulk_locations_with_qty = filtered_inventory_df[
+# Bulk metrics
+bulk_locations_count = filtered_inventory_df[
     filtered_inventory_df["LocationName"].astype(str).str[0].isin(bulk_rules.keys()) &
     (filtered_inventory_df["Qty"] > 0)
 ]["LocationName"].nunique()
+
+bulk_total_qty = int(filtered_inventory_df[
+    filtered_inventory_df["LocationName"].astype(str).str[0].isin(bulk_rules.keys()) &
+    (filtered_inventory_df["Qty"] > 0)
+]["Qty"].sum())
 
 # Prepare other data
 columns_to_show = ["LocationName", "PalletId", "Qty", "CustomerLotReference", "WarehouseSku"]
@@ -209,7 +236,7 @@ st.sidebar.markdown("### 🔎 Filters")
 sku_list = ["All"] + sorted(filtered_inventory_df["WarehouseSku"].dropna().astype(str).unique().tolist())
 lot_list = ["All"] + sorted(filtered_inventory_df["CustomerLotReference"].dropna().astype(str).unique().tolist())
 pallet_list = ["All"] + sorted(filtered_inventory_df["PalletId"].dropna().astype(str).unique().tolist())
-location_list = ["All"] + sorted(filtered_inventory_df["LocationName"].dropna().astype(str).unique().tolist())
+location_list = ["All"] + sorted(filtered_inventory_df["LocationName"].dropna().astype(str).unique().tolist()
 
 sku_filter = st.sidebar.selectbox("SKU", sku_list)
 lot_filter = st.sidebar.selectbox("LOT Number", lot_list)
@@ -232,7 +259,7 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
 if "selected_tab" not in st.session_state:
     st.session_state.selected_tab = "Empty Bins"
 
-# ✅ Updated KPI card function with unique keys
+# KPI card function with unique keys
 def kpi_card(title: str, value: int, tab_name: str, icon: str = "", key: str = None):
     label = f"{(icon + ' ') if icon else ''}{title}\n{value:,}"
     unique_key = key or f"kpi_{tab_name}_{title.replace(' ', '_')}"
@@ -259,14 +286,13 @@ with c6:
 with c7:
     kpi_card("Discrepancies", len(discrepancy_df), "Discrepancies", icon="⚠️")
 
-# ✅ New row for Bulk KPIs
 c8, c9, c10 = st.columns(3)
 with c8:
     kpi_card("Empty Bulk Positions", bulk_empty_positions, "Bulk Locations", icon="📦")
 with c9:
     kpi_card("Bulk Discrepancies", bulk_discrepancies, "Bulk Locations", icon="⚠️")
 with c10:
-    kpi_card("Bulk Locations", bulk_locations_with_qty, "Bulk Locations", icon="🏗️")
+    kpi_card("Bulk Locations", bulk_locations_count, "Bulk Locations", icon="🏗️")
 
 # Tab content
 st.markdown(f"### 🔍 Viewing: {st.session_state.selected_tab}")
@@ -312,7 +338,8 @@ elif tab == "Bulk Locations":
     st.subheader("📦 Bulk Locations Analysis")
     st.metric(label="Empty Bulk Positions", value=f"{bulk_empty_positions:,}")
     st.metric(label="Bulk Discrepancies", value=f"{bulk_discrepancies:,}")
-    st.metric(label="Bulk Locations with Inventory", value=f"{bulk_locations_with_qty:,}")
+    st.metric(label="Bulk Locations with Inventory", value=f"{bulk_locations_count:,}")
+    st.metric(label="Total Pallets in Bulk Zones", value=f"{bulk_total_qty:,}")
     st.dataframe(bulk_df)
 
 # Footer
