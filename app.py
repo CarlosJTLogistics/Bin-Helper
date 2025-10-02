@@ -165,7 +165,7 @@ missing_qty = int(missing_df["Qty"].sum()) if not missing_df.empty else 0
 st.sidebar.markdown("### 🔎 Filters")
 sku_list = ["All"] + sorted(filtered_inventory_df["WarehouseSku"].dropna().astype(str).unique().tolist())
 lot_list = ["All"] + sorted(filtered_inventory_df["CustomerLotReference"].dropna().astype(str).unique().tolist())
-pallet_list = ["All"] + sorted(filtered_inventory_df["PalletId"].dropna().astype(str).unique().tolist()
+pallet_list = ["All"] + sorted(filtered_inventory_df["PalletId"].dropna().astype(str).unique().tolist())
 
 sku_filter = st.sidebar.selectbox("SKU", sku_list)
 lot_filter = st.sidebar.selectbox("LOT Number", lot_list)
