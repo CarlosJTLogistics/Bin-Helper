@@ -84,9 +84,10 @@ def exclude_damage_missing(df):
 def get_full_pallet_bins(df):
     df = exclude_damage_missing(df)
     return df[
-        (df["LocationName"].astype(str).str.startswith("111")) &
-        (~df["LocationName"].astype(str).str.endswith("01")) &
-        (df["Qty"].between(6, 15))
+        (df["LocationName"].astype(str).str.isnumeric()) &  # Only numeric locations
+        (~df["LocationName"].astype(str).str.endswith("01")) &  # Exclude partial bins
+        (df["PalletCount"] == 1)  # Full pallet indicator
+    ]
     ]
 
 def get_partial_bins(df):
