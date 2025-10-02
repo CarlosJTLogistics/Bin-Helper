@@ -31,7 +31,7 @@ st.sidebar.markdown("### 📁 Upload Required Files")
 uploaded_inventory = st.sidebar.file_uploader("Upload ON_HAND_INVENTORY.xlsx", type=["xlsx"])
 uploaded_master = st.sidebar.file_uploader("Upload Empty Bin Formula.xlsx", type=["xlsx"])
 
-# GitHub fallback URLs
+# GitHub fallback URL
 inventory_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/ON_HAND_INVENTORY.xlsx"
 sample_file_path = "Empty Bin Formula.xlsx"
 
