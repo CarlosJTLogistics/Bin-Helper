@@ -48,12 +48,8 @@ inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), 
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 
 # Bulk zone definitions
-bulk_rules = {
-    "A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4
-}
-slot_ranges = {
-    "A": 59, "B": 64, "C": 64, "D": 64, "E": 64, "F": 64, "G": 64, "H": 64, "I": 64
-}
+bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
+slot_ranges = {"A": 59, "B": 64, "C": 64, "D": 64, "E": 64, "F": 64, "G": 64, "H": 64, "I": 64}
 future_bulk_zones = ["A", "B", "I"]
 
 # Business Rules
@@ -74,7 +70,8 @@ master_locations = set(master_locations_df.iloc[1:, 0].dropna().astype(str).uniq
 
 # Remove damage locations from bulk analysis
 bulk_inventory_df = filtered_inventory_df[
-    ~filtered_inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])
+    ~filtered_inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"]) &
+    ~filtered_inventory_df["LocationName"].astype(str).eq("IB10")
 ]
 
 # Empty Bin logic
@@ -126,13 +123,11 @@ def get_missing(df):
     mask = df["LocationName"].astype(str).str.upper().eq("MISSING")
     return df[mask]
 
-# Discrepancy logic
 def find_discrepancies(df):
     discrepancies = []
     for _, row in df.iterrows():
         loc = str(row["LocationName"])
         qty = row["Qty"]
-        # Partial bin rule
         if (
             loc.endswith("01") and
             not loc.startswith("111") and
@@ -145,7 +140,6 @@ def find_discrepancies(df):
                     "Qty": qty,
                     "Issue": "Partial bin exceeds max capacity (Qty > 5)"
                 })
-        # Full pallet bin rule
         if (loc.isnumeric() and ((not loc.endswith("01")) or loc.startswith("111"))):
             if qty < 6 or qty > 15:
                 discrepancies.append({
@@ -153,14 +147,12 @@ def find_discrepancies(df):
                     "Qty": qty,
                     "Issue": "Full pallet bin outside expected range (6-15)"
                 })
-        # Future bulk zones should be empty
         if loc[0] in future_bulk_zones and qty > 0:
             discrepancies.append({
                 "LocationName": loc,
                 "Qty": qty,
                 "Issue": "Inventory found in future bulk location"
             })
-    # Multi-pallet rule (ignore bulk zones)
     duplicates = df.groupby("LocationName").size()
     multi_pallet_locs = duplicates[duplicates > 1].index.tolist()
     for loc in multi_pallet_locs:
@@ -175,7 +167,6 @@ def find_discrepancies(df):
             })
     return pd.DataFrame(discrepancies)
 
-# Bulk Location Logic
 def analyze_bulk_locations(df):
     results = []
     empty_locations = 0
@@ -207,8 +198,8 @@ def analyze_bulk_locations(df):
     return pd.DataFrame(results), empty_locations, discrepancies
 
 bulk_df, bulk_empty_locations, bulk_discrepancies = analyze_bulk_locations(bulk_inventory_df)
+bulk_df = bulk_df[bulk_df["Issue"] != ""]
 
-# Bulk metrics
 bulk_locations_count = bulk_inventory_df[
     bulk_inventory_df["LocationName"].astype(str).str[0].isin(bulk_rules.keys()) &
     (bulk_inventory_df["Qty"] > 0)
@@ -219,7 +210,8 @@ bulk_total_qty = int(bulk_inventory_df[
     (bulk_inventory_df["Qty"] > 0)
 ]["Qty"].sum())
 
-# Prepare other data
+total_bulk_locations = bulk_empty_locations + bulk_locations_count
+
 columns_to_show = ["LocationName", "PalletId", "Qty", "CustomerLotReference", "WarehouseSku"]
 full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)[columns_to_show]
 partial_bins_df = get_partial_bins(filtered_inventory_df)[columns_to_show]
@@ -228,7 +220,6 @@ damage_df = get_damage(filtered_inventory_df)[columns_to_show]
 missing_df = get_missing(filtered_inventory_df)[columns_to_show]
 discrepancy_df = find_discrepancies(filtered_inventory_df)
 
-# Filters
 st.sidebar.markdown("### 🔎 Filters")
 sku_list = ["All"] + sorted(filtered_inventory_df["WarehouseSku"].dropna().astype(str).unique().tolist())
 lot_list = ["All"] + sorted(filtered_inventory_df["CustomerLotReference"].dropna().astype(str).unique().tolist())
@@ -252,18 +243,15 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         out = out[out["LocationName"].astype(str) == location_filter]
     return out
 
-# Navigation state
 if "selected_tab" not in st.session_state:
     st.session_state.selected_tab = "Empty Bins"
 
-# KPI card function with unique keys
 def kpi_card(title: str, value: int, tab_name: str, icon: str = "", key: str = None):
     label = f"{(icon + ' ') if icon else ''}{title}\n{value:,}"
     unique_key = key or f"kpi_{tab_name}_{title.replace(' ', '_')}"
     if st.button(label, key=unique_key, use_container_width=True, help=f"Open {tab_name}"):
         st.session_state.selected_tab = tab_name
 
-# KPI Area
 st.markdown("## 📦 Bin Helper")
 c1, c2, c3 = st.columns(3)
 with c1:
@@ -283,15 +271,16 @@ with c6:
 with c7:
     kpi_card("Discrepancies", len(discrepancy_df), "Discrepancies", icon="⚠️")
 
-c8, c9, c10 = st.columns(3)
+c8, c9, c10, c11 = st.columns(4)
 with c8:
     kpi_card("Empty Bulk Locations", bulk_empty_locations, "Bulk Locations", icon="📦")
 with c9:
     kpi_card("Bulk Discrepancies", bulk_discrepancies, "Bulk Locations", icon="⚠️")
 with c10:
     kpi_card("Bulk Locations", bulk_locations_count, "Bulk Locations", icon="🏗️")
+with c11:
+    kpi_card("Total Bulk Locations", total_bulk_locations, "Bulk Locations", icon="📊")
 
-# Tab content
 st.markdown(f"### 🔍 Viewing: {st.session_state.selected_tab}")
 tab = st.session_state.selected_tab
 
@@ -300,5 +289,62 @@ if tab == "Bulk Locations":
     st.metric(label="Empty Bulk Locations", value=f"{bulk_empty_locations:,}")
     st.metric(label="Bulk Discrepancies", value=f"{bulk_discrepancies:,}")
     st.metric(label="Bulk Locations with Inventory", value=f"{bulk_locations_count:,}")
+    st.metric(label="Total Bulk Locations", value=f"{total_bulk_locations:,}")
     st.metric(label="Total QTY in Bulk Zones", value=f"{bulk_total_qty:,}")
-    st.dataframe(bulk_df)
+    if bulk_df.empty:
+        st.info("No discrepancies found in bulk locations.")
+    else:
+        st.dataframe(bulk_df)
+
+elif tab == "Empty Bins":
+    st.subheader("📦 Empty Bins")
+    if empty_bins_view_df.empty:
+        st.info("No empty bins available.")
+    else:
+        st.dataframe(empty_bins_view_df)
+
+elif tab == "Full Pallet Bins":
+    st.subheader("🟩 Full Pallet Bins")
+    df = apply_filters(full_pallet_bins_df)
+    if df.empty:
+        st.info("No full pallet bins available.")
+    else:
+        st.dataframe(df)
+
+elif tab == "Partial Bins":
+    st.subheader("🟥 Partial Bins")
+    df = apply_filters(partial_bins_df)
+    if df.empty:
+        st.info("No partial bins available.")
+    else:
+        st.dataframe(df)
+
+elif tab == "Empty Partial Bins":
+    st.subheader("🟨 Empty Partial Bins")
+    if empty_partial_bins_df.empty:
+        st.info("No empty partial bins available.")
+    else:
+        st.dataframe(empty_partial_bins_df)
+
+elif tab == "Damages":
+    st.subheader("🛠️ Damages")
+    df = apply_filters(damage_df)
+    if df.empty:
+        st.info("No damages found.")
+    else:
+        st.dataframe(df)
+
+elif tab == "Missing":
+    st.subheader("❓ Missing")
+    df = apply_filters(missing_df)
+    if df.empty:
+        st.info("No missing items found.")
+    else:
+        st.dataframe(df)
+
+elif tab == "Discrepancies":
+    st.subheader("⚠️ Discrepancies")
+    if discrepancy_df.empty:
+        st.info("No discrepancies found.")
+    else:
+        st.dataframe(discrepancy_df)
