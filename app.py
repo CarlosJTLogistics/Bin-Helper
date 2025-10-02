@@ -215,6 +215,9 @@ bulk_locations_count = bulk_inventory_df[
 ]["LocationName"].nunique()
 
 bulk_total_qty = int(bulk_inventory_df[
+
+# Calculate Total Bulk Locations
+total_bulk_locations = bulk_empty_locations + bulk_locations_count
     bulk_inventory_df["LocationName"].astype(str).str[0].isin(bulk_rules.keys()) &
     (bulk_inventory_df["Qty"] > 0)
 ]["Qty"].sum())
@@ -301,4 +304,5 @@ if tab == "Bulk Locations":
     st.metric(label="Bulk Discrepancies", value=f"{bulk_discrepancies:,}")
     st.metric(label="Bulk Locations with Inventory", value=f"{bulk_locations_count:,}")
     st.metric(label="Total QTY in Bulk Zones", value=f"{bulk_total_qty:,}")
-    st.dataframe(bulk_df[bulk_df["Issue"].astype(str).str.strip() != ""])
+st.metric(label="Total Bulk Locations", value=f"{total_bulk_locations:,}")
+    st.dataframe(bulk_df)
