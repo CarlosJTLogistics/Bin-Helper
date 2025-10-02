@@ -84,10 +84,12 @@ def exclude_damage_missing(df):
 def get_full_pallet_bins(df):
     df = exclude_damage_missing(df)
     return df[
-        (df["LocationName"].astype(str).str.isnumeric()) &  # Only numeric locations
-        (~df["LocationName"].astype(str).str.endswith("01")) &  # Exclude partial bins
-        (df["PalletCount"] == 1)  # Full pallet indicator
-    ]
+        (
+            (~df["LocationName"].astype(str).str.endswith("01")) |
+            (df["LocationName"].astype(str).str.startswith("111"))
+        ) &
+        (df["LocationName"].astype(str).str.isnumeric()) &
+        (df["Qty"].between(6, 15))
     ]
 
 def get_partial_bins(df):
@@ -116,6 +118,8 @@ def find_discrepancies(df):
     for _, row in df.iterrows():
         loc = str(row["LocationName"])
         qty = row["Qty"]
+
+        # Partial bins rule
         if loc.endswith("01") and not loc.startswith("111") and not loc.upper().startswith("TUN"):
             if qty > 5:
                 discrepancies.append({
@@ -123,13 +127,16 @@ def find_discrepancies(df):
                     "Qty": qty,
                     "Issue": "Partial bin exceeds max capacity (Qty > 5)"
                 })
-        if loc.startswith("111") and not loc.endswith("01"):
+
+        # Full pallet bins rule
+        if (loc.isnumeric() and ((not loc.endswith("01")) or loc.startswith("111"))):
             if qty < 6 or qty > 15:
                 discrepancies.append({
                     "LocationName": loc,
                     "Qty": qty,
                     "Issue": "Full pallet bin outside expected range (6-15)"
                 })
+
     return pd.DataFrame(discrepancies)
 
 columns_to_show = ["LocationName", "PalletId", "Qty", "CustomerLotReference", "WarehouseSku"]
@@ -229,6 +236,11 @@ elif tab == "Discrepancies":
         st.success("No discrepancies found!")
     else:
         st.dataframe(discrepancy_df)
+        # Export to Excel
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            discrepancy_df.to_excel(writer, index=False, sheet_name='Discrepancies')
+        st.download_button("📤 Export Discrepancies to Excel", data=output.getvalue(), file_name="discrepancies.xlsx")
 
 # Footer
 st.sidebar.markdown(f"Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
