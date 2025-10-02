@@ -48,23 +48,25 @@ inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), 
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 
 # Business Rules
+bulk_rules = {"C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4}
+
 def is_valid_location(loc):
     if pd.isna(loc):
         return False
     loc_str = str(loc).upper()
-    return (loc_str.startswith("TUN") or loc_str in ["DAMAGE", "MISSING", "IBDAMAGE"] or loc_str.isdigit() or loc_str[0] in ["C","D","E","F","G","H"])
+    return (loc_str.startswith("TUN") or loc_str in ["DAMAGE", "MISSING", "IBDAMAGE"] or loc_str.isdigit() or loc_str[0] in bulk_rules.keys())
 
 filtered_inventory_df = inventory_df[inventory_df["LocationName"].apply(is_valid_location)]
 occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
 master_locations = set(master_locations_df.iloc[1:, 0].dropna().astype(str).unique())
 
-# ✅ Updated Empty Bin logic (TUN included)
+# ✅ Updated Empty Bin logic
 empty_bins = [
     loc for loc in master_locations
     if loc not in occupied_locations
-    and not loc.endswith("01")  # exclude partial bins
-    and "STAGE" not in loc.upper()  # exclude staging
-    and loc.upper() not in ["DAMAGE", "IBDAMAGE", "MISSING"]  # exclude damage/missing
+    and not loc.endswith("01")
+    and "STAGE" not in loc.upper()
+    and loc.upper() not in ["DAMAGE", "IBDAMAGE", "MISSING"]
 ]
 empty_bins_view_df = pd.DataFrame({"LocationName": empty_bins})
 
@@ -87,11 +89,12 @@ def get_partial_bins(df):
     return df[
         df["LocationName"].astype(str).str.endswith("01") &
         ~df["LocationName"].astype(str).str.startswith("111") &
-        ~df["LocationName"].astype(str).str.upper().str.startswith("TUN")
+        ~df["LocationName"].astype(str).str.upper().str.startswith("TUN") &
+        ~df["LocationName"].astype(str).str[0].isin(bulk_rules.keys())  # exclude bulk zones
     ]
 
 def get_empty_partial_bins(master_locs, occupied_locs):
-    partial_candidates = [loc for loc in master_locs if loc.endswith("01") and not loc.startswith("111") and not loc.upper().startswith("TUN")]
+    partial_candidates = [loc for loc in master_locs if loc.endswith("01") and not loc.startswith("111") and not loc.upper().startswith("TUN") and loc[0] not in bulk_rules.keys()]
     empty_partial = sorted(set(partial_candidates) - set(occupied_locs))
     return pd.DataFrame({"LocationName": empty_partial})
 
@@ -103,20 +106,26 @@ def get_missing(df):
     mask = df["LocationName"].astype(str).str.upper().eq("MISSING")
     return df[mask]
 
-# ✅ Discrepancy logic
+# ✅ Discrepancy logic (fixed)
 def find_discrepancies(df):
     discrepancies = []
-    # Partial bins rule
     for _, row in df.iterrows():
         loc = str(row["LocationName"])
         qty = row["Qty"]
-        if loc.endswith("01") and not loc.startswith("111") and not loc.upper().startswith("TUN"):
+        # Partial bin rule (exclude bulk zones)
+        if (
+            loc.endswith("01")
+            and not loc.startswith("111")
+            and not loc.upper().startswith("TUN")
+            and loc[0] not in bulk_rules.keys()
+        ):
             if qty > 5:
                 discrepancies.append({
                     "LocationName": loc,
                     "Qty": qty,
                     "Issue": "Partial bin exceeds max capacity (Qty > 5)"
                 })
+        # Full pallet bin rule
         if (loc.isnumeric() and ((not loc.endswith("01")) or loc.startswith("111"))):
             if qty < 6 or qty > 15:
                 discrepancies.append({
@@ -124,7 +133,7 @@ def find_discrepancies(df):
                     "Qty": qty,
                     "Issue": "Full pallet bin outside expected range (6-15)"
                 })
-    # Multi-pallet rule (excluding DAMAGE, IBDAMAGE, MISSING)
+    # Multi-pallet rule
     duplicates = df.groupby("LocationName").size()
     multi_pallet_locs = duplicates[duplicates > 1].index.tolist()
     for loc in multi_pallet_locs:
@@ -137,15 +146,12 @@ def find_discrepancies(df):
     return pd.DataFrame(discrepancies)
 
 # ✅ Bulk Location Logic
-bulk_rules = {"C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4}
 def analyze_bulk_locations(df):
     results = []
     empty_positions = 0
     discrepancies = 0
     for letter, max_pallets in bulk_rules.items():
-        # Filter rows for this letter
         letter_df = df[df["LocationName"].astype(str).str.startswith(letter)]
-        # Group by slot (e.g., H001)
         slot_counts = letter_df.groupby("LocationName").size()
         for slot, count in slot_counts.items():
             issue = ""
@@ -163,7 +169,6 @@ def analyze_bulk_locations(df):
                 "Empty Positions": empty,
                 "Issue": issue
             })
-        # Add completely empty slots
         all_slots = [f"{letter}{str(i).zfill(3)}" for i in range(1, 64)]
         for slot in all_slots:
             if slot not in slot_counts:
