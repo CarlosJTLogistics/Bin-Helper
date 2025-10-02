@@ -29,12 +29,10 @@ st.set_page_config(page_title="Bin Helper", layout="wide")
 st.sidebar.title("📦 Bin Helper")
 st.sidebar.markdown("### 📁 Upload Required Files")
 uploaded_inventory = st.sidebar.file_uploader("Upload ON_HAND_INVENTORY.xlsx", type=["xlsx"])
-uploaded_balances = st.sidebar.file_uploader("Upload INVENTORY_BALANCES.xlsx", type=["xlsx"])
 uploaded_master = st.sidebar.file_uploader("Upload Empty Bin Formula.xlsx", type=["xlsx"])
 
 # GitHub fallback URLs
 inventory_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/ON_HAND_INVENTORY.xlsx"
-balances_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/INVENTORY_BALANCES.xlsx"
 sample_file_path = "Empty Bin Formula.xlsx"
 
 # Load ON_HAND_INVENTORY.xlsx
@@ -50,18 +48,6 @@ except Exception as e:
     st.stop()
 
 inventory_df = list(inventory_dict.values())[0]
-
-# Load INVENTORY_BALANCES.xlsx
-try:
-    if uploaded_balances:
-        balances_df = pd.read_excel(uploaded_balances, engine="openpyxl")
-    else:
-        response = requests.get(balances_url)
-        response.raise_for_status()
-        balances_df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
-except Exception as e:
-    st.error(f"❌ Failed to load INVENTORY_BALANCES.xlsx: {e}")
-    st.stop()
 
 # Load Master Locations
 try:
