@@ -9,14 +9,12 @@ from io import BytesIO
 # Optional: Lottie animation
 try:
     from streamlit_lottie import st_lottie
-
     def load_lottiefile(filepath: str):
         try:
             with open(filepath, "r") as f:
                 return json.load(f)
         except Exception:
             return None
-
     lottie_box = load_lottiefile("box_animation.json")
 except ImportError:
     st_lottie = None
@@ -118,7 +116,6 @@ def find_discrepancies(df):
     for _, row in df.iterrows():
         loc = str(row["LocationName"])
         qty = row["Qty"]
-
         # Partial bins rule
         if loc.endswith("01") and not loc.startswith("111") and not loc.upper().startswith("TUN"):
             if qty > 5:
@@ -127,7 +124,6 @@ def find_discrepancies(df):
                     "Qty": qty,
                     "Issue": "Partial bin exceeds max capacity (Qty > 5)"
                 })
-
         # Full pallet bins rule
         if (loc.isnumeric() and ((not loc.endswith("01")) or loc.startswith("111"))):
             if qty < 6 or qty > 15:
@@ -136,7 +132,6 @@ def find_discrepancies(df):
                     "Qty": qty,
                     "Issue": "Full pallet bin outside expected range (6-15)"
                 })
-
     return pd.DataFrame(discrepancies)
 
 columns_to_show = ["LocationName", "PalletId", "Qty", "CustomerLotReference", "WarehouseSku"]
@@ -189,53 +184,55 @@ with c2:
 with c3:
     kpi_card("Empty Partial Bins", len(empty_partial_bins_df), "Empty Partial Bins", icon="🟨")
 
-c4, c5, c6 = st.columns(3)
+c4, c5, c6, c7 = st.columns(4)
 with c4:
     kpi_card("Partial Bins", len(partial_bins_df), "Partial Bins", icon="🟥")
 with c5:
     kpi_card("Damages (QTY)", damage_qty, "Damages", icon="🛠️")
 with c6:
     kpi_card("Missing (QTY)", missing_qty, "Missing", icon="❓")
+with c7:
+    kpi_card("Discrepancies", len(discrepancy_df), "Discrepancies", icon="⚠️")
 
+# Tab content
 st.markdown(f"### 🔍 Viewing: {st.session_state.selected_tab}")
 tab = st.session_state.selected_tab
 
 if tab == "Empty Bins":
     st.subheader("📦 Empty Bins")
     st.dataframe(empty_bins_view_df)
-
 elif tab == "Full Pallet Bins":
     st.subheader("🟩 Full Pallet Bins")
     df = apply_filters(full_pallet_bins_df)
     st.dataframe(df)
-
 elif tab == "Empty Partial Bins":
     st.subheader("🟨 Empty Partial Bins")
     st.dataframe(empty_partial_bins_df)
-
 elif tab == "Partial Bins":
     st.subheader("🟥 Partial Bins")
     df = apply_filters(partial_bins_df)
     st.dataframe(df)
-
 elif tab == "Damages":
     st.subheader("🛠️ Damages (DAMAGE & IBDAMAGE)")
     df = apply_filters(damage_df)
     st.metric(label="Total Damaged Qty", value=f"{damage_qty:,}")
     st.dataframe(df)
-
 elif tab == "Missing":
     st.subheader("❓ Missing")
     df = apply_filters(missing_df)
     st.metric(label="Total Missing Qty", value=f"{missing_qty:,}")
     st.dataframe(df)
-
 elif tab == "Discrepancies":
     st.subheader("⚠️ Discrepancies")
     if discrepancy_df.empty:
         st.success("No discrepancies found!")
     else:
+        # Show total discrepancies metric
+        st.metric(label="Total Discrepancies", value=f"{len(discrepancy_df):,}")
+        
+        # Display table
         st.dataframe(discrepancy_df)
+
         # Export to Excel
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
