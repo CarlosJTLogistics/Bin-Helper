@@ -1,3 +1,4 @@
+# FULL FINAL CODE
 import os
 import json
 import pandas as pd
@@ -29,6 +30,38 @@ st.set_page_config(page_title="Bin Helper", layout="wide")
 # Sidebar
 # ======================
 st.sidebar.title("📦 Bin Helper")
+
+# Theme selector
+theme_options = ["Metallic Silver (Blue Outline)", "Neutral Light", "Dark Slate", "Legacy"]
+theme_choice = st.sidebar.radio("Theme", theme_options)
+
+def inject_kpi_theme(theme: str):
+    glow_color = {
+        "Metallic Silver (Blue Outline)": "#6a95ff",
+        "Neutral Light": "#d1d5db",
+        "Dark Slate": "rgba(147,197,253,.65)",
+        "Legacy": "#d1d5db"
+    }.get(theme, "#6a95ff")
+    css = f"""
+    <style>
+    .stButton button {{
+        border: 2px solid {glow_color};
+        border-radius: 8px;
+        font-weight: bold;
+        box-shadow: 0 0 10px {glow_color};
+    }}
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
+
+inject_kpi_theme(theme_choice)
+
+# Refresh button
+if st.sidebar.button("🔄 Refresh Now"):
+    st.query_params["refresh"] = str(int(datetime.now().timestamp()))
+    st.rerun()
+
+last_refresh = st.sidebar.empty()
 
 # File uploaders
 st.sidebar.markdown("### 📁 Upload Required Files")
@@ -88,7 +121,7 @@ inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), 
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 
 # ======================
-# Business Rules (same as before)
+# Business Rules
 # ======================
 def is_valid_location(loc):
     if pd.isna(loc):
@@ -143,14 +176,119 @@ damage_qty = int(damage_df["Qty"].sum()) if not damage_df.empty else 0
 missing_qty = int(missing_df["Qty"].sum()) if not missing_df.empty else 0
 
 # ======================
-# KPI Cards and UI (same as before)
+# Filters
+# ======================
+st.sidebar.markdown("### 🔎 Filters")
+sku_list = ["All"] + sorted(filtered_inventory_df["WarehouseSku"].dropna().astype(str).unique().tolist())
+lot_list = ["All"] + sorted(filtered_inventory_df["CustomerLotReference"].dropna().astype(str).unique().tolist())
+pallet_list = ["All"] + sorted(filtered_inventory_df["PalletId"].dropna().astype(str).unique().tolist())
+
+sku_filter = st.sidebar.selectbox("SKU", sku_list)
+lot_filter = st.sidebar.selectbox("LOT Number", lot_list)
+pallet_filter = st.sidebar.selectbox("Pallet ID", pallet_list)
+
+def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
+    out = df
+    if sku_filter != "All":
+        out = out[out["WarehouseSku"].astype(str) == sku_filter]
+    if lot_filter != "All":
+        out = out[out["CustomerLotReference"].astype(str) == lot_filter]
+    if pallet_filter != "All":
+        out = out[out["PalletId"].astype(str) == pallet_filter]
+    return out
+
+# ======================
+# Navigation state
+# ======================
+if "selected_tab" not in st.session_state:
+    st.session_state.selected_tab = "Empty Bins"
+
+def kpi_card(title: str, value: int, tab_name: str, icon: str = "", key: str = None):
+    label = f"{(icon + ' ') if icon else ''}{title}\n{value:,}"
+    if st.button(label, key=key or f"kpi_{tab_name}", use_container_width=True, help=f"Open {tab_name}"):
+        st.session_state.selected_tab = tab_name
+
+# ======================
+# KPI Area
 # ======================
 st.markdown("## 📦 Bin Helper")
-st.write("✅ ON_HAND_INVENTORY and INVENTORY_BALANCES loaded successfully!")
+st.markdown('\n', unsafe_allow_html=True)
 
-# Show previews for debugging
-with st.expander("Preview Data"):
-    st.subheader("ON_HAND_INVENTORY.xlsx")
-    st.dataframe(inventory_df.head())
-    st.subheader("INVENTORY_BALANCES.xlsx")
-    st.dataframe(balances_df.head())
+c1, c2, c3 = st.columns(3)
+with c1:
+    kpi_card("Empty Bins", len(empty_bins_view_df), "Empty Bins", icon="📦")
+with c2:
+    kpi_card("Full Pallet Bins", len(full_pallet_bins_df), "Full Pallet Bins", icon="🟩")
+with c3:
+    kpi_card("Empty Partial Bins", len(empty_partial_bins_df), "Empty Partial Bins", icon="🟨")
+
+st.markdown("\n", unsafe_allow_html=True)
+st.markdown('\n', unsafe_allow_html=True)
+
+c4, c5, c6 = st.columns(3)
+with c4:
+    kpi_card("Partial Bins", len(partial_bins_df), "Partial Bins", icon="🟥")
+with c5:
+    kpi_card("Damages (QTY)", damage_qty, "Damages", icon="🛠️")
+with c6:
+    kpi_card("Missing (QTY)", missing_qty, "Missing", icon="❓")
+
+st.markdown("\n", unsafe_allow_html=True)
+
+# ======================
+# Central View
+# ======================
+tab = st.session_state.selected_tab
+st.markdown(f"### 🔍 Viewing: {tab}")
+
+if tab == "Empty Bins":
+    st.subheader("📦 Empty Bins")
+    if st_lottie and lottie_box:
+        st_lottie(lottie_box, height=150)
+    st.dataframe(empty_bins_view_df)
+
+elif tab == "Full Pallet Bins":
+    st.subheader("🟩 Full Pallet Bins")
+    df = apply_filters(full_pallet_bins_df)
+    if st_lottie and lottie_box:
+        st_lottie(lottie_box, height=150)
+    st.dataframe(df)
+
+elif tab == "Empty Partial Bins":
+    st.subheader("🟨 Empty Partial Bins")
+    if st_lottie and lottie_box:
+        st_lottie(lottie_box, height=150)
+    st.dataframe(empty_partial_bins_df)
+
+elif tab == "Partial Bins":
+    st.subheader("🟥 Partial Bins")
+    df = apply_filters(partial_bins_df)
+    if st_lottie and lottie_box:
+        st_lottie(lottie_box, height=150)
+    st.dataframe(df)
+
+elif tab == "Damages":
+    st.subheader("🛠️ Damages (DAMAGE & IBDAMAGE)")
+    df = apply_filters(damage_df)
+    if st_lottie and lottie_box:
+        st_lottie(lottie_box, height=150)
+    st.metric(label="Total Damaged Qty", value=f"{damage_qty:,}")
+    st.dataframe(df)
+
+elif tab == "Missing":
+    st.subheader("❓ Missing")
+    df = apply_filters(missing_df)
+    if st_lottie and lottie_box:
+        st_lottie(lottie_box, height=150)
+    st.metric(label="Total Missing Qty", value=f"{missing_qty:,}")
+    st.dataframe(df)
+
+# ======================
+# Footer
+# ======================
+last_refresh.markdown(f"Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+# ======================
+# Preview INVENTORY_BALANCES.xlsx
+# ======================
+with st.expander("📊 Preview INVENTORY_BALANCES.xlsx"):
