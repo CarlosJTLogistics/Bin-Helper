@@ -220,6 +220,12 @@ damage_df = get_damage(filtered_inventory_df)[columns_to_show]
 missing_df = get_missing(filtered_inventory_df)[columns_to_show]
 discrepancy_df = find_discrepancies(filtered_inventory_df)
 
+# Apply filter to exclude IB10 and damage-related locations from discrepancies
+discrepancy_df = discrepancy_df[
+    ~discrepancy_df["LocationName"].astype(str).str.upper().isin(["IB10", "DAMAGE", "IBDAMAGE"])
+]
+
+
 st.sidebar.markdown("### 🔎 Filters")
 sku_list = ["All"] + sorted(filtered_inventory_df["WarehouseSku"].dropna().astype(str).unique().tolist())
 lot_list = ["All"] + sorted(filtered_inventory_df["CustomerLotReference"].dropna().astype(str).unique().tolist())
