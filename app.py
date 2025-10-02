@@ -25,12 +25,8 @@ except ImportError:
 # Page configuration
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
-# ======================
 # Sidebar
-# ======================
 st.sidebar.title("📦 Bin Helper")
-
-# File uploaders
 st.sidebar.markdown("### 📁 Upload Required Files")
 uploaded_inventory = st.sidebar.file_uploader("Upload ON_HAND_INVENTORY.xlsx", type=["xlsx"])
 uploaded_balances = st.sidebar.file_uploader("Upload INVENTORY_BALANCES.xlsx", type=["xlsx"])
@@ -39,10 +35,9 @@ uploaded_master = st.sidebar.file_uploader("Upload Empty Bin Formula.xlsx", type
 # GitHub fallback URLs
 inventory_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/ON_HAND_INVENTORY.xlsx"
 balances_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/INVENTORY_BALANCES.xlsx"
+sample_file_path = "Empty Bin Formula.xlsx"
 
-# ======================
 # Load ON_HAND_INVENTORY.xlsx
-# ======================
 try:
     if uploaded_inventory:
         inventory_dict = pd.read_excel(uploaded_inventory, sheet_name=None, engine="openpyxl")
@@ -56,9 +51,7 @@ except Exception as e:
 
 inventory_df = list(inventory_dict.values())[0]
 
-# ======================
 # Load INVENTORY_BALANCES.xlsx
-# ======================
 try:
     if uploaded_balances:
         balances_df = pd.read_excel(uploaded_balances, engine="openpyxl")
@@ -70,10 +63,7 @@ except Exception as e:
     st.error(f"❌ Failed to load INVENTORY_BALANCES.xlsx: {e}")
     st.stop()
 
-# ======================
 # Load Master Locations
-# ======================
-sample_file_path = "Empty Bin Formula.xlsx"
 try:
     if uploaded_master:
         master_locations_df = pd.read_excel(uploaded_master, sheet_name="Master Locations", engine="openpyxl")
@@ -87,9 +77,7 @@ except Exception as e:
 inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 
-# ======================
 # Business Rules
-# ======================
 def is_valid_location(loc):
     if pd.isna(loc):
         return False
@@ -109,7 +97,11 @@ def exclude_damage_missing(df):
 
 def get_full_pallet_bins(df):
     df = exclude_damage_missing(df)
-    return df[df["PalletCount"] == 1]
+    return df[
+        (df["LocationName"].astype(str).str.startswith("111")) &
+        (~df["LocationName"].astype(str).str.endswith("01")) &
+        (df["Qty"].between(6, 15))
+    ]
 
 def get_partial_bins(df):
     df = exclude_damage_missing(df)
@@ -132,19 +124,39 @@ def get_missing(df):
     mask = df["LocationName"].astype(str).str.upper().eq("MISSING")
     return df[mask]
 
+def find_discrepancies(df):
+    discrepancies = []
+    for _, row in df.iterrows():
+        loc = str(row["LocationName"])
+        qty = row["Qty"]
+        if loc.endswith("01") and not loc.startswith("111") and not loc.upper().startswith("TUN"):
+            if qty > 5:
+                discrepancies.append({
+                    "LocationName": loc,
+                    "Qty": qty,
+                    "Issue": "Partial bin exceeds max capacity (Qty > 5)"
+                })
+        if loc.startswith("111") and not loc.endswith("01"):
+            if qty < 6 or qty > 15:
+                discrepancies.append({
+                    "LocationName": loc,
+                    "Qty": qty,
+                    "Issue": "Full pallet bin outside expected range (6-15)"
+                })
+    return pd.DataFrame(discrepancies)
+
 columns_to_show = ["LocationName", "PalletId", "Qty", "CustomerLotReference", "WarehouseSku"]
 full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)[columns_to_show]
 partial_bins_df = get_partial_bins(filtered_inventory_df)[columns_to_show]
 empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locations)
 damage_df = get_damage(filtered_inventory_df)[columns_to_show]
 missing_df = get_missing(filtered_inventory_df)[columns_to_show]
+discrepancy_df = find_discrepancies(filtered_inventory_df)
 
 damage_qty = int(damage_df["Qty"].sum()) if not damage_df.empty else 0
 missing_qty = int(missing_df["Qty"].sum()) if not missing_df.empty else 0
 
-# ======================
 # Filters
-# ======================
 st.sidebar.markdown("### 🔎 Filters")
 sku_list = ["All"] + sorted(filtered_inventory_df["WarehouseSku"].dropna().astype(str).unique().tolist())
 lot_list = ["All"] + sorted(filtered_inventory_df["CustomerLotReference"].dropna().astype(str).unique().tolist())
@@ -164,9 +176,7 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         out = out[out["PalletId"].astype(str) == pallet_filter]
     return out
 
-# ======================
 # Navigation state
-# ======================
 if "selected_tab" not in st.session_state:
     st.session_state.selected_tab = "Empty Bins"
 
@@ -175,12 +185,8 @@ def kpi_card(title: str, value: int, tab_name: str, icon: str = "", key: str = N
     if st.button(label, key=key or f"kpi_{tab_name}", use_container_width=True, help=f"Open {tab_name}"):
         st.session_state.selected_tab = tab_name
 
-# ======================
 # KPI Area
-# ======================
 st.markdown("## 📦 Bin Helper")
-st.markdown('\n', unsafe_allow_html=True)
-
 c1, c2, c3 = st.columns(3)
 with c1:
     kpi_card("Empty Bins", len(empty_bins_view_df), "Empty Bins", icon="📦")
@@ -188,9 +194,6 @@ with c2:
     kpi_card("Full Pallet Bins", len(full_pallet_bins_df), "Full Pallet Bins", icon="🟩")
 with c3:
     kpi_card("Empty Partial Bins", len(empty_partial_bins_df), "Empty Partial Bins", icon="🟨")
-
-st.markdown("\n", unsafe_allow_html=True)
-st.markdown('\n', unsafe_allow_html=True)
 
 c4, c5, c6 = st.columns(3)
 with c4:
@@ -200,13 +203,8 @@ with c5:
 with c6:
     kpi_card("Missing (QTY)", missing_qty, "Missing", icon="❓")
 
-st.markdown("\n", unsafe_allow_html=True)
-
-# ======================
-# Central View
-# ======================
+st.markdown(f"### 🔍 Viewing: {st.session_state.selected_tab}")
 tab = st.session_state.selected_tab
-st.markdown(f"### 🔍 Viewing: {tab}")
 
 if tab == "Empty Bins":
     st.subheader("📦 Empty Bins")
@@ -238,7 +236,12 @@ elif tab == "Missing":
     st.metric(label="Total Missing Qty", value=f"{missing_qty:,}")
     st.dataframe(df)
 
-# ======================
+elif tab == "Discrepancies":
+    st.subheader("⚠️ Discrepancies")
+    if discrepancy_df.empty:
+        st.success("No discrepancies found!")
+    else:
+        st.dataframe(discrepancy_df)
+
 # Footer
-# ======================
-st.markdown(f"Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.sidebar.markdown(f"Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
