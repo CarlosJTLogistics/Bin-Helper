@@ -1,4 +1,3 @@
-# FULL FINAL CODE
 import os
 import json
 import pandas as pd
@@ -30,38 +29,6 @@ st.set_page_config(page_title="Bin Helper", layout="wide")
 # Sidebar
 # ======================
 st.sidebar.title("📦 Bin Helper")
-
-# Theme selector
-theme_options = ["Metallic Silver (Blue Outline)", "Neutral Light", "Dark Slate", "Legacy"]
-theme_choice = st.sidebar.radio("Theme", theme_options)
-
-def inject_kpi_theme(theme: str):
-    glow_color = {
-        "Metallic Silver (Blue Outline)": "#6a95ff",
-        "Neutral Light": "#d1d5db",
-        "Dark Slate": "rgba(147,197,253,.65)",
-        "Legacy": "#d1d5db"
-    }.get(theme, "#6a95ff")
-    css = f"""
-    <style>
-    .stButton button {{
-        border: 2px solid {glow_color};
-        border-radius: 8px;
-        font-weight: bold;
-        box-shadow: 0 0 10px {glow_color};
-    }}
-    </style>
-    """
-    st.markdown(css, unsafe_allow_html=True)
-
-inject_kpi_theme(theme_choice)
-
-# Refresh button
-if st.sidebar.button("🔄 Refresh Now"):
-    st.query_params["refresh"] = str(int(datetime.now().timestamp()))
-    st.rerun()
-
-last_refresh = st.sidebar.empty()
 
 # File uploaders
 st.sidebar.markdown("### 📁 Upload Required Files")
@@ -243,52 +210,35 @@ st.markdown(f"### 🔍 Viewing: {tab}")
 
 if tab == "Empty Bins":
     st.subheader("📦 Empty Bins")
-    if st_lottie and lottie_box:
-        st_lottie(lottie_box, height=150)
     st.dataframe(empty_bins_view_df)
 
 elif tab == "Full Pallet Bins":
     st.subheader("🟩 Full Pallet Bins")
     df = apply_filters(full_pallet_bins_df)
-    if st_lottie and lottie_box:
-        st_lottie(lottie_box, height=150)
     st.dataframe(df)
 
 elif tab == "Empty Partial Bins":
     st.subheader("🟨 Empty Partial Bins")
-    if st_lottie and lottie_box:
-        st_lottie(lottie_box, height=150)
     st.dataframe(empty_partial_bins_df)
 
 elif tab == "Partial Bins":
     st.subheader("🟥 Partial Bins")
     df = apply_filters(partial_bins_df)
-    if st_lottie and lottie_box:
-        st_lottie(lottie_box, height=150)
     st.dataframe(df)
 
 elif tab == "Damages":
     st.subheader("🛠️ Damages (DAMAGE & IBDAMAGE)")
     df = apply_filters(damage_df)
-    if st_lottie and lottie_box:
-        st_lottie(lottie_box, height=150)
     st.metric(label="Total Damaged Qty", value=f"{damage_qty:,}")
     st.dataframe(df)
 
 elif tab == "Missing":
     st.subheader("❓ Missing")
     df = apply_filters(missing_df)
-    if st_lottie and lottie_box:
-        st_lottie(lottie_box, height=150)
     st.metric(label="Total Missing Qty", value=f"{missing_qty:,}")
     st.dataframe(df)
 
 # ======================
 # Footer
 # ======================
-last_refresh.markdown(f"Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-# ======================
-# Preview INVENTORY_BALANCES.xlsx
-# ======================
-with st.expander("📊 Preview INVENTORY_BALANCES.xlsx"):
+st.markdown(f"Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
