@@ -160,7 +160,7 @@ def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
                 issues_by_loc.setdefault(loc, []).append("Partial bin exceeds max capacity (Qty > 5)")
         if loc.isnumeric() and ((not loc.endswith("01")) or loc.startswith("111")):
             if qty < 6 or qty > 15:
-                issues_by_loc.setdefault(loc, []).append("Full pallet bin outside expected range (6-15)")
+                issues_by_loc.setdefault(loc, []).append("Partial pallet needs to be moved to partial location")
         if loc and (loc[0] in future_bulk_zones) and qty > 0:
             issues_by_loc.setdefault(loc, []).append("Inventory found in future bulk location")
     rows = []
@@ -257,11 +257,11 @@ elif st.session_state.active_view == "Discrepancies":
             details = filtered_inventory_df[filtered_inventory_df["LocationName"] == loc]
             st.write(details[["WarehouseSku", "PalletId", "CustomerLotReference"]])
 elif st.session_state.active_view == "Bulk Discrepancies":
-    q = st.text_input("Search bulk slot", "", placeholder="Type a bulk slot (e.g., A012, I032)")
+    st.markdown("#### Drill-down Details")
     bulk_disc_view = bulk_df[bulk_df["Issue"] != ""]
-    if q:
-        bulk_disc_view = bulk_disc_view[bulk_disc_view["Location"].astype(str).str.contains(q, case=False, na=False)]
-    if bulk_disc_view.empty:
-        st.warning("✅ No bulk discrepancies found for the current filter.")
-    else:
-        st.dataframe(bulk_disc_view, use_container_width=True)
+    for loc in bulk_disc_view["Location"].unique():
+        loc_issues = bulk_disc_view[bulk_disc_view["Location"] == loc]
+        with st.expander(f"📍 Bulk Location: {loc} — {len(loc_issues)} issue(s)"):
+            st.write(loc_issues[["Issue", "Current Pallets", "Max Allowed"]])
+            details = filtered_inventory_df[filtered_inventory_df["LocationName"] == loc]
+            st.write(details[["WarehouseSku", "PalletId", "CustomerLotReference"]])
