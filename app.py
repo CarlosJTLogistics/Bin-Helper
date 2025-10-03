@@ -34,11 +34,13 @@ if os.path.exists(log_file):
 else:
     st.sidebar.info("No correction log found yet.")
 
-# Uploaded Inventory File
+# Uploaded Files
 st.sidebar.markdown("### 📂 Uploaded Files")
 inventory_file = "ON_HAND_INVENTORY.xlsx"
+master_file = "Empty Bin Formula.xlsx"
+
 if os.path.exists(inventory_file):
-    st.sidebar.write(f"**File:** {inventory_file}")
+    st.sidebar.write(f"**Inventory File:** {inventory_file}")
     with open(inventory_file, "rb") as f:
         st.sidebar.download_button(
             label="⬇️ Download Inventory File",
@@ -49,8 +51,19 @@ if os.path.exists(inventory_file):
 else:
     st.sidebar.info("No inventory file found.")
 
+if os.path.exists(master_file):
+    st.sidebar.write(f"**Master File:** {master_file}")
+    with open(master_file, "rb") as f:
+        st.sidebar.download_button(
+            label="⬇️ Download Master File",
+            data=f,
+            file_name=os.path.basename(master_file),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+else:
+    st.sidebar.info("No master file found.")
+
 # ---------------- LOAD DATA ----------------
-master_file = "Empty Bin Formula.xlsx"
 try:
     inventory_dict = pd.read_excel(inventory_file, sheet_name=None, engine="openpyxl")
     inventory_df = list(inventory_dict.values())[0]
@@ -147,15 +160,15 @@ def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
 
     duplicates = local.groupby("LocationName").size()
     for loc, n in duplicates[duplicates > 1].items():
-        if loc[0] in bulk_rules.keys():  # Skip bulk zones
+        if loc[0] in bulk_rules.keys():
             continue
         issues_by_loc.setdefault(loc, []).append(f"Multiple pallets in same location ({n} pallets)")
 
     for _, row in local.iterrows():
         loc = str(row["LocationName"])
         qty = row["Qty"]
-        # FIX: Exclude full pallet bins (111***)
-        if loc.endswith("01") and qty > 5 and not loc.startswith("111"):
+        # FIX: Exclude full pallet bins (111***) and TUN locations
+        if loc.endswith("01") and qty > 5 and not loc.startswith("111") and not loc.upper().startswith("TUN"):
             issues_by_loc.setdefault(loc, []).append("Partial bin exceeds max capacity (Qty > 5)")
         if loc.isnumeric() and not loc.endswith("01") and (qty < 6 or qty > 15):
             issues_by_loc.setdefault(loc, []).append("Partial pallet needs to be moved to partial location")
@@ -310,4 +323,3 @@ elif st.session_state.active_view == "Bulk Discrepancies":
                     for _, drow in details.iterrows():
                         log_correction(loc, issue, drow.get("WarehouseSku",""), drow.get("PalletId",""),
                                        drow.get("CustomerLotReference",""), drow.get("Qty",""), notes)
-                    st.success(f"✅ Correction logged for {loc} — {issue}")
