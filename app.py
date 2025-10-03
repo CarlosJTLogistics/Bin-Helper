@@ -18,7 +18,12 @@ search_pallet = st.sidebar.text_input("Pallet ID")
 search_lot = st.sidebar.text_input("Customer Lot Reference")
 search_sku = st.sidebar.text_input("Warehouse SKU")
 
-# Correction Log
+# ---------------- FILE UPLOAD ----------------
+st.sidebar.markdown("### 📂 Upload Files")
+uploaded_inventory = st.sidebar.file_uploader("Upload ON_HAND_INVENTORY.xlsx", type=["xlsx"], key="inv_file")
+uploaded_master = st.sidebar.file_uploader("Upload Empty Bin Formula.xlsx", type=["xlsx"], key="master_file")
+
+# ---------------- CORRECTION LOG ----------------
 st.sidebar.markdown("### 📋 Correction Log")
 log_file = "correction_log.csv"
 correction_df = pd.DataFrame()
@@ -34,47 +39,17 @@ if os.path.exists(log_file):
 else:
     st.sidebar.info("No correction log found yet.")
 
-# Uploaded Files
-st.sidebar.markdown("### 📂 Uploaded Files")
-inventory_file = "ON_HAND_INVENTORY.xlsx"
-master_file = "Empty Bin Formula.xlsx"
-
-if os.path.exists(inventory_file):
-    st.sidebar.write(f"**Inventory File:** {inventory_file}")
-    with open(inventory_file, "rb") as f:
-        st.sidebar.download_button(
-            label="⬇️ Download Inventory File",
-            data=f,
-            file_name=os.path.basename(inventory_file),
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-else:
-    st.sidebar.info("No inventory file found.")
-
-if os.path.exists(master_file):
-    st.sidebar.write(f"**Master File:** {master_file}")
-    with open(master_file, "rb") as f:
-        st.sidebar.download_button(
-            label="⬇️ Download Master File",
-            data=f,
-            file_name=os.path.basename(master_file),
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-else:
-    st.sidebar.info("No master file found.")
-
 # ---------------- LOAD DATA ----------------
-try:
-    inventory_dict = pd.read_excel(inventory_file, sheet_name=None, engine="openpyxl")
-    inventory_df = list(inventory_dict.values())[0]
-except Exception as e:
-    st.error(f"Failed to load inventory file: {e}")
+if uploaded_inventory:
+    inventory_df = pd.read_excel(uploaded_inventory, engine="openpyxl")
+else:
+    st.error("Please upload ON_HAND_INVENTORY.xlsx")
     st.stop()
 
-try:
-    master_locations_df = pd.read_excel(master_file, sheet_name="Master Locations", engine="openpyxl")
-except Exception as e:
-    st.error(f"Failed to load master file: {e}")
+if uploaded_master:
+    master_locations_df = pd.read_excel(uploaded_master, sheet_name="Master Locations", engine="openpyxl")
+else:
+    st.error("Please upload Empty Bin Formula.xlsx")
     st.stop()
 
 # ---------------- DATA PREP ----------------
@@ -128,7 +103,7 @@ def get_partial_bins(df):
         df["LocationName"].astype(str).str.endswith("01")
         & ~df["LocationName"].astype(str).str.startswith("111")
         & ~df["LocationName"].astype(str).str.upper().str.startswith("TUN")
-        & ~df["LocationName"].astype(str).str[0].isin(bulk_rules.keys())
+        & df["LocationName"].astype(str).str[0].str.isdigit()
     ]
 
 def get_empty_partial_bins(master_locs, occupied_locs):
@@ -137,7 +112,7 @@ def get_empty_partial_bins(master_locs, occupied_locs):
         if loc.endswith("01")
         and not loc.startswith("111")
         and not str(loc).upper().startswith("TUN")
-        and str(loc)[0] not in bulk_rules.keys()
+        and str(loc)[0].isdigit()
     ]
     empty_partial = sorted(set(partial_candidates) - set(occupied_locs))
     return pd.DataFrame({"LocationName": empty_partial})
@@ -160,15 +135,14 @@ def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
 
     duplicates = local.groupby("LocationName").size()
     for loc, n in duplicates[duplicates > 1].items():
-        if loc[0] in bulk_rules.keys():
+        if not loc[0].isdigit():  # Skip alphabetic bulk zones
             continue
         issues_by_loc.setdefault(loc, []).append(f"Multiple pallets in same location ({n} pallets)")
 
     for _, row in local.iterrows():
         loc = str(row["LocationName"])
         qty = row["Qty"]
-        # FIX: Exclude full pallet bins (111***) and TUN locations
-        if loc.endswith("01") and qty > 5 and not loc.startswith("111") and not loc.upper().startswith("TUN"):
+        if loc.endswith("01") and qty > 5 and not loc.startswith("111") and not loc.upper().startswith("TUN") and loc[0].isdigit():
             issues_by_loc.setdefault(loc, []).append("Partial bin exceeds max capacity (Qty > 5)")
         if loc.isnumeric() and not loc.endswith("01") and (qty < 6 or qty > 15):
             issues_by_loc.setdefault(loc, []).append("Partial pallet needs to be moved to partial location")
