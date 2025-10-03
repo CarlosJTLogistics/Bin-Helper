@@ -3,6 +3,7 @@ import pandas as pd
 import streamlit as st
 import requests
 from io import BytesIO
+from datetime import datetime
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
@@ -32,6 +33,31 @@ if uploaded_master:
     st.sidebar.success(f"✅ Master file saved as default: {DEFAULT_MASTER_PATH}")
 
 inventory_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/ON_HAND_INVENTORY.xlsx"
+
+# ---------------- SEARCH FILTER ----------------
+st.sidebar.markdown("### 🔍 Search Filter")
+search_location = st.sidebar.text_input("Location Name")
+search_pallet = st.sidebar.text_input("Pallet ID")
+search_lot = st.sidebar.text_input("Customer Lot Reference")
+search_sku = st.sidebar.text_input("Warehouse SKU")
+
+# ---------------- CORRECTION LOG VIEWER ----------------
+st.sidebar.markdown("### 📋 Correction Log")
+log_file = "correction_log.csv"
+if os.path.exists(log_file):
+    try:
+        log_df = pd.read_csv(log_file)
+        st.sidebar.dataframe(log_df, use_container_width=True)
+        st.sidebar.download_button(
+            label="⬇️ Download Correction Log",
+            data=log_df.to_csv(index=False),
+            file_name="correction_log.csv",
+            mime="text/csv"
+        )
+    except Exception as e:
+        st.sidebar.error(f"Failed to load correction log: {e}")
+else:
+    st.sidebar.info("No correction log found yet.")
 
 # ---------------- LOAD INVENTORY FILE ----------------
 try:
@@ -212,6 +238,23 @@ damage_df = get_damage(filtered_inventory_df)[columns_to_show]
 missing_df = get_missing(filtered_inventory_df)[columns_to_show]
 discrepancy_df = find_discrepancies(filtered_inventory_df)
 
+# Logging function
+def log_correction(location, issue, sku, pallet_id, lot):
+    log_entry = {
+        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "LocationName": location,
+        "Issue": issue,
+        "Correction": "Marked Corrected",
+        "WarehouseSku": sku,
+        "PalletId": pallet_id,
+        "CustomerLotReference": lot
+    }
+    log_df = pd.DataFrame([log_entry])
+    if os.path.exists("correction_log.csv"):
+        log_df.to_csv("correction_log.csv", mode="a", header=False, index=False)
+    else:
+        log_df.to_csv("correction_log.csv", index=False)
+
 # -------------------- UI --------------------
 st.markdown("## 📦 Bin Helper Dashboard")
 
@@ -250,18 +293,31 @@ elif st.session_state.active_view == "Missing":
     st.dataframe(missing_df)
 elif st.session_state.active_view == "Discrepancies":
     st.markdown("#### Drill-down Details")
-    for loc in discrepancy_df["LocationName"].unique():
-        loc_issues = discrepancy_df[discrepancy_df["LocationName"] == loc]
+    filtered_df = discrepancy_df.copy()
+    if search_location:
+        filtered_df = filtered_df[filtered_df["LocationName"].astype(str).str.contains(search_location, case=False, na=False)]
+    for loc in filtered_df["LocationName"].unique():
+        loc_issues = filtered_df[filtered_df["LocationName"] == loc]
         with st.expander(f"📍 Location: {loc} — {len(loc_issues)} issue(s)"):
             st.write(loc_issues[["Issue", "Qty"]])
             details = filtered_inventory_df[filtered_inventory_df["LocationName"] == loc]
             st.write(details[["WarehouseSku", "PalletId", "CustomerLotReference"]])
+            if st.button(f"✔ Mark as Corrected ({loc})"):
+                for _, row in details.iterrows():
+                    log_correction(loc, loc_issues.iloc[0]["Issue"], row["WarehouseSku"], row["PalletId"], row["CustomerLotReference"])
+                st.success(f"Correction logged for {loc}")
 elif st.session_state.active_view == "Bulk Discrepancies":
     st.markdown("#### Drill-down Details")
-    bulk_disc_view = bulk_df[bulk_df["Issue"] != ""]
-    for loc in bulk_disc_view["Location"].unique():
-        loc_issues = bulk_disc_view[bulk_disc_view["Location"] == loc]
+    filtered_bulk_df = bulk_df[bulk_df["Issue"] != ""].copy()
+    if search_location:
+        filtered_bulk_df = filtered_bulk_df[filtered_bulk_df["Location"].astype(str).str.contains(search_location, case=False, na=False)]
+    for loc in filtered_bulk_df["Location"].unique():
+        loc_issues = filtered_bulk_df[filtered_bulk_df["Location"] == loc]
         with st.expander(f"📍 Bulk Location: {loc} — {len(loc_issues)} issue(s)"):
             st.write(loc_issues[["Issue", "Current Pallets", "Max Allowed"]])
             details = filtered_inventory_df[filtered_inventory_df["LocationName"] == loc]
             st.write(details[["WarehouseSku", "PalletId", "CustomerLotReference"]])
+            if st.button(f"✔ Mark as Corrected ({loc})"):
+                for _, row in details.iterrows():
+                    log_correction(loc, loc_issues.iloc[0]["Issue"], row["WarehouseSku"], row["PalletId"], row["CustomerLotReference"])
+                st.success(f"Correction logged for {loc}")
