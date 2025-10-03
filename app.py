@@ -18,11 +18,9 @@ st.sidebar.markdown("### 📁 Upload Required Files")
 uploaded_inventory = st.sidebar.file_uploader("Upload ON_HAND_INVENTORY.xlsx", type=["xlsx"])
 uploaded_master = st.sidebar.file_uploader("Upload Empty Bin Formula.xlsx", type=["xlsx"])
 
-# Default file paths
 DEFAULT_INVENTORY_PATH = "ON_HAND_INVENTORY.xlsx"
 DEFAULT_MASTER_PATH = "Empty Bin Formula.xlsx"
 
-# Save uploaded files permanently
 if uploaded_inventory:
     with open(DEFAULT_INVENTORY_PATH, "wb") as f:
         f.write(uploaded_inventory.getbuffer())
@@ -33,16 +31,13 @@ if uploaded_master:
         f.write(uploaded_master.getbuffer())
     st.sidebar.success(f"✅ Master file saved as default: {DEFAULT_MASTER_PATH}")
 
-# GitHub fallback URL
 inventory_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/ON_HAND_INVENTORY.xlsx"
 
 # ---------------- LOAD INVENTORY FILE ----------------
 try:
     if os.path.exists(DEFAULT_INVENTORY_PATH):
-        st.sidebar.info(f"📂 Using local file: {DEFAULT_INVENTORY_PATH}")
         inventory_dict = pd.read_excel(DEFAULT_INVENTORY_PATH, sheet_name=None, engine="openpyxl")
     else:
-        st.sidebar.info("🌐 Using GitHub fallback file")
         response = requests.get(inventory_url)
         response.raise_for_status()
         inventory_dict = pd.read_excel(BytesIO(response.content), sheet_name=None, engine="openpyxl")
@@ -55,7 +50,6 @@ inventory_df = list(inventory_dict.values())[0]
 # ---------------- LOAD MASTER LOCATIONS ----------------
 try:
     if os.path.exists(DEFAULT_MASTER_PATH):
-        st.sidebar.info(f"📂 Using local file: {DEFAULT_MASTER_PATH}")
         master_locations_df = pd.read_excel(DEFAULT_MASTER_PATH, sheet_name="Master Locations", engine="openpyxl")
     else:
         st.error("❌ Empty Bin Formula.xlsx not found. Please upload it.")
@@ -148,12 +142,14 @@ def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     duplicates = local.groupby("LocationName").size()
     for loc, n in duplicates[duplicates > 1].items():
         loc_u = str(loc).upper()
-        if loc_u not in ["DAMAGE", "IBDAMAGE", "MISSING"] and (str(loc)[0] not in bulk_rules.keys()):
+        if loc_u not in ["DAMAGE", "IBDAMAGE", "MISSING", "IB10"] and loc_u != "I032" and (str(loc)[0] not in bulk_rules.keys()):
             issues_by_loc.setdefault(loc, []).append(f"Multiple pallets in same location ({n} pallets)")
     for _, row in local.iterrows():
         loc = str(row["LocationName"])
         qty = row["Qty"]
         loc_u = loc.upper()
+        if loc_u in ["DAMAGE", "IBDAMAGE", "MISSING", "IB10"] or loc_u == "I032":
+            continue
         if (
             loc.endswith("01")
             and not loc.startswith("111")
@@ -253,7 +249,13 @@ elif st.session_state.active_view == "Damages":
 elif st.session_state.active_view == "Missing":
     st.dataframe(missing_df)
 elif st.session_state.active_view == "Discrepancies":
-    st.dataframe(discrepancy_df)
+    st.markdown("#### Drill-down Details")
+    for loc in discrepancy_df["LocationName"].unique():
+        loc_issues = discrepancy_df[discrepancy_df["LocationName"] == loc]
+        with st.expander(f"📍 Location: {loc} — {len(loc_issues)} issue(s)"):
+            st.write(loc_issues[["Issue", "Qty"]])
+            details = filtered_inventory_df[filtered_inventory_df["LocationName"] == loc]
+            st.write(details[["WarehouseSku", "PalletId", "CustomerLotReference"]])
 elif st.session_state.active_view == "Bulk Discrepancies":
     q = st.text_input("Search bulk slot", "", placeholder="Type a bulk slot (e.g., A012, I032)")
     bulk_disc_view = bulk_df[bulk_df["Issue"] != ""]
