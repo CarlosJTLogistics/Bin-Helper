@@ -239,7 +239,7 @@ missing_df = get_missing(filtered_inventory_df)[columns_to_show]
 discrepancy_df = find_discrepancies(filtered_inventory_df)
 
 # Logging function
-def log_correction(location, issue, sku, pallet_id, lot):
+def log_correction(location, issue, sku, pallet_id, lot, notes):
     log_entry = {
         "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "LocationName": location,
@@ -247,7 +247,8 @@ def log_correction(location, issue, sku, pallet_id, lot):
         "Correction": "Marked Corrected",
         "WarehouseSku": sku,
         "PalletId": pallet_id,
-        "CustomerLotReference": lot
+        "CustomerLotReference": lot,
+        "Notes": notes
     }
     log_df = pd.DataFrame([log_entry])
     if os.path.exists("correction_log.csv"):
@@ -299,13 +300,19 @@ elif st.session_state.active_view == "Discrepancies":
     for loc in filtered_df["LocationName"].unique():
         loc_issues = filtered_df[filtered_df["LocationName"] == loc]
         with st.expander(f"📍 Location: {loc} — {len(loc_issues)} issue(s)"):
-            st.write(loc_issues[["Issue", "Qty"]])
-            details = filtered_inventory_df[filtered_inventory_df["LocationName"] == loc]
-            st.write(details[["WarehouseSku", "PalletId", "CustomerLotReference"]])
-            if st.button(f"✔ Mark as Corrected ({loc})"):
-                for _, row in details.iterrows():
-                    log_correction(loc, loc_issues.iloc[0]["Issue"], row["WarehouseSku"], row["PalletId"], row["CustomerLotReference"])
-                st.success(f"Correction logged for {loc}")
+            for idx, row in loc_issues.iterrows():
+                issue = row["Issue"]
+                qty = row["Qty"]
+                st.write(f"**Issue:** {issue} | **Qty:** {qty}")
+                notes = st.text_input(f"📝 Notes for {loc} - {issue}", key=f"note_{loc}_{idx}")
+                if st.button(f"✔ Mark as Corrected: {issue}", key=f"btn_{loc}_{idx}"):
+                    details = filtered_inventory_df[filtered_inventory_df["LocationName"] == loc]
+                    if details.empty:
+                        log_correction(loc, issue, "", "", "", notes)
+                    else:
+                        for _, drow in details.iterrows():
+                            log_correction(loc, issue, drow.get("WarehouseSku", ""), drow.get("PalletId", ""), drow.get("CustomerLotReference", ""), notes)
+                    st.success(f"✅ Correction logged for {loc} — {issue}")
 elif st.session_state.active_view == "Bulk Discrepancies":
     st.markdown("#### Drill-down Details")
     filtered_bulk_df = bulk_df[bulk_df["Issue"] != ""].copy()
@@ -314,10 +321,15 @@ elif st.session_state.active_view == "Bulk Discrepancies":
     for loc in filtered_bulk_df["Location"].unique():
         loc_issues = filtered_bulk_df[filtered_bulk_df["Location"] == loc]
         with st.expander(f"📍 Bulk Location: {loc} — {len(loc_issues)} issue(s)"):
-            st.write(loc_issues[["Issue", "Current Pallets", "Max Allowed"]])
-            details = filtered_inventory_df[filtered_inventory_df["LocationName"] == loc]
-            st.write(details[["WarehouseSku", "PalletId", "CustomerLotReference"]])
-            if st.button(f"✔ Mark as Corrected ({loc})"):
-                for _, row in details.iterrows():
-                    log_correction(loc, loc_issues.iloc[0]["Issue"], row["WarehouseSku"], row["PalletId"], row["CustomerLotReference"])
-                st.success(f"Correction logged for {loc}")
+            for idx, row in loc_issues.iterrows():
+                issue = row["Issue"]
+                st.write(f"**Issue:** {issue}")
+                notes = st.text_input(f"📝 Notes for {loc} - {issue}", key=f"bulk_note_{loc}_{idx}")
+                if st.button(f"✔ Mark as Corrected: {issue}", key=f"bulk_btn_{loc}_{idx}"):
+                    details = filtered_inventory_df[filtered_inventory_df["LocationName"] == loc]
+                    if details.empty:
+                        log_correction(loc, issue, "", "", "", notes)
+                    else:
+                        for _, drow in details.iterrows():
+                            log_correction(loc, issue, drow.get("WarehouseSku", ""), drow.get("PalletId", ""), drow.get("CustomerLotReference", ""), notes)
+                    st.success(f"✅ Correction logged for {loc} — {issue}")
