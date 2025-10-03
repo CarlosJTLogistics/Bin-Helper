@@ -290,7 +290,12 @@ elif st.session_state.active_view == "Discrepancies":
                 st.write(f"• SKU: `{drow.get('WarehouseSku','')}` | Pallet ID: `{drow.get('PalletId','')}` | "
                          f"Lot: `{drow.get('CustomerLotReference','')}` | Qty: `{drow.get('Qty','')}`")
 
-            st.markdown("**Issue** | **Qty** | **Notes** | **Select**")
+            st.markdown("<table style='width:100%; border-collapse: collapse;'>"
+                        "<tr><th style='text-align:left;'>Issue</th>"
+                        "<th style='text-align:left;'>Qty</th>"
+                        "<th style='text-align:left;'>Notes</th>"
+                        "<th style='text-align:center;'>Select</th></tr>", unsafe_allow_html=True)
+
             selected_issues = []
             for idx, row in loc_issues.iterrows():
                 issue = row["Issue"]
@@ -301,7 +306,7 @@ elif st.session_state.active_view == "Discrepancies":
                 with col2:
                     st.write(f"QTY {qty}")
                 with col3:
-                    notes = st.text_input(f"Notes for {loc} - {issue}", key=f"note_{loc}_{idx}")
+                    notes = st.text_input("", key=f"note_{loc}_{idx}", placeholder="Add notes...")
                 with col4:
                     if st.checkbox("", key=f"chk_{loc}_{idx}"):
                         selected_issues.append((issue, notes))
@@ -327,7 +332,12 @@ elif st.session_state.active_view == "Bulk Discrepancies":
                 st.write(f"• SKU: `{drow.get('WarehouseSku','')}` | Pallet ID: `{drow.get('PalletId','')}` | "
                          f"Lot: `{drow.get('CustomerLotReference','')}` | Qty: `{drow.get('Qty','')}`")
 
-            st.markdown("**Issue** | **Qty** | **Notes** | **Select**")
+            st.markdown("<table style='width:100%; border-collapse: collapse;'>"
+                        "<tr><th style='text-align:left;'>Issue</th>"
+                        "<th style='text-align:left;'>Qty</th>"
+                        "<th style='text-align:left;'>Notes</th>"
+                        "<th style='text-align:center;'>Select</th></tr>", unsafe_allow_html=True)
+
             selected_bulk_issues = []
             for idx, row in loc_issues.iterrows():
                 issue = row["Issue"]
@@ -338,7 +348,7 @@ elif st.session_state.active_view == "Bulk Discrepancies":
                 with col2:
                     st.write(f"QTY {qty}")
                 with col3:
-                    notes = st.text_input(f"Notes for {loc} - {issue}", key=f"bulk_note_{loc}_{idx}")
+                    notes = st.text_input("", key=f"bulk_note_{loc}_{idx}", placeholder="Add notes...")
                 with col4:
                     if st.checkbox("", key=f"bulk_chk_{loc}_{idx}"):
                         selected_bulk_issues.append((issue, notes))
