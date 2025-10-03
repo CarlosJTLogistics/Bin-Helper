@@ -199,6 +199,8 @@ def analyze_bulk_locations(df):
     return pd.DataFrame(results), empty_locations, discrepancies
 
 bulk_df, bulk_empty_locations, bulk_discrepancies = analyze_bulk_locations(bulk_inventory_df)
+bulk_df["Issue"] = bulk_df["Issue"].fillna("").astype(str).str.strip()  # ✅ Normalize Issue column
+
 bulk_locations_count = bulk_inventory_df[
     bulk_inventory_df["LocationName"].astype(str).str[0].isin(bulk_rules.keys()) &
     (bulk_inventory_df["Qty"] > 0)
@@ -270,18 +272,16 @@ with tab8:
     st.subheader("📦 Bulk Locations")
     st.dataframe(bulk_df)
 
-# ✅ FIXED TAB 9
+# ✅ FIXED TAB 9 WITH DEBUG
 with tab9:
     st.subheader("⚠️ Bulk Discrepancies")
     q = st.text_input("Search bulk slot", "", placeholder="Type a bulk slot (e.g., A012, I032)")
 
-    # Normalize Issue column
-    bulk_df["Issue"] = bulk_df["Issue"].astype(str).str.strip()
-
-    # Filter only rows with actual issues
     bulk_disc_view = bulk_df[bulk_df["Issue"] != ""]
 
-    # Apply search filter
+    # Debug info
+    st.caption(f"Debug: Total rows in bulk_df = {len(bulk_df)}, Rows with issues = {len(bulk_disc_view)}")
+
     if q:
         bulk_disc_view = bulk_disc_view[
             bulk_disc_view["Location"].astype(str).str.contains(q, case=False, na=False, regex=False)
@@ -290,3 +290,4 @@ with tab9:
     if bulk_disc_view.empty:
         st.warning("✅ No bulk discrepancies found for the current filter.")
     else:
+        st.dataframe(bulk_disc_view, use_container_width=True)
