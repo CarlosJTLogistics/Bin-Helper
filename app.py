@@ -19,7 +19,7 @@ st.markdown("""
 <style>
 .kpi-container {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 15px;
     margin-bottom: 25px;
 }
@@ -27,7 +27,7 @@ st.markdown("""
     background: #2b2b2b;
     border: 2px solid #00f0ff;
     border-radius: 12px;
-    padding: 20px;
+    padding: 18px;
     color: #e0e0e0;
     text-align: center;
     cursor: pointer;
@@ -38,13 +38,17 @@ st.markdown("""
     transform: scale(1.08);
     box-shadow: 0 0 25px rgba(0, 240, 255, 0.9);
 }
+.kpi-icon {
+    font-size: 22px;
+    margin-bottom: 6px;
+}
 .kpi-title {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: bold;
-    margin-bottom: 8px;
+    margin-bottom: 4px;
 }
 .kpi-value {
-    font-size: 28px;
+    font-size: 26px;
     font-weight: bold;
     color: #00f0ff;
 }
@@ -256,21 +260,21 @@ discrepancy_df = find_discrepancies(filtered_inventory_df)
 # -------------------- UI --------------------
 st.markdown("## 📦 Bin Helper Dashboard")
 
-# KPI Cards
+# KPI Cards with Icons
 kpi_data = {
-    "Empty Bins": len(empty_bins_view_df),
-    "Full Pallet Bins": len(full_pallet_bins_df),
-    "Empty Partial Bins": len(empty_partial_bins_df),
-    "Partial Bins": len(partial_bins_df),
-    "Damages": int(damage_df["Qty"].sum()),
-    "Missing": int(missing_df["Qty"].sum()),
-    "Discrepancies": len(discrepancy_df),
-    "Bulk Discrepancies": bulk_discrepancies
+    "Empty Bins": {"value": len(empty_bins_view_df), "icon": "📦"},
+    "Full Pallet Bins": {"value": len(full_pallet_bins_df), "icon": "🟩"},
+    "Empty Partial Bins": {"value": len(empty_partial_bins_df), "icon": "🟨"},
+    "Partial Bins": {"value": len(partial_bins_df), "icon": "🟥"},
+    "Damages": {"value": int(damage_df["Qty"].sum()), "icon": "🛠️"},
+    "Missing": {"value": int(missing_df["Qty"].sum()), "icon": "❓"},
+    "Discrepancies": {"value": len(discrepancy_df), "icon": "⚠️"},
+    "Bulk Discrepancies": {"value": bulk_discrepancies, "icon": "📊"}
 }
 
 st.markdown('<div class="kpi-container">', unsafe_allow_html=True)
-for title, value in kpi_data.items():
-    if st.button(f"{title}\n{value}", key=title):
+for title, data in kpi_data.items():
+    if st.button(f"{data['icon']} {title}\n{data['value']}", key=title):
         set_view(title)
 st.markdown('</div>', unsafe_allow_html=True)
 
