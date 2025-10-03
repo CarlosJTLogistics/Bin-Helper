@@ -7,6 +7,13 @@ from io import BytesIO
 # -------------------- PAGE CONFIG --------------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
+# -------------------- SESSION STATE FOR DRILL-DOWN --------------------
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "Empty Bins"
+
+def set_active_tab(tab_name):
+    st.session_state.active_tab = tab_name
+
 # -------------------- CUSTOM CSS FOR KPI CARDS --------------------
 st.markdown("""
 <style>
@@ -250,33 +257,36 @@ discrepancy_df = find_discrepancies(filtered_inventory_df)
 # -------------------- UI --------------------
 st.markdown("## 📦 Bin Helper Dashboard")
 
-# ✅ INTERACTIVE KPI CARDS
+# ✅ INTERACTIVE KPI CARDS WITH DRILL-DOWN
 tabs = ["Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins", "Damages", "Missing", "Discrepancies", "Bulk Discrepancies"]
 kpi_values = [len(empty_bins_view_df), len(full_pallet_bins_df), len(empty_partial_bins_df), len(partial_bins_df),
               int(damage_df["Qty"].sum()), int(missing_df["Qty"].sum()), len(discrepancy_df), bulk_discrepancies]
 
 st.markdown('<div class="kpi-container">', unsafe_allow_html=True)
 for i, (title, value) in enumerate(zip(tabs, kpi_values)):
-    st.markdown(f'<div class="kpi-card" onclick="window.location.href=\'#{title.lower().replace(\" \", \"-\")}\'">'
-                f'<div class="kpi-title">{title}</div><div class="kpi-value">{value}</div></div>', unsafe_allow_html=True)
+    if st.button(f"{title}: {value}", key=f"kpi_{i}"):
+        set_active_tab(title)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Tabs
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(tabs)
+tab_objects = st.tabs(tabs)
 
-with tab1: st.dataframe(empty_bins_view_df)
-with tab2: st.dataframe(full_pallet_bins_df)
-with tab3: st.dataframe(empty_partial_bins_df)
-with tab4: st.dataframe(partial_bins_df)
-with tab5: st.dataframe(damage_df)
-with tab6: st.dataframe(missing_df)
-with tab7: st.dataframe(discrepancy_df)
-with tab8:
-    q = st.text_input("Search bulk slot", "", placeholder="Type a bulk slot (e.g., A012, I032)")
-    bulk_disc_view = bulk_df[bulk_df["Issue"] != ""]
-    if q:
-        bulk_disc_view = bulk_disc_view[bulk_disc_view["Location"].astype(str).str.contains(q, case=False, na=False)]
-    if bulk_disc_view.empty:
-        st.warning("✅ No bulk discrepancies found for the current filter.")
-    else:
-        st.dataframe(bulk_disc_view, use_container_width=True)
+# Render tabs based on active_tab
+for i, tab in enumerate(tabs):
+    with tab_objects[i]:
+        if tab == "Empty Bins": st.dataframe(empty_bins_view_df)
+        elif tab == "Full Pallet Bins": st.dataframe(full_pallet_bins_df)
+        elif tab == "Empty Partial Bins": st.dataframe(empty_partial_bins_df)
+        elif tab == "Partial Bins": st.dataframe(partial_bins_df)
+        elif tab == "Damages": st.dataframe(damage_df)
+        elif tab == "Missing": st.dataframe(missing_df)
+        elif tab == "Discrepancies": st.dataframe(discrepancy_df)
+        elif tab == "Bulk Discrepancies":
+            q = st.text_input("Search bulk slot", "", placeholder="Type a bulk slot (e.g., A012, I032)")
+            bulk_disc_view = bulk_df[bulk_df["Issue"] != ""]
+            if q:
+                bulk_disc_view = bulk_disc_view[bulk_disc_view["Location"].astype(str).str.contains(q, case=False, na=False)]
+            if bulk_disc_view.empty:
+                st.warning("✅ No bulk discrepancies found for the current filter.")
+            else:
+                st.dataframe(bulk_disc_view, use_container_width=True)
