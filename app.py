@@ -7,10 +7,6 @@ from io import BytesIO
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
-# ---------------- SESSION STATE ----------------
-if "active_view" not in st.session_state:
-    st.session_state.active_view = "Empty Bins"
-
 # ---------------- SIDEBAR ----------------
 st.sidebar.title("📦 Bin Helper")
 st.sidebar.markdown("### 📁 Upload Required Files")
@@ -216,10 +212,10 @@ damage_df = get_damage(filtered_inventory_df)[columns_to_show]
 missing_df = get_missing(filtered_inventory_df)[columns_to_show]
 discrepancy_df = find_discrepancies(filtered_inventory_df)
 
-# ---------------- UI ----------------
+# -------------------- UI --------------------
 st.markdown("## 📦 Bin Helper Dashboard")
 
-# KPI Cards
+# KPI Cards in Horizontal Layout
 kpi_data = [
     {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
     {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
@@ -236,7 +232,7 @@ for i, item in enumerate(kpi_data):
     with cols[i]:
         st.metric(label=f"{item['icon']} {item['title']}", value=item["value"])
 
-# Horizontal Tabs
+# Horizontal Tabs for Data Views
 tabs = st.tabs([
     "Empty Bins",
     "Full Pallet Bins",
