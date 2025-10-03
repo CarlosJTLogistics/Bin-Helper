@@ -20,12 +20,13 @@ search_sku = st.sidebar.text_input("Warehouse SKU")
 
 st.sidebar.markdown("### 📋 Correction Log")
 log_file = "correction_log.csv"
+correction_df = pd.DataFrame()
 if os.path.exists(log_file):
-    log_df = pd.read_csv(log_file)
-    st.sidebar.dataframe(log_df, use_container_width=True)
+    correction_df = pd.read_csv(log_file)
+    st.sidebar.dataframe(correction_df, use_container_width=True)
     st.sidebar.download_button(
         label="⬇️ Download Correction Log",
-        data=log_df.to_csv(index=False),
+        data=correction_df.to_csv(index=False),
         file_name="correction_log.csv",
         mime="text/csv"
     )
@@ -53,7 +54,6 @@ inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), 
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 
 bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
-future_bulk_zones = ["A", "B", "I"]
 
 def is_valid_location(loc):
     if pd.isna(loc):
@@ -132,8 +132,7 @@ def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
 
     duplicates = local.groupby("LocationName").size()
     for loc, n in duplicates[duplicates > 1].items():
-        # Skip bulk zones (A–I)
-        if loc[0] in bulk_rules.keys():
+        if loc[0] in bulk_rules.keys():  # Skip bulk zones
             continue
         issues_by_loc.setdefault(loc, []).append(f"Multiple pallets in same location ({n} pallets)")
 
@@ -150,7 +149,14 @@ def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
         qty_sum = int(local.loc[local["LocationName"] == loc, "Qty"].sum())
         for issue in sorted(set(issues)):
             rows.append({"LocationName": loc, "Qty": qty_sum, "Issue": issue})
-    return pd.DataFrame(rows)
+    df_out = pd.DataFrame(rows)
+
+    # Filter out corrected entries
+    if not correction_df.empty:
+        corrected_pairs = set(zip(correction_df["LocationName"], correction_df["Issue"]))
+        df_out = df_out[~df_out.apply(lambda x: (x["LocationName"], x["Issue"]) in corrected_pairs, axis=1)]
+
+    return df_out
 
 def analyze_bulk_locations(df):
     results = []
@@ -169,7 +175,11 @@ def analyze_bulk_locations(df):
                 "Max Allowed": max_pallets,
                 "Issue": issue
             })
-    return pd.DataFrame(results), discrepancies
+    df_out = pd.DataFrame(results)
+    if not correction_df.empty:
+        corrected_pairs = set(zip(correction_df["LocationName"], correction_df["Issue"]))
+        df_out = df_out[~df_out.apply(lambda x: (x["Location"], x["Issue"]) in corrected_pairs, axis=1)]
+    return df_out, discrepancies
 
 bulk_df, bulk_discrepancies = analyze_bulk_locations(bulk_inventory_df)
 bulk_df["Issue"] = bulk_df["Issue"].fillna("").astype(str).str.strip()
