@@ -291,13 +291,20 @@ elif st.session_state.active_view == "Discrepancies":
                          f"Lot: `{drow.get('CustomerLotReference','')}` | Qty: `{drow.get('Qty','')}`")
 
             selected_issues = []
+            st.markdown("**Issue** | **Qty** | **Notes** | **Select**")
             for idx, row in loc_issues.iterrows():
                 issue = row["Issue"]
                 qty = row["Qty"]
-                st.write(f"**Issue:** {issue} | **Qty:** {qty}")
-                notes = st.text_input(f"📝 Notes for {loc} - {issue}", key=f"note_{loc}_{idx}")
-                if st.checkbox(f"Select: {issue}", key=f"chk_{loc}_{idx}"):
-                    selected_issues.append((issue, notes))
+                col1, col2, col3, col4 = st.columns([3, 1, 3, 1])
+                with col1:
+                    st.write(issue)
+                with col2:
+                    st.write(qty)
+                with col3:
+                    notes = st.text_input("", key=f"note_{loc}_{idx}")
+                with col4:
+                    if st.checkbox("", key=f"chk_{loc}_{idx}"):
+                        selected_issues.append((issue, notes))
 
             if selected_issues and st.button("✔ Apply Selected Corrections", key=f"apply_{loc}"):
                 for issue, notes in selected_issues:
@@ -321,13 +328,20 @@ elif st.session_state.active_view == "Bulk Discrepancies":
                          f"Lot: `{drow.get('CustomerLotReference','')}` | Qty: `{drow.get('Qty','')}`")
 
             selected_bulk_issues = []
+            st.markdown("**Issue** | **Qty** | **Notes** | **Select**")
             for idx, row in loc_issues.iterrows():
                 issue = row["Issue"]
                 qty = row["Current Pallets"]
-                st.write(f"**Issue:** {issue} | **Qty:** {qty}")
-                notes = st.text_input(f"📝 Notes for {loc} - {issue}", key=f"bulk_note_{loc}_{idx}")
-                if st.checkbox(f"Select: {issue}", key=f"bulk_chk_{loc}_{idx}"):
-                    selected_bulk_issues.append((issue, notes))
+                col1, col2, col3, col4 = st.columns([3, 1, 3, 1])
+                with col1:
+                    st.write(issue)
+                with col2:
+                    st.write(qty)
+                with col3:
+                    notes = st.text_input("", key=f"bulk_note_{loc}_{idx}")
+                with col4:
+                    if st.checkbox("", key=f"bulk_chk_{loc}_{idx}"):
+                        selected_bulk_issues.append((issue, notes))
 
             if selected_bulk_issues and st.button("✔ Apply Selected Bulk Corrections", key=f"bulk_apply_{loc}"):
                 for issue, notes in selected_bulk_issues:
