@@ -284,16 +284,15 @@ elif st.session_state.active_view == "Discrepancies":
     for loc in filtered_df["LocationName"].unique():
         loc_issues = filtered_df[filtered_df["LocationName"] == loc]
         with st.expander(f"📍 Location: {loc} — {len(loc_issues)} issue(s)"):
+            details = filtered_inventory_df[filtered_inventory_df["LocationName"] == loc]
+            st.write("**Inventory Details:**")
+            for _, drow in details.iterrows():
+                st.write(f"• SKU: `{drow.get('WarehouseSku','')}` | Pallet ID: `{drow.get('PalletId','')}` | "
+                         f"Lot: `{drow.get('CustomerLotReference','')}` | Qty: `{drow.get('Qty','')}`")
             for idx, row in loc_issues.iterrows():
                 issue = row["Issue"]
                 qty = row["Qty"]
-                st.write(f"**Issue:** {issue}\n**Qty:** {qty}")
-                details = filtered_inventory_df[filtered_inventory_df["LocationName"] == loc]
-                for _, drow in details.iterrows():
-                    st.write(f"• SKU: `{drow.get('WarehouseSku','')}` "
-                             f"Pallet ID: `{drow.get('PalletId','')}` "
-                             f"Lot: `{drow.get('CustomerLotReference','')}` "
-                             f"Qty: `{drow.get('Qty','')}`")
+                st.write(f"**Issue:** {issue} | **Qty:** {qty}")
                 notes = st.text_input(f"📝 Notes for {loc} - {issue}", key=f"note_{loc}_{idx}")
                 if st.button(f"✔ Mark as Corrected: {issue}", key=f"btn_{loc}_{idx}"):
                     for _, drow in details.iterrows():
@@ -308,16 +307,15 @@ elif st.session_state.active_view == "Bulk Discrepancies":
     for loc in filtered_bulk_df["Location"].unique():
         loc_issues = filtered_bulk_df[filtered_bulk_df["Location"] == loc]
         with st.expander(f"📍 Bulk Location: {loc} — {len(loc_issues)} issue(s)"):
+            details = filtered_inventory_df[filtered_inventory_df["LocationName"] == loc]
+            st.write("**Inventory Details:**")
+            for _, drow in details.iterrows():
+                st.write(f"• SKU: `{drow.get('WarehouseSku','')}` | Pallet ID: `{drow.get('PalletId','')}` | "
+                         f"Lot: `{drow.get('CustomerLotReference','')}` | Qty: `{drow.get('Qty','')}`")
             for idx, row in loc_issues.iterrows():
                 issue = row["Issue"]
                 qty = row["Current Pallets"]
-                st.write(f"**Issue:** {issue}\n**Qty:** {qty}")
-                details = filtered_inventory_df[filtered_inventory_df["LocationName"] == loc]
-                for _, drow in details.iterrows():
-                    st.write(f"• SKU: `{drow.get('WarehouseSku','')}` "
-                             f"Pallet ID: `{drow.get('PalletId','')}` "
-                             f"Lot: `{drow.get('CustomerLotReference','')}` "
-                             f"Qty: `{drow.get('Qty','')}`")
+                st.write(f"**Issue:** {issue} | **Qty:** {qty}")
                 notes = st.text_input(f"📝 Notes for {loc} - {issue}", key=f"bulk_note_{loc}_{idx}")
                 if st.button(f"✔ Mark as Corrected: {issue}", key=f"bulk_btn_{loc}_{idx}"):
                     for _, drow in details.iterrows():
