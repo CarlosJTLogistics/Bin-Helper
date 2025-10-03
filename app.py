@@ -16,36 +16,40 @@ master_file_path = "persisted_master.xlsx"
 
 # ---------------- SIDEBAR ----------------
 st.sidebar.title("📦 Bin Helper")
+
+# Search Filters
+st.sidebar.markdown("### 🔍 Search Filter")
+search_location = st.sidebar.text_input("Location Name")
+search_pallet = st.sidebar.text_input("Pallet ID")
+search_lot = st.sidebar.text_input("Customer Lot Reference")
+search_sku = st.sidebar.text_input("Warehouse SKU")
+
+# File Uploads
 st.sidebar.markdown("### 📂 Upload Files")
 
-# Upload ON_HAND_INVENTORY.xlsx
-uploaded_inventory = st.sidebar.file_uploader("Upload ON_HAND_INVENTORY.xlsx", type=["xlsx"], key="inv_file")
-if uploaded_inventory:
-    with open(inventory_file_path, "wb") as f:
-        f.write(uploaded_inventory.getbuffer())
-    st.sidebar.success("✅ Inventory file uploaded and saved.")
-
-# Upload Empty Bin Formula.xlsx
-uploaded_master = st.sidebar.file_uploader("Upload Empty Bin Formula.xlsx", type=["xlsx"], key="master_file")
-if uploaded_master:
-    with open(master_file_path, "wb") as f:
-        f.write(uploaded_master.getbuffer())
-    st.sidebar.success("✅ Master file uploaded and saved.")
-
-# Show active files in sidebar
+# Inventory File
 if os.path.exists(inventory_file_path):
-    st.sidebar.write(f"**Active Inventory File:** {os.path.basename(inventory_file_path)}")
+    st.sidebar.markdown(f"✅ **Active Inventory File:** `{os.path.basename(inventory_file_path)}`")
     st.sidebar.download_button("⬇️ Download Inventory File", open(inventory_file_path, "rb"), file_name="ON_HAND_INVENTORY.xlsx")
 else:
-    st.sidebar.info("No inventory file uploaded yet.")
+    uploaded_inventory = st.sidebar.file_uploader("Upload ON_HAND_INVENTORY.xlsx", type=["xlsx"], key="inv_file")
+    if uploaded_inventory:
+        with open(inventory_file_path, "wb") as f:
+            f.write(uploaded_inventory.getbuffer())
+        st.sidebar.success("✅ Inventory file uploaded and saved.")
 
+# Master File
 if os.path.exists(master_file_path):
-    st.sidebar.write(f"**Active Master File:** {os.path.basename(master_file_path)}")
+    st.sidebar.markdown(f"✅ **Active Master File:** `{os.path.basename(master_file_path)}`")
     st.sidebar.download_button("⬇️ Download Master File", open(master_file_path, "rb"), file_name="Empty Bin Formula.xlsx")
 else:
-    st.sidebar.info("No master file uploaded yet.")
+    uploaded_master = st.sidebar.file_uploader("Upload Empty Bin Formula.xlsx", type=["xlsx"], key="master_file")
+    if uploaded_master:
+        with open(master_file_path, "wb") as f:
+            f.write(uploaded_master.getbuffer())
+        st.sidebar.success("✅ Master file uploaded and saved.")
 
-# ---------------- CORRECTION LOG ----------------
+# Correction Log
 st.sidebar.markdown("### 📋 Correction Log")
 log_file = "correction_log.csv"
 correction_df = pd.DataFrame()
@@ -319,3 +323,4 @@ elif st.session_state.active_view == "Bulk Discrepancies":
                     for _, drow in details.iterrows():
                         log_correction(loc, issue, drow.get("WarehouseSku",""), drow.get("PalletId",""),
                                        drow.get("CustomerLotReference",""), drow.get("Qty",""), notes)
+                    st.success(f"✅ Correction logged for {loc} — {issue}")
