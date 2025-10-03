@@ -32,13 +32,15 @@ if uploaded_master:
         f.write(uploaded_master.getbuffer())
     st.sidebar.success("✅ Master file uploaded and saved.")
 
-# Show download buttons for persisted files
+# Show active files in sidebar
 if os.path.exists(inventory_file_path):
+    st.sidebar.write(f"**Active Inventory File:** {os.path.basename(inventory_file_path)}")
     st.sidebar.download_button("⬇️ Download Inventory File", open(inventory_file_path, "rb"), file_name="ON_HAND_INVENTORY.xlsx")
 else:
     st.sidebar.info("No inventory file uploaded yet.")
 
 if os.path.exists(master_file_path):
+    st.sidebar.write(f"**Active Master File:** {os.path.basename(master_file_path)}")
     st.sidebar.download_button("⬇️ Download Master File", open(master_file_path, "rb"), file_name="Empty Bin Formula.xlsx")
 else:
     st.sidebar.info("No master file uploaded yet.")
