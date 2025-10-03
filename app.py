@@ -18,34 +18,33 @@ def set_view(view_name):
 st.markdown("""
 <style>
 .kpi-container {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-bottom: 20px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 15px;
+    margin-bottom: 25px;
 }
 .kpi-card {
-    flex: 1 1 calc(25% - 12px);
     background: #2b2b2b;
     border: 2px solid #00f0ff;
-    border-radius: 10px;
-    padding: 15px;
+    border-radius: 12px;
+    padding: 20px;
     color: #e0e0e0;
     text-align: center;
     cursor: pointer;
     transition: transform 0.3s ease, box-shadow 0.3s ease;
-    box-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+    box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
 }
 .kpi-card:hover {
-    transform: scale(1.05);
-    box-shadow: 0 0 20px rgba(0, 240, 255, 0.8);
+    transform: scale(1.08);
+    box-shadow: 0 0 25px rgba(0, 240, 255, 0.9);
 }
 .kpi-title {
-    font-size: 14px;
+    font-size: 16px;
     font-weight: bold;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
 }
 .kpi-value {
-    font-size: 24px;
+    font-size: 28px;
     font-weight: bold;
     color: #00f0ff;
 }
@@ -270,11 +269,9 @@ kpi_data = {
 }
 
 st.markdown('<div class="kpi-container">', unsafe_allow_html=True)
-cols = st.columns(len(kpi_data))
-for i, (title, value) in enumerate(kpi_data.items()):
-    with cols[i]:
-        if st.button(f"{title}\n{value}", key=f"kpi_{i}"):
-            set_view(title)
+for title, value in kpi_data.items():
+    if st.button(f"{title}\n{value}", key=title):
+        set_view(title)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Dynamic Content Area
