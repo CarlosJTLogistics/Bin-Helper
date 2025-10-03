@@ -7,6 +7,10 @@ from io import BytesIO
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
+# ---------------- SESSION STATE ----------------
+if "active_view" not in st.session_state:
+    st.session_state.active_view = "Empty Bins"
+
 # ---------------- SIDEBAR ----------------
 st.sidebar.title("📦 Bin Helper")
 st.sidebar.markdown("### 📁 Upload Required Files")
@@ -215,7 +219,7 @@ discrepancy_df = find_discrepancies(filtered_inventory_df)
 # -------------------- UI --------------------
 st.markdown("## 📦 Bin Helper Dashboard")
 
-# KPI Cards in Horizontal Layout
+# KPI Cards as Clickable Buttons
 kpi_data = [
     {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
     {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
@@ -230,42 +234,27 @@ kpi_data = [
 cols = st.columns(len(kpi_data))
 for i, item in enumerate(kpi_data):
     with cols[i]:
-        st.metric(label=f"{item['icon']} {item['title']}", value=item["value"])
+        if st.button(f"{item['icon']} {item['title']}\n{item['value']}", key=item['title']):
+            st.session_state.active_view = item['title']
 
-# Horizontal Tabs for Data Views
-tabs = st.tabs([
-    "Empty Bins",
-    "Full Pallet Bins",
-    "Empty Partial Bins",
-    "Partial Bins",
-    "Damages",
-    "Missing",
-    "Discrepancies",
-    "Bulk Discrepancies"
-])
+# Display Selected View
+st.markdown(f"### 🔍 Viewing: {st.session_state.active_view}")
 
-with tabs[0]:
+if st.session_state.active_view == "Empty Bins":
     st.dataframe(empty_bins_view_df)
-
-with tabs[1]:
+elif st.session_state.active_view == "Full Pallet Bins":
     st.dataframe(full_pallet_bins_df)
-
-with tabs[2]:
+elif st.session_state.active_view == "Empty Partial Bins":
     st.dataframe(empty_partial_bins_df)
-
-with tabs[3]:
+elif st.session_state.active_view == "Partial Bins":
     st.dataframe(partial_bins_df)
-
-with tabs[4]:
+elif st.session_state.active_view == "Damages":
     st.dataframe(damage_df)
-
-with tabs[5]:
+elif st.session_state.active_view == "Missing":
     st.dataframe(missing_df)
-
-with tabs[6]:
+elif st.session_state.active_view == "Discrepancies":
     st.dataframe(discrepancy_df)
-
-with tabs[7]:
+elif st.session_state.active_view == "Bulk Discrepancies":
     q = st.text_input("Search bulk slot", "", placeholder="Type a bulk slot (e.g., A012, I032)")
     bulk_disc_view = bulk_df[bulk_df["Issue"] != ""]
     if q:
