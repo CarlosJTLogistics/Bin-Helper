@@ -10,18 +10,38 @@ st.set_page_config(page_title="Bin Helper", layout="wide")
 if "active_view" not in st.session_state:
     st.session_state.active_view = "Empty Bins"
 
+# ---------------- FILE PATHS ----------------
+inventory_file_path = "persisted_inventory.xlsx"
+master_file_path = "persisted_master.xlsx"
+
 # ---------------- SIDEBAR ----------------
 st.sidebar.title("📦 Bin Helper")
-st.sidebar.markdown("### 🔍 Search Filter")
-search_location = st.sidebar.text_input("Location Name")
-search_pallet = st.sidebar.text_input("Pallet ID")
-search_lot = st.sidebar.text_input("Customer Lot Reference")
-search_sku = st.sidebar.text_input("Warehouse SKU")
-
-# ---------------- FILE UPLOAD ----------------
 st.sidebar.markdown("### 📂 Upload Files")
+
+# Upload ON_HAND_INVENTORY.xlsx
 uploaded_inventory = st.sidebar.file_uploader("Upload ON_HAND_INVENTORY.xlsx", type=["xlsx"], key="inv_file")
+if uploaded_inventory:
+    with open(inventory_file_path, "wb") as f:
+        f.write(uploaded_inventory.getbuffer())
+    st.sidebar.success("✅ Inventory file uploaded and saved.")
+
+# Upload Empty Bin Formula.xlsx
 uploaded_master = st.sidebar.file_uploader("Upload Empty Bin Formula.xlsx", type=["xlsx"], key="master_file")
+if uploaded_master:
+    with open(master_file_path, "wb") as f:
+        f.write(uploaded_master.getbuffer())
+    st.sidebar.success("✅ Master file uploaded and saved.")
+
+# Show download buttons for persisted files
+if os.path.exists(inventory_file_path):
+    st.sidebar.download_button("⬇️ Download Inventory File", open(inventory_file_path, "rb"), file_name="ON_HAND_INVENTORY.xlsx")
+else:
+    st.sidebar.info("No inventory file uploaded yet.")
+
+if os.path.exists(master_file_path):
+    st.sidebar.download_button("⬇️ Download Master File", open(master_file_path, "rb"), file_name="Empty Bin Formula.xlsx")
+else:
+    st.sidebar.info("No master file uploaded yet.")
 
 # ---------------- CORRECTION LOG ----------------
 st.sidebar.markdown("### 📋 Correction Log")
@@ -40,16 +60,16 @@ else:
     st.sidebar.info("No correction log found yet.")
 
 # ---------------- LOAD DATA ----------------
-if uploaded_inventory:
-    inventory_df = pd.read_excel(uploaded_inventory, engine="openpyxl")
+if os.path.exists(inventory_file_path):
+    inventory_df = pd.read_excel(inventory_file_path, engine="openpyxl")
 else:
-    st.error("Please upload ON_HAND_INVENTORY.xlsx")
+    st.error("Please upload ON_HAND_INVENTORY.xlsx to proceed.")
     st.stop()
 
-if uploaded_master:
-    master_locations_df = pd.read_excel(uploaded_master, sheet_name="Master Locations", engine="openpyxl")
+if os.path.exists(master_file_path):
+    master_locations_df = pd.read_excel(master_file_path, sheet_name="Master Locations", engine="openpyxl")
 else:
-    st.error("Please upload Empty Bin Formula.xlsx")
+    st.error("Please upload Empty Bin Formula.xlsx to proceed.")
     st.stop()
 
 # ---------------- DATA PREP ----------------
