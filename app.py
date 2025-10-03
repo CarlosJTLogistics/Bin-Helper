@@ -161,7 +161,7 @@ def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
 
     duplicates = local.groupby("LocationName").size()
     for loc, n in duplicates[duplicates > 1].items():
-        if not loc[0].isdigit():  # Skip alphabetic bulk zones
+        if not loc[0].isdigit():
             continue
         issues_by_loc.setdefault(loc, []).append(f"Multiple pallets in same location ({n} pallets)")
 
@@ -180,7 +180,6 @@ def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             rows.append({"LocationName": loc, "Qty": qty_sum, "Issue": issue})
     df_out = pd.DataFrame(rows)
 
-    # Filter out corrected entries
     if not correction_df.empty:
         corrected_pairs = set(zip(correction_df["LocationName"], correction_df["Issue"]))
         df_out = df_out[~df_out.apply(lambda x: (x["LocationName"], x["Issue"]) in corrected_pairs, axis=1)]
@@ -258,7 +257,7 @@ kpi_data = [
 cols = st.columns(len(kpi_data))
 for i, item in enumerate(kpi_data):
     with cols[i]:
-        if st.button(f"{item['icon']} {item['title']}\n{item['value']}", key=item['title']):
+        if st.button(f"{item['icon']} {item['title']}\\n{item['value']}", key=item['title']):
             st.session_state.active_view = item['title']
 
 # Display Selected View
@@ -281,6 +280,7 @@ elif st.session_state.active_view == "Discrepancies":
     filtered_df = discrepancy_df.copy()
     if search_location:
         filtered_df = filtered_df[filtered_df["LocationName"].str.contains(search_location, case=False, na=False)]
+
     for loc in filtered_df["LocationName"].unique():
         loc_issues = filtered_df[filtered_df["LocationName"] == loc]
         with st.expander(f"📍 Location: {loc} — {len(loc_issues)} issue(s)"):
@@ -289,21 +289,28 @@ elif st.session_state.active_view == "Discrepancies":
             for _, drow in details.iterrows():
                 st.write(f"• SKU: `{drow.get('WarehouseSku','')}` | Pallet ID: `{drow.get('PalletId','')}` | "
                          f"Lot: `{drow.get('CustomerLotReference','')}` | Qty: `{drow.get('Qty','')}`")
+
+            selected_issues = []
             for idx, row in loc_issues.iterrows():
                 issue = row["Issue"]
                 qty = row["Qty"]
                 st.write(f"**Issue:** {issue} | **Qty:** {qty}")
                 notes = st.text_input(f"📝 Notes for {loc} - {issue}", key=f"note_{loc}_{idx}")
-                if st.button(f"✔ Mark as Corrected: {issue}", key=f"btn_{loc}_{idx}"):
+                if st.checkbox(f"Select: {issue}", key=f"chk_{loc}_{idx}"):
+                    selected_issues.append((issue, notes))
+
+            if selected_issues and st.button("✔ Apply Selected Corrections", key=f"apply_{loc}"):
+                for issue, notes in selected_issues:
                     for _, drow in details.iterrows():
                         log_correction(loc, issue, drow.get("WarehouseSku",""), drow.get("PalletId",""),
                                        drow.get("CustomerLotReference",""), drow.get("Qty",""), notes)
-                    st.success(f"✅ Correction logged for {loc} — {issue}")
+                st.success(f"✅ {len(selected_issues)} corrections applied for {loc}")
 elif st.session_state.active_view == "Bulk Discrepancies":
     st.markdown("#### Drill-down Details")
     filtered_bulk_df = bulk_df[bulk_df["Issue"] != ""].copy()
     if search_location:
         filtered_bulk_df = filtered_bulk_df[filtered_bulk_df["Location"].str.contains(search_location, case=False, na=False)]
+
     for loc in filtered_bulk_df["Location"].unique():
         loc_issues = filtered_bulk_df[filtered_bulk_df["Location"] == loc]
         with st.expander(f"📍 Bulk Location: {loc} — {len(loc_issues)} issue(s)"):
@@ -312,13 +319,19 @@ elif st.session_state.active_view == "Bulk Discrepancies":
             for _, drow in details.iterrows():
                 st.write(f"• SKU: `{drow.get('WarehouseSku','')}` | Pallet ID: `{drow.get('PalletId','')}` | "
                          f"Lot: `{drow.get('CustomerLotReference','')}` | Qty: `{drow.get('Qty','')}`")
+
+            selected_bulk_issues = []
             for idx, row in loc_issues.iterrows():
                 issue = row["Issue"]
                 qty = row["Current Pallets"]
                 st.write(f"**Issue:** {issue} | **Qty:** {qty}")
                 notes = st.text_input(f"📝 Notes for {loc} - {issue}", key=f"bulk_note_{loc}_{idx}")
-                if st.button(f"✔ Mark as Corrected: {issue}", key=f"bulk_btn_{loc}_{idx}"):
+                if st.checkbox(f"Select: {issue}", key=f"bulk_chk_{loc}_{idx}"):
+                    selected_bulk_issues.append((issue, notes))
+
+            if selected_bulk_issues and st.button("✔ Apply Selected Bulk Corrections", key=f"bulk_apply_{loc}"):
+                for issue, notes in selected_bulk_issues:
                     for _, drow in details.iterrows():
                         log_correction(loc, issue, drow.get("WarehouseSku",""), drow.get("PalletId",""),
                                        drow.get("CustomerLotReference",""), drow.get("Qty",""), notes)
-                    st.success(f"✅ Correction logged for {loc} — {issue}")
+                st.success(f"✅ {len(selected_bulk_issues)} bulk corrections applied for {loc}")
