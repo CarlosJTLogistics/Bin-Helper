@@ -19,7 +19,7 @@ st.markdown("""
 <style>
 .kpi-container {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 15px;
     margin-bottom: 25px;
 }
@@ -45,7 +45,7 @@ st.markdown("""
 .kpi-title {
     font-size: 15px;
     font-weight: bold;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
 }
 .kpi-value {
     font-size: 26px;
@@ -261,21 +261,21 @@ discrepancy_df = find_discrepancies(filtered_inventory_df)
 st.markdown("## 📦 Bin Helper Dashboard")
 
 # KPI Cards with Icons
-kpi_data = {
-    "Empty Bins": {"value": len(empty_bins_view_df), "icon": "📦"},
-    "Full Pallet Bins": {"value": len(full_pallet_bins_df), "icon": "🟩"},
-    "Empty Partial Bins": {"value": len(empty_partial_bins_df), "icon": "🟨"},
-    "Partial Bins": {"value": len(partial_bins_df), "icon": "🟥"},
-    "Damages": {"value": int(damage_df["Qty"].sum()), "icon": "🛠️"},
-    "Missing": {"value": int(missing_df["Qty"].sum()), "icon": "❓"},
-    "Discrepancies": {"value": len(discrepancy_df), "icon": "⚠️"},
-    "Bulk Discrepancies": {"value": bulk_discrepancies, "icon": "📊"}
-}
+kpi_data = [
+    {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
+    {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
+    {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df), "icon": "🟨"},
+    {"title": "Partial Bins", "value": len(partial_bins_df), "icon": "🟥"},
+    {"title": "Damages", "value": int(damage_df["Qty"].sum()), "icon": "🛠️"},
+    {"title": "Missing", "value": int(missing_df["Qty"].sum()), "icon": "❓"},
+    {"title": "Discrepancies", "value": len(discrepancy_df), "icon": "⚠️"},
+    {"title": "Bulk Discrepancies", "value": bulk_discrepancies, "icon": "📦"}
+]
 
 st.markdown('<div class="kpi-container">', unsafe_allow_html=True)
-for title, data in kpi_data.items():
-    if st.button(f"{data['icon']} {title}\n{data['value']}", key=title):
-        set_view(title)
+for item in kpi_data:
+    if st.button(f"{item['icon']} {item['title']}\n{item['value']}", key=item['title']):
+        set_view(item['title'])
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Dynamic Content Area
