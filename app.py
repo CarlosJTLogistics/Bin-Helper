@@ -244,20 +244,20 @@ st.markdown("## 📦 Bin Helper Dashboard")
 
 # KPI Cards
 kpi_data = [
-    {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
-    {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
-    {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df), "icon": "🟨"},
-    {"title": "Partial Bins", "value": len(partial_bins_df), "icon": "🟥"},
-    {"title": "Damages", "value": int(damage_df["Qty"].sum()), "icon": "🛠️"},
-    {"title": "Missing", "value": int(missing_df["Qty"].sum()), "icon": "❓"},
-    {"title": "Discrepancies", "value": len(discrepancy_df), "icon": "⚠️"},
-    {"title": "Bulk Discrepancies", "value": bulk_discrepancies, "icon": "📦"}
+    {"title": "Empty Bins", "value": f"QTY {len(empty_bins_view_df)}", "icon": "📦"},
+    {"title": "Full Pallet Bins", "value": f"QTY {len(full_pallet_bins_df)}", "icon": "🟩"},
+    {"title": "Empty Partial Bins", "value": f"QTY {len(empty_partial_bins_df)}", "icon": "🟨"},
+    {"title": "Partial Bins", "value": f"QTY {len(partial_bins_df)}", "icon": "🟥"},
+    {"title": "Damages", "value": f"QTY {int(damage_df['Qty'].sum())}", "icon": "🛠️"},
+    {"title": "Missing", "value": f"QTY {int(missing_df['Qty'].sum())}", "icon": "❓"},
+    {"title": "Discrepancies", "value": f"QTY {len(discrepancy_df)}", "icon": "⚠️"},
+    {"title": "Bulk Discrepancies", "value": f"QTY {bulk_discrepancies}", "icon": "📦"}
 ]
 
 cols = st.columns(len(kpi_data))
 for i, item in enumerate(kpi_data):
     with cols[i]:
-        if st.button(f"{item['icon']} {item['title']}\\n{item['value']}", key=item['title']):
+        if st.button(f"{item['icon']} {item['title']} | {item['value']}", key=item['title']):
             st.session_state.active_view = item['title']
 
 # Display Selected View
@@ -290,8 +290,8 @@ elif st.session_state.active_view == "Discrepancies":
                 st.write(f"• SKU: `{drow.get('WarehouseSku','')}` | Pallet ID: `{drow.get('PalletId','')}` | "
                          f"Lot: `{drow.get('CustomerLotReference','')}` | Qty: `{drow.get('Qty','')}`")
 
-            selected_issues = []
             st.markdown("**Issue** | **Qty** | **Notes** | **Select**")
+            selected_issues = []
             for idx, row in loc_issues.iterrows():
                 issue = row["Issue"]
                 qty = row["Qty"]
@@ -299,9 +299,9 @@ elif st.session_state.active_view == "Discrepancies":
                 with col1:
                     st.write(issue)
                 with col2:
-                    st.write(qty)
+                    st.write(f"QTY {qty}")
                 with col3:
-                    notes = st.text_input("", key=f"note_{loc}_{idx}")
+                    notes = st.text_input(f"Notes for {loc} - {issue}", key=f"note_{loc}_{idx}")
                 with col4:
                     if st.checkbox("", key=f"chk_{loc}_{idx}"):
                         selected_issues.append((issue, notes))
@@ -327,8 +327,8 @@ elif st.session_state.active_view == "Bulk Discrepancies":
                 st.write(f"• SKU: `{drow.get('WarehouseSku','')}` | Pallet ID: `{drow.get('PalletId','')}` | "
                          f"Lot: `{drow.get('CustomerLotReference','')}` | Qty: `{drow.get('Qty','')}`")
 
-            selected_bulk_issues = []
             st.markdown("**Issue** | **Qty** | **Notes** | **Select**")
+            selected_bulk_issues = []
             for idx, row in loc_issues.iterrows():
                 issue = row["Issue"]
                 qty = row["Current Pallets"]
@@ -336,9 +336,9 @@ elif st.session_state.active_view == "Bulk Discrepancies":
                 with col1:
                     st.write(issue)
                 with col2:
-                    st.write(qty)
+                    st.write(f"QTY {qty}")
                 with col3:
-                    notes = st.text_input("", key=f"bulk_note_{loc}_{idx}")
+                    notes = st.text_input(f"Notes for {loc} - {issue}", key=f"bulk_note_{loc}_{idx}")
                 with col4:
                     if st.checkbox("", key=f"bulk_chk_{loc}_{idx}"):
                         selected_bulk_issues.append((issue, notes))
