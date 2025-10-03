@@ -13,42 +13,35 @@ st.markdown("""
 .kpi-container {
     display: flex;
     flex-wrap: wrap;
-    gap: 15px;
+    gap: 12px;
     margin-bottom: 20px;
 }
 .kpi-card {
-    flex: 1 1 calc(25% - 15px);
-    background: linear-gradient(145deg, #1f1f1f, #2a2a2a);
-    border-radius: 12px;
-    padding: 20px;
-    color: white;
+    flex: 1 1 calc(25% - 12px);
+    background: #2b2b2b;
+    border: 2px solid #00f0ff;
+    border-radius: 10px;
+    padding: 15px;
+    color: #e0e0e0;
     text-align: center;
+    cursor: pointer;
     transition: transform 0.3s ease, box-shadow 0.3s ease;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+    box-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
 }
 .kpi-card:hover {
     transform: scale(1.05);
-    box-shadow: 0 6px 15px rgba(0,0,0,0.6);
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.8);
 }
 .kpi-title {
-    font-size: 16px;
+    font-size: 14px;
     font-weight: bold;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
 }
 .kpi-value {
-    font-size: 28px;
+    font-size: 24px;
     font-weight: bold;
+    color: #00f0ff;
 }
-.kpi-icon {
-    font-size: 22px;
-    margin-bottom: 5px;
-}
-.kpi-green { background: #1f4037; background: linear-gradient(145deg, #11998e, #38ef7d); }
-.kpi-orange { background: linear-gradient(145deg, #ff8008, #ffc837); }
-.kpi-red { background: linear-gradient(145deg, #cb2d3e, #ef473a); }
-.kpi-blue { background: linear-gradient(145deg, #396afc, #2948ff); }
-.kpi-purple { background: linear-gradient(145deg, #8e2de2, #4a00e0); }
-.kpi-yellow { background: linear-gradient(145deg, #f7971e, #ffd200); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -257,68 +250,32 @@ discrepancy_df = find_discrepancies(filtered_inventory_df)
 # -------------------- UI --------------------
 st.markdown("## 📦 Bin Helper Dashboard")
 
-# ✅ KPI CARDS WITH ANIMATIONS
+# ✅ INTERACTIVE KPI CARDS
+tabs = ["Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins", "Damages", "Missing", "Discrepancies", "Bulk Discrepancies"]
+kpi_values = [len(empty_bins_view_df), len(full_pallet_bins_df), len(empty_partial_bins_df), len(partial_bins_df),
+              int(damage_df["Qty"].sum()), int(missing_df["Qty"].sum()), len(discrepancy_df), bulk_discrepancies]
+
 st.markdown('<div class="kpi-container">', unsafe_allow_html=True)
-st.markdown(f'<div class="kpi-card kpi-blue"><div class="kpi-icon">📦</div><div class="kpi-title">Empty Bins</div><div class="kpi-value">{len(empty_bins_view_df)}</div></div>', unsafe_allow_html=True)
-st.markdown(f'<div class="kpi-card kpi-green"><div class="kpi-icon">🟩</div><div class="kpi-title">Full Pallet Bins</div><div class="kpi-value">{len(full_pallet_bins_df)}</div></div>', unsafe_allow_html=True)
-st.markdown(f'<div class="kpi-card kpi-orange"><div class="kpi-icon">🟨</div><div class="kpi-title">Empty Partial Bins</div><div class="kpi-value">{len(empty_partial_bins_df)}</div></div>', unsafe_allow_html=True)
-st.markdown(f'<div class="kpi-card kpi-red"><div class="kpi-icon">🟥</div><div class="kpi-title">Partial Bins</div><div class="kpi-value">{len(partial_bins_df)}</div></div>', unsafe_allow_html=True)
-st.markdown(f'<div class="kpi-card kpi-purple"><div class="kpi-icon">🛠️</div><div class="kpi-title">Damaged Qty</div><div class="kpi-value">{int(damage_df["Qty"].sum())}</div></div>', unsafe_allow_html=True)
-st.markdown(f'<div class="kpi-card kpi-yellow"><div class="kpi-icon">❓</div><div class="kpi-title">Missing Qty</div><div class="kpi-value">{int(missing_df["Qty"].sum())}</div></div>', unsafe_allow_html=True)
-st.markdown(f'<div class="kpi-card kpi-red"><div class="kpi-icon">⚠️</div><div class="kpi-title">Discrepancies</div><div class="kpi-value">{len(discrepancy_df)}</div></div>', unsafe_allow_html=True)
-st.markdown(f'<div class="kpi-card kpi-orange"><div class="kpi-icon">⚠️</div><div class="kpi-title">Bulk Discrepancies</div><div class="kpi-value">{bulk_discrepancies}</div></div>', unsafe_allow_html=True)
+for i, (title, value) in enumerate(zip(tabs, kpi_values)):
+    st.markdown(f'<div class="kpi-card" onclick="window.location.href=\'#{title.lower().replace(\" \", \"-\")}\'">'
+                f'<div class="kpi-title">{title}</div><div class="kpi-value">{value}</div></div>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Tabs
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
-    "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins",
-    "Damages", "Missing", "Discrepancies", "Bulk Locations", "Bulk Discrepancies"
-])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(tabs)
 
-with tab1:
-    st.subheader("📦 Empty Bins")
-    st.dataframe(empty_bins_view_df)
-
-with tab2:
-    st.subheader("🟩 Full Pallet Bins")
-    st.dataframe(full_pallet_bins_df)
-
-with tab3:
-    st.subheader("🟨 Empty Partial Bins")
-    st.dataframe(empty_partial_bins_df)
-
-with tab4:
-    st.subheader("🟥 Partial Bins")
-    st.dataframe(partial_bins_df)
-
-with tab5:
-    st.subheader("🛠️ Damaged Inventory")
-    st.dataframe(damage_df)
-
-with tab6:
-    st.subheader("❓ Missing Inventory")
-    st.dataframe(missing_df)
-
-with tab7:
-    st.subheader("⚠️ Discrepancies")
-    st.dataframe(discrepancy_df)
-
+with tab1: st.dataframe(empty_bins_view_df)
+with tab2: st.dataframe(full_pallet_bins_df)
+with tab3: st.dataframe(empty_partial_bins_df)
+with tab4: st.dataframe(partial_bins_df)
+with tab5: st.dataframe(damage_df)
+with tab6: st.dataframe(missing_df)
+with tab7: st.dataframe(discrepancy_df)
 with tab8:
-    st.subheader("📦 Bulk Locations")
-    st.dataframe(bulk_df)
-
-# ✅ FIXED TAB 9
-with tab9:
-    st.subheader("⚠️ Bulk Discrepancies")
     q = st.text_input("Search bulk slot", "", placeholder="Type a bulk slot (e.g., A012, I032)")
-
     bulk_disc_view = bulk_df[bulk_df["Issue"] != ""]
-
     if q:
-        bulk_disc_view = bulk_disc_view[
-            bulk_disc_view["Location"].astype(str).str.contains(q, case=False, na=False, regex=False)
-        ]
-
+        bulk_disc_view = bulk_disc_view[bulk_disc_view["Location"].astype(str).str.contains(q, case=False, na=False)]
     if bulk_disc_view.empty:
         st.warning("✅ No bulk discrepancies found for the current filter.")
     else:
