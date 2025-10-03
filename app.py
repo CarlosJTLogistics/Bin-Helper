@@ -4,58 +4,14 @@ import streamlit as st
 import requests
 from io import BytesIO
 
-# -------------------- PAGE CONFIG --------------------
+# ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
-# -------------------- SESSION STATE --------------------
+# ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
     st.session_state.active_view = "Empty Bins"
 
-def set_view(view_name):
-    st.session_state.active_view = view_name
-
-# -------------------- CUSTOM CSS --------------------
-st.markdown("""
-<style>
-.kpi-container {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 15px;
-    margin-bottom: 25px;
-}
-.kpi-card {
-    background: #2b2b2b;
-    border: 2px solid #00f0ff;
-    border-radius: 12px;
-    padding: 18px;
-    color: #e0e0e0;
-    text-align: center;
-    cursor: pointer;
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-    box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
-}
-.kpi-card:hover {
-    transform: scale(1.08);
-    box-shadow: 0 0 25px rgba(0, 240, 255, 0.9);
-}
-.kpi-icon {
-    font-size: 22px;
-    margin-bottom: 6px;
-}
-.kpi-title {
-    font-size: 15px;
-    font-weight: bold;
-    margin-bottom: 6px;
-}
-.kpi-value {
-    font-size: 26px;
-    font-weight: bold;
-    color: #00f0ff;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# -------------------- SIDEBAR --------------------
+# ---------------- SIDEBAR ----------------
 st.sidebar.title("📦 Bin Helper")
 st.sidebar.markdown("### 📁 Upload Required Files")
 
@@ -80,7 +36,7 @@ if uploaded_master:
 # GitHub fallback URL
 inventory_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/ON_HAND_INVENTORY.xlsx"
 
-# -------------------- LOAD INVENTORY FILE --------------------
+# ---------------- LOAD INVENTORY FILE ----------------
 try:
     if os.path.exists(DEFAULT_INVENTORY_PATH):
         st.sidebar.info(f"📂 Using local file: {DEFAULT_INVENTORY_PATH}")
@@ -96,7 +52,7 @@ except Exception as e:
 
 inventory_df = list(inventory_dict.values())[0]
 
-# -------------------- LOAD MASTER LOCATIONS --------------------
+# ---------------- LOAD MASTER LOCATIONS ----------------
 try:
     if os.path.exists(DEFAULT_MASTER_PATH):
         st.sidebar.info(f"📂 Using local file: {DEFAULT_MASTER_PATH}")
@@ -108,7 +64,7 @@ except Exception as e:
     st.error(f"❌ Failed to load Empty Bin Formula.xlsx: {e}")
     st.stop()
 
-# -------------------- DATA PREP --------------------
+# ---------------- DATA PREP ----------------
 inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 
@@ -167,7 +123,10 @@ def get_partial_bins(df):
 def get_empty_partial_bins(master_locs, occupied_locs):
     partial_candidates = [
         loc for loc in master_locs
-        if loc.endswith("01") and not loc.startswith("111") and not str(loc).upper().startswith("TUN") and str(loc)[0] not in bulk_rules.keys()
+        if loc.endswith("01")
+        and not loc.startswith("111")
+        and not str(loc).upper().startswith("TUN")
+        and str(loc)[0] not in bulk_rules.keys()
     ]
     empty_partial = sorted(set(partial_candidates) - set(occupied_locs))
     return pd.DataFrame({"LocationName": empty_partial})
@@ -257,10 +216,10 @@ damage_df = get_damage(filtered_inventory_df)[columns_to_show]
 missing_df = get_missing(filtered_inventory_df)[columns_to_show]
 discrepancy_df = find_discrepancies(filtered_inventory_df)
 
-# -------------------- UI --------------------
+# ---------------- UI ----------------
 st.markdown("## 📦 Bin Helper Dashboard")
 
-# KPI Cards with Icons
+# KPI Cards
 kpi_data = [
     {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
     {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
@@ -272,29 +231,45 @@ kpi_data = [
     {"title": "Bulk Discrepancies", "value": bulk_discrepancies, "icon": "📦"}
 ]
 
-st.markdown('<div class="kpi-container">', unsafe_allow_html=True)
-for item in kpi_data:
-    if st.button(f"{item['icon']} {item['title']}\n{item['value']}", key=item['title']):
-        set_view(item['title'])
-st.markdown('</div>', unsafe_allow_html=True)
+cols = st.columns(len(kpi_data))
+for i, item in enumerate(kpi_data):
+    with cols[i]:
+        st.metric(label=f"{item['icon']} {item['title']}", value=item["value"])
 
-# Dynamic Content Area
-st.markdown(f"### 🔍 Viewing: {st.session_state.active_view}")
-if st.session_state.active_view == "Empty Bins":
+# Horizontal Tabs
+tabs = st.tabs([
+    "Empty Bins",
+    "Full Pallet Bins",
+    "Empty Partial Bins",
+    "Partial Bins",
+    "Damages",
+    "Missing",
+    "Discrepancies",
+    "Bulk Discrepancies"
+])
+
+with tabs[0]:
     st.dataframe(empty_bins_view_df)
-elif st.session_state.active_view == "Full Pallet Bins":
+
+with tabs[1]:
     st.dataframe(full_pallet_bins_df)
-elif st.session_state.active_view == "Empty Partial Bins":
+
+with tabs[2]:
     st.dataframe(empty_partial_bins_df)
-elif st.session_state.active_view == "Partial Bins":
+
+with tabs[3]:
     st.dataframe(partial_bins_df)
-elif st.session_state.active_view == "Damages":
+
+with tabs[4]:
     st.dataframe(damage_df)
-elif st.session_state.active_view == "Missing":
+
+with tabs[5]:
     st.dataframe(missing_df)
-elif st.session_state.active_view == "Discrepancies":
+
+with tabs[6]:
     st.dataframe(discrepancy_df)
-elif st.session_state.active_view == "Bulk Discrepancies":
+
+with tabs[7]:
     q = st.text_input("Search bulk slot", "", placeholder="Type a bulk slot (e.g., A012, I032)")
     bulk_disc_view = bulk_df[bulk_df["Issue"] != ""]
     if q:
