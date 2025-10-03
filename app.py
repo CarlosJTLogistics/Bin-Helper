@@ -18,6 +18,7 @@ search_pallet = st.sidebar.text_input("Pallet ID")
 search_lot = st.sidebar.text_input("Customer Lot Reference")
 search_sku = st.sidebar.text_input("Warehouse SKU")
 
+# Correction Log
 st.sidebar.markdown("### 📋 Correction Log")
 log_file = "correction_log.csv"
 correction_df = pd.DataFrame()
@@ -33,8 +34,22 @@ if os.path.exists(log_file):
 else:
     st.sidebar.info("No correction log found yet.")
 
-# ---------------- LOAD DATA ----------------
+# Uploaded Inventory File
+st.sidebar.markdown("### 📂 Uploaded Files")
 inventory_file = "ON_HAND_INVENTORY.xlsx"
+if os.path.exists(inventory_file):
+    st.sidebar.write(f"**File:** {inventory_file}")
+    with open(inventory_file, "rb") as f:
+        st.sidebar.download_button(
+            label="⬇️ Download Inventory File",
+            data=f,
+            file_name=os.path.basename(inventory_file),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+else:
+    st.sidebar.info("No inventory file found.")
+
+# ---------------- LOAD DATA ----------------
 master_file = "Empty Bin Formula.xlsx"
 try:
     inventory_dict = pd.read_excel(inventory_file, sheet_name=None, engine="openpyxl")
@@ -139,7 +154,8 @@ def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     for _, row in local.iterrows():
         loc = str(row["LocationName"])
         qty = row["Qty"]
-        if loc.endswith("01") and qty > 5:
+        # FIX: Exclude full pallet bins (111***)
+        if loc.endswith("01") and qty > 5 and not loc.startswith("111"):
             issues_by_loc.setdefault(loc, []).append("Partial bin exceeds max capacity (Qty > 5)")
         if loc.isnumeric() and not loc.endswith("01") and (qty < 6 or qty > 15):
             issues_by_loc.setdefault(loc, []).append("Partial pallet needs to be moved to partial location")
