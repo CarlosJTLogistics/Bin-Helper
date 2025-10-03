@@ -7,6 +7,51 @@ from io import BytesIO
 # -------------------- PAGE CONFIG --------------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
+# -------------------- CUSTOM CSS FOR KPI CARDS --------------------
+st.markdown("""
+<style>
+.kpi-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+.kpi-card {
+    flex: 1 1 calc(25% - 15px);
+    background: linear-gradient(145deg, #1f1f1f, #2a2a2a);
+    border-radius: 12px;
+    padding: 20px;
+    color: white;
+    text-align: center;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+}
+.kpi-card:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 15px rgba(0,0,0,0.6);
+}
+.kpi-title {
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 8px;
+}
+.kpi-value {
+    font-size: 28px;
+    font-weight: bold;
+}
+.kpi-icon {
+    font-size: 22px;
+    margin-bottom: 5px;
+}
+.kpi-green { background: #1f4037; background: linear-gradient(145deg, #11998e, #38ef7d); }
+.kpi-orange { background: linear-gradient(145deg, #ff8008, #ffc837); }
+.kpi-red { background: linear-gradient(145deg, #cb2d3e, #ef473a); }
+.kpi-blue { background: linear-gradient(145deg, #396afc, #2948ff); }
+.kpi-purple { background: linear-gradient(145deg, #8e2de2, #4a00e0); }
+.kpi-yellow { background: linear-gradient(145deg, #f7971e, #ffd200); }
+</style>
+""", unsafe_allow_html=True)
+
 # -------------------- SIDEBAR --------------------
 st.sidebar.title("📦 Bin Helper")
 st.sidebar.markdown("### 📁 Upload Required Files")
@@ -199,16 +244,7 @@ def analyze_bulk_locations(df):
     return pd.DataFrame(results), empty_locations, discrepancies
 
 bulk_df, bulk_empty_locations, bulk_discrepancies = analyze_bulk_locations(bulk_inventory_df)
-bulk_df["Issue"] = bulk_df["Issue"].fillna("").astype(str).str.strip()  # ✅ Normalize Issue column
-
-bulk_locations_count = bulk_inventory_df[
-    bulk_inventory_df["LocationName"].astype(str).str[0].isin(bulk_rules.keys()) &
-    (bulk_inventory_df["Qty"] > 0)
-]["LocationName"].nunique()
-bulk_total_qty = int(bulk_inventory_df[
-    bulk_inventory_df["LocationName"].astype(str).str[0].isin(bulk_rules.keys()) &
-    (bulk_inventory_df["Qty"] > 0)
-]["Qty"].sum())
+bulk_df["Issue"] = bulk_df["Issue"].fillna("").astype(str).str.strip()
 
 columns_to_show = ["LocationName", "PalletId", "Qty", "CustomerLotReference", "WarehouseSku"]
 full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)[columns_to_show]
@@ -221,18 +257,17 @@ discrepancy_df = find_discrepancies(filtered_inventory_df)
 # -------------------- UI --------------------
 st.markdown("## 📦 Bin Helper Dashboard")
 
-# KPI cards
-kpi_cols = st.columns(4)
-kpi_cols[0].metric("Empty Bins", len(empty_bins_view_df))
-kpi_cols[1].metric("Full Pallet Bins", len(full_pallet_bins_df))
-kpi_cols[2].metric("Empty Partial Bins", len(empty_partial_bins_df))
-kpi_cols[3].metric("Partial Bins", len(partial_bins_df))
-
-kpi_cols2 = st.columns(4)
-kpi_cols2[0].metric("Damaged Qty", int(damage_df["Qty"].sum()))
-kpi_cols2[1].metric("Missing Qty", int(missing_df["Qty"].sum()))
-kpi_cols2[2].metric("Discrepancies", len(discrepancy_df))
-kpi_cols2[3].metric("Bulk Discrepancies", bulk_discrepancies)
+# ✅ KPI CARDS WITH ANIMATIONS
+st.markdown('<div class="kpi-container">', unsafe_allow_html=True)
+st.markdown(f'<div class="kpi-card kpi-blue"><div class="kpi-icon">📦</div><div class="kpi-title">Empty Bins</div><div class="kpi-value">{len(empty_bins_view_df)}</div></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="kpi-card kpi-green"><div class="kpi-icon">🟩</div><div class="kpi-title">Full Pallet Bins</div><div class="kpi-value">{len(full_pallet_bins_df)}</div></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="kpi-card kpi-orange"><div class="kpi-icon">🟨</div><div class="kpi-title">Empty Partial Bins</div><div class="kpi-value">{len(empty_partial_bins_df)}</div></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="kpi-card kpi-red"><div class="kpi-icon">🟥</div><div class="kpi-title">Partial Bins</div><div class="kpi-value">{len(partial_bins_df)}</div></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="kpi-card kpi-purple"><div class="kpi-icon">🛠️</div><div class="kpi-title">Damaged Qty</div><div class="kpi-value">{int(damage_df["Qty"].sum())}</div></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="kpi-card kpi-yellow"><div class="kpi-icon">❓</div><div class="kpi-title">Missing Qty</div><div class="kpi-value">{int(missing_df["Qty"].sum())}</div></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="kpi-card kpi-red"><div class="kpi-icon">⚠️</div><div class="kpi-title">Discrepancies</div><div class="kpi-value">{len(discrepancy_df)}</div></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="kpi-card kpi-orange"><div class="kpi-icon">⚠️</div><div class="kpi-title">Bulk Discrepancies</div><div class="kpi-value">{bulk_discrepancies}</div></div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
 # Tabs
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
@@ -272,15 +307,12 @@ with tab8:
     st.subheader("📦 Bulk Locations")
     st.dataframe(bulk_df)
 
-# ✅ FIXED TAB 9 WITH DEBUG
+# ✅ FIXED TAB 9
 with tab9:
     st.subheader("⚠️ Bulk Discrepancies")
     q = st.text_input("Search bulk slot", "", placeholder="Type a bulk slot (e.g., A012, I032)")
 
     bulk_disc_view = bulk_df[bulk_df["Issue"] != ""]
-
-    # Debug info
-    st.caption(f"Debug: Total rows in bulk_df = {len(bulk_df)}, Rows with issues = {len(bulk_disc_view)}")
 
     if q:
         bulk_disc_view = bulk_disc_view[
