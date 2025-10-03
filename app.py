@@ -7,14 +7,14 @@ from io import BytesIO
 # -------------------- PAGE CONFIG --------------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
-# -------------------- SESSION STATE FOR DRILL-DOWN --------------------
-if "active_tab" not in st.session_state:
-    st.session_state.active_tab = "Empty Bins"
+# -------------------- SESSION STATE --------------------
+if "active_view" not in st.session_state:
+    st.session_state.active_view = "Empty Bins"
 
-def set_active_tab(tab_name):
-    st.session_state.active_tab = tab_name
+def set_view(view_name):
+    st.session_state.active_view = view_name
 
-# -------------------- CUSTOM CSS FOR KPI CARDS --------------------
+# -------------------- CUSTOM CSS --------------------
 st.markdown("""
 <style>
 .kpi-container {
@@ -257,36 +257,48 @@ discrepancy_df = find_discrepancies(filtered_inventory_df)
 # -------------------- UI --------------------
 st.markdown("## 📦 Bin Helper Dashboard")
 
-# ✅ INTERACTIVE KPI CARDS WITH DRILL-DOWN
-tabs = ["Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins", "Damages", "Missing", "Discrepancies", "Bulk Discrepancies"]
-kpi_values = [len(empty_bins_view_df), len(full_pallet_bins_df), len(empty_partial_bins_df), len(partial_bins_df),
-              int(damage_df["Qty"].sum()), int(missing_df["Qty"].sum()), len(discrepancy_df), bulk_discrepancies]
+# KPI Cards
+kpi_data = {
+    "Empty Bins": len(empty_bins_view_df),
+    "Full Pallet Bins": len(full_pallet_bins_df),
+    "Empty Partial Bins": len(empty_partial_bins_df),
+    "Partial Bins": len(partial_bins_df),
+    "Damages": int(damage_df["Qty"].sum()),
+    "Missing": int(missing_df["Qty"].sum()),
+    "Discrepancies": len(discrepancy_df),
+    "Bulk Discrepancies": bulk_discrepancies
+}
 
 st.markdown('<div class="kpi-container">', unsafe_allow_html=True)
-for i, (title, value) in enumerate(zip(tabs, kpi_values)):
-    if st.button(f"{title}: {value}", key=f"kpi_{i}"):
-        set_active_tab(title)
+cols = st.columns(len(kpi_data))
+for i, (title, value) in enumerate(kpi_data.items()):
+    with cols[i]:
+        if st.button(f"{title}\n{value}", key=f"kpi_{i}"):
+            set_view(title)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Tabs
-tab_objects = st.tabs(tabs)
-
-# Render tabs based on active_tab
-for i, tab in enumerate(tabs):
-    with tab_objects[i]:
-        if tab == "Empty Bins": st.dataframe(empty_bins_view_df)
-        elif tab == "Full Pallet Bins": st.dataframe(full_pallet_bins_df)
-        elif tab == "Empty Partial Bins": st.dataframe(empty_partial_bins_df)
-        elif tab == "Partial Bins": st.dataframe(partial_bins_df)
-        elif tab == "Damages": st.dataframe(damage_df)
-        elif tab == "Missing": st.dataframe(missing_df)
-        elif tab == "Discrepancies": st.dataframe(discrepancy_df)
-        elif tab == "Bulk Discrepancies":
-            q = st.text_input("Search bulk slot", "", placeholder="Type a bulk slot (e.g., A012, I032)")
-            bulk_disc_view = bulk_df[bulk_df["Issue"] != ""]
-            if q:
-                bulk_disc_view = bulk_disc_view[bulk_disc_view["Location"].astype(str).str.contains(q, case=False, na=False)]
-            if bulk_disc_view.empty:
-                st.warning("✅ No bulk discrepancies found for the current filter.")
-            else:
-                st.dataframe(bulk_disc_view, use_container_width=True)
+# Dynamic Content Area
+st.markdown(f"### 🔍 Viewing: {st.session_state.active_view}")
+if st.session_state.active_view == "Empty Bins":
+    st.dataframe(empty_bins_view_df)
+elif st.session_state.active_view == "Full Pallet Bins":
+    st.dataframe(full_pallet_bins_df)
+elif st.session_state.active_view == "Empty Partial Bins":
+    st.dataframe(empty_partial_bins_df)
+elif st.session_state.active_view == "Partial Bins":
+    st.dataframe(partial_bins_df)
+elif st.session_state.active_view == "Damages":
+    st.dataframe(damage_df)
+elif st.session_state.active_view == "Missing":
+    st.dataframe(missing_df)
+elif st.session_state.active_view == "Discrepancies":
+    st.dataframe(discrepancy_df)
+elif st.session_state.active_view == "Bulk Discrepancies":
+    q = st.text_input("Search bulk slot", "", placeholder="Type a bulk slot (e.g., A012, I032)")
+    bulk_disc_view = bulk_df[bulk_df["Issue"] != ""]
+    if q:
+        bulk_disc_view = bulk_disc_view[bulk_disc_view["Location"].astype(str).str.contains(q, case=False, na=False)]
+    if bulk_disc_view.empty:
+        st.warning("✅ No bulk discrepancies found for the current filter.")
+    else:
+        st.dataframe(bulk_disc_view, use_container_width=True)
