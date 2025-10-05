@@ -1,20 +1,17 @@
 import os
 import pandas as pd
 import streamlit as st
-from datetime import datetime
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
-    st.session_state.active_view = "Discrepancies"
+    st.session_state.active_view = "Empty Bins"
 
 # ---------------- FILE PATHS ----------------
 inventory_file_path = "persisted_inventory.xlsx"
 master_file_path = "persisted_master.xlsx"
-log_file = "correction_log.csv"
 
 # ---------------- LOAD DATA ----------------
 if not os.path.exists(inventory_file_path) or not os.path.exists(master_file_path):
@@ -25,153 +22,200 @@ inventory_df = pd.read_excel(inventory_file_path, engine="openpyxl")
 master_df = pd.read_excel(master_file_path, sheet_name="Master Locations", engine="openpyxl")
 
 # ---------------- DATA PREP ----------------
-inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
+inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
 
 bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
 
-def is_valid_location(loc):
-    if pd.isna(loc): return False
-    loc_str = str(loc).upper()
-    return (
-        loc_str.startswith("TUN")
-        or loc_str.isdigit()
-        or loc_str[0] in bulk_rules.keys()
-    )
-
-# Filter inventory for valid locations and exclude DAMAGE/IB
-filtered_inventory_df = inventory_df[inventory_df["LocationName"].apply(is_valid_location)]
-filtered_inventory_df = filtered_inventory_df[
-    ~filtered_inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"]) &
-    ~filtered_inventory_df["LocationName"].astype(str).str.upper().str.startswith("IB")
+# Filter out DAMAGE and IB locations for most calculations
+filtered_inventory_df = inventory_df[
+    ~inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"]) &
+    ~inventory_df["LocationName"].astype(str).str.upper().str.startswith("IB")
 ]
 
-# ---------------- DISCREPANCY LOGIC ----------------
-def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
-    local = df.copy()
-    local["LocationName"] = local["LocationName"].astype(str)
-    issues_by_loc = {}
+# ---------------- BUSINESS RULES ----------------
+occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
+master_locations = set(master_df.iloc[1:, 0].dropna().astype(str).unique())
 
-    duplicates = local.groupby("LocationName").size()
-    for loc, n in duplicates[duplicates > 1].items():
-        if not loc[0].isdigit(): continue
-        issues_by_loc.setdefault(loc, []).append(f"Multiple pallets in same location ({n} pallets)")
+def exclude_damage_missing(df):
+    return df[~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"])]
 
-    for _, row in local.iterrows():
-        loc = str(row["LocationName"])
-        qty = row["Qty"]
-        if loc.endswith("01") and qty > 5 and not loc.startswith("111") and not loc.upper().startswith("TUN") and loc[0].isdigit():
-            issues_by_loc.setdefault(loc, []).append("Partial bin exceeds max capacity (Qty > 5)")
-        if loc.isnumeric() and not loc.endswith("01") and (qty < 6 or qty > 15):
-            issues_by_loc.setdefault(loc, []).append("Partial pallet needs to be moved to partial location")
+def get_full_pallet_bins(df):
+    df = exclude_damage_missing(df)
+    return df[
+        ((~df["LocationName"].astype(str).str.endswith("01")) | (df["LocationName"].astype(str).str.startswith("111"))) &
+        (df["LocationName"].astype(str).str.isnumeric()) &
+        (df["Qty"].between(6, 15))
+    ]
 
-    rows = []
-    for loc, issues in issues_by_loc.items():
-        details = local[local["LocationName"] == loc]
-        for issue in sorted(set(issues)):
-            for _, drow in details.iterrows():
-                rows.append({
-                    "Location": loc,
-                    "Issue": issue,
-                    "Qty": drow.get("Qty", ""),
-                    "WarehouseSku": drow.get("WarehouseSku", ""),
-                    "PalletId": drow.get("PalletId", ""),
-                    "CustomerLotReference": drow.get("CustomerLotReference", ""),
-                    "Notes": ""
-                })
-    return pd.DataFrame(rows)
+def get_partial_bins(df):
+    df = exclude_damage_missing(df)
+    return df[
+        df["LocationName"].astype(str).str.endswith("01") &
+        ~df["LocationName"].astype(str).str.startswith("111") &
+        ~df["LocationName"].astype(str).str.upper().str.startswith("TUN") &
+        df["LocationName"].astype(str).str[0].str.isdigit()
+    ]
 
+def get_empty_partial_bins(master_locs, occupied_locs):
+    partial_candidates = [
+        loc for loc in master_locs
+        if loc.endswith("01") and not loc.startswith("111") and not str(loc).upper().startswith("TUN") and str(loc)[0].isdigit()
+    ]
+    empty_partial = sorted(set(partial_candidates) - set(occupied_locs))
+    return pd.DataFrame({"LocationName": empty_partial})
+
+empty_bins_view_df = pd.DataFrame({"LocationName": [loc for loc in master_locations if loc not in occupied_locations]})
+full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)
+partial_bins_df = get_partial_bins(filtered_inventory_df)
+empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locations)
+
+# Damages and Missing
+damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
+missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
+
+# ---------------- BULK DISCREPANCY LOGIC ----------------
 def analyze_bulk_locations(df):
     results = []
-    discrepancies = 0
     for letter, max_pallets in bulk_rules.items():
         letter_df = df[df["LocationName"].astype(str).str.startswith(letter)]
         slot_counts = letter_df.groupby("LocationName").size()
         for slot, count in slot_counts.items():
             if count > max_pallets:
-                issue = f"Too many pallets ({count} > {max_pallets})"
-                discrepancies += 1
                 details = df[df["LocationName"] == slot]
                 for _, drow in details.iterrows():
                     results.append({
                         "Location": slot,
-                        "Issue": issue,
+                        "Issue": f"Too many pallets ({count} > {max_pallets})",
                         "Qty": drow.get("Qty", ""),
                         "WarehouseSku": drow.get("WarehouseSku", ""),
                         "PalletId": drow.get("PalletId", ""),
                         "CustomerLotReference": drow.get("CustomerLotReference", ""),
                         "Notes": ""
                     })
-    return pd.DataFrame(results), discrepancies
+    return pd.DataFrame(results)
 
-bulk_df, bulk_discrepancies = analyze_bulk_locations(filtered_inventory_df)
-bulk_df = bulk_df[
-    ~bulk_df["Location"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"]) &
-    ~bulk_df["Location"].astype(str).str.upper().str.startswith("IB")
+bulk_df = analyze_bulk_locations(filtered_inventory_df)
+
+# ---------------- DISCREPANCY LOGIC ----------------
+def analyze_discrepancies(df):
+    df = get_partial_bins(df)
+    results = []
+    for _, row in df.iterrows():
+        results.append({
+            "Location": row.get("LocationName", ""),
+            "Issue": "Partial pallet needs relocation",
+            "Qty": row.get("Qty", ""),
+            "WarehouseSku": row.get("WarehouseSku", ""),
+            "PalletId": row.get("PalletId", ""),
+            "CustomerLotReference": row.get("CustomerLotReference", ""),
+            "Notes": ""
+        })
+    return pd.DataFrame(results)
+
+discrepancy_df = analyze_discrepancies(filtered_inventory_df)
+
+# ---------------- KPI CARDS ----------------
+kpi_data = [
+    {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦", "color": "#8B4513"},
+    {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩", "color": "#228B22"},
+    {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df), "icon": "🟨", "color": "#FFA500"},
+    {"title": "Partial Bins", "value": len(partial_bins_df), "icon": "🟥", "color": "#DC143C"},
+    {"title": "Damages", "value": len(damages_df), "icon": "🛠️", "color": "#808080"},
+    {"title": "Missing", "value": len(missing_df), "icon": "❓", "color": "#FF69B4"},
+    {"title": "Discrepancies", "value": len(discrepancy_df), "icon": "⚠️", "color": "#FF8C00"},
+    {"title": "Bulk Discrepancies", "value": len(bulk_df), "icon": "📦", "color": "#DAA520"}
 ]
 
-discrepancy_df = find_discrepancies(filtered_inventory_df)
-discrepancy_df = discrepancy_df[
-    ~discrepancy_df["Location"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"]) &
-    ~discrepancy_df["Location"].astype(str).str.upper().str.startswith("IB")
-]
+st.markdown("""
+    <style>
+    .kpi-card {
+        background-color: #1e1e1e;
+        border-radius: 10px;
+        padding: 15px;
+        text-align: center;
+        color: white;
+        font-family: 'Segoe UI', sans-serif;
+        box-shadow: 0 0 10px rgba(0,0,0,0.3);
+        transition: transform 0.2s ease;
+        cursor: pointer;
+        border: 1px solid #444;
+    }
+    .kpi-card:hover {
+        transform: scale(1.05);
+        border-color: #888;
+    }
+    .kpi-icon {
+        font-size: 24px;
+    }
+    .kpi-title {
+        font-weight: bold;
+        font-size: 16px;
+        margin-top: 8px;
+    }
+    .kpi-value {
+        font-size: 14px;
+        margin-top: 4px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+cols = st.columns(len(kpi_data))
+for i, item in enumerate(kpi_data):
+    with cols[i]:
+        if st.button(f"{item['icon']} {item['title']} | QTY {item['value']}", key=item['title']):
+            st.session_state.active_view = item['title']
 
 # ---------------- UI ----------------
-st.markdown("## 📦 Bin Helper Dashboard")
 st.markdown(f"### 🔍 Viewing: {st.session_state.active_view}")
-
 search_location = st.text_input("🔍 Filter by Location")
 
-if st.session_state.active_view == "Discrepancies":
-    filtered_df = discrepancy_df.copy()
-    if search_location:
-        filtered_df = filtered_df[filtered_df["Location"].str.contains(search_location, case=False, na=False)]
-
-    gb = GridOptionsBuilder.from_dataframe(filtered_df)
-    gb.configure_selection("multiple", use_checkbox=True)
-    gb.configure_column("Notes", editable=True, cellStyle={"white-space": "normal"})
-    gb.configure_column("Location", rowGroup=True, hide=True)
-    gb.configure_grid_options(enableRowGroup=True)
-    gb.configure_default_column(resizable=True, wrapText=True, autoHeight=True)
-    if not filtered_df.empty:
-        gb.configure_side_bar()
-    grid_options = gb.build()
-
-    AgGrid(
-        filtered_df,
-        gridOptions=grid_options,
-        update_mode=GridUpdateMode.VALUE_CHANGED,
-        allow_unsafe_jscode=True,
-        theme="material",
-        key="discrepancy_grid",
-        height=600,
-        fit_columns_on_grid_load=True,
-        use_container_width=True
-    )
-
-elif st.session_state.active_view == "Bulk Discrepancies":
+if st.session_state.active_view == "Bulk Discrepancies":
     filtered_bulk_df = bulk_df.copy()
     if search_location:
         filtered_bulk_df = filtered_bulk_df[filtered_bulk_df["Location"].str.contains(search_location, case=False, na=False)]
 
-    gb = GridOptionsBuilder.from_dataframe(filtered_bulk_df)
-    gb.configure_selection("multiple", use_checkbox=True)
-    gb.configure_column("Notes", editable=True, cellStyle={"white-space": "normal"})
-    gb.configure_column("Location", rowGroup=True, hide=True)
-    gb.configure_grid_options(enableRowGroup=True)
-    gb.configure_default_column(resizable=True, wrapText=True, autoHeight=True)
-    if not filtered_bulk_df.empty:
-        gb.configure_side_bar()
-    grid_options = gb.build()
+    if filtered_bulk_df.empty:
+        st.warning("✅ No discrepancies found.")
+    else:
+        grouped_by_location = filtered_bulk_df.groupby("Location")
+        for location, loc_group in grouped_by_location:
+            with st.expander(f"📍 Location: {location} ({len(loc_group)} rows)"):
+                grouped_by_issue = loc_group.groupby("Issue")
+                for issue, issue_group in grouped_by_issue:
+                    with st.expander(f"⚠️ Issue: {issue} ({len(issue_group)} rows)"):
+                        st.table(issue_group.drop(columns=["Location", "Issue"]))
 
-    AgGrid(
-        filtered_bulk_df,
-        gridOptions=grid_options,
-        update_mode=GridUpdateMode.VALUE_CHANGED,
-        allow_unsafe_jscode=True,
-        theme="material",
-        key="bulk_grid",
-        height=600,
-        fit_columns_on_grid_load=True,
-        use_container_width=True
-    )
+elif st.session_state.active_view == "Discrepancies":
+    filtered_discrepancy_df = discrepancy_df.copy()
+    if search_location:
+        filtered_discrepancy_df = filtered_discrepancy_df[filtered_discrepancy_df["Location"].str.contains(search_location, case=False, na=False)]
+
+    if filtered_discrepancy_df.empty:
+        st.warning("✅ No discrepancies found.")
+    else:
+        grouped_by_location = filtered_discrepancy_df.groupby("Location")
+        for location, loc_group in grouped_by_location:
+            with st.expander(f"📍 Location: {location} ({len(loc_group)} rows)"):
+                grouped_by_issue = loc_group.groupby("Issue")
+                for issue, issue_group in grouped_by_issue:
+                    with st.expander(f"⚠️ Issue: {issue} ({len(issue_group)} rows)"):
+                        st.table(issue_group.drop(columns=["Location", "Issue"]))
+
+elif st.session_state.active_view == "Empty Bins":
+    st.table(empty_bins_view_df)
+
+elif st.session_state.active_view == "Full Pallet Bins":
+    st.table(full_pallet_bins_df)
+
+elif st.session_state.active_view == "Empty Partial Bins":
+    st.table(empty_partial_bins_df)
+
+elif st.session_state.active_view == "Partial Bins":
+    st.table(partial_bins_df)
+
+elif st.session_state.active_view == "Damages":
+    st.table(damages_df)
+
+elif st.session_state.active_view == "Missing":
+    st.table(missing_df)
