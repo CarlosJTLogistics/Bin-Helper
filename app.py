@@ -188,14 +188,18 @@ def display_grouped(df):
         st.markdown(f"---\n**📍 Location:** {loc} | {badge}", unsafe_allow_html=True)
 
         if loc in st.session_state.expanded_rows:
-            st.dataframe(group[["WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
+            for idx, row in group.iterrows():
+                st.write(f"SKU: {row['WarehouseSku']} | LOT: {row['CustomerLotReference']} | Pallet ID: {row['PalletId']} | Qty: {row['Qty']}")
+                if st.button(f"✅ Fix Pallet {row['PalletId']}", key=f"fix_pallet_{row['PalletId']}"):
+                    st.success(f"Pallet {row['PalletId']} fixed!")
+
             if st.button(f"Collapse {loc}", key=f"collapse_{loc}"):
                 st.session_state.expanded_rows.remove(loc)
         else:
             if st.button(f"Expand {loc}", key=f"expand_{loc}"):
                 st.session_state.expanded_rows.add(loc)
 
-        if st.button(f"✅ Fix {loc}", key=f"fix_{loc}"):
+        if st.button(f"✅ Fix Location {loc}", key=f"fix_location_{loc}"):
             st.success(f"Discrepancy at {loc} marked as fixed.")
 
 # ---------------- KPI CARDS ----------------
