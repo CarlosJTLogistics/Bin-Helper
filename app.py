@@ -31,10 +31,15 @@ master_df = pd.read_excel(master_file_path, sheet_name="Master Locations", engin
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
 
+bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
+
 filtered_inventory_df = inventory_df[
     ~inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE", "MISSING"]) &
     ~inventory_df["LocationName"].astype(str).str.upper().str.startswith("IB")
 ]
+
+occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
+master_locations = set(master_df.iloc[1:, 0].dropna().astype(str).unique())
 
 # ---------------- BUSINESS RULES ----------------
 def exclude_damage_missing(df):
@@ -68,9 +73,6 @@ def get_empty_partial_bins(master_locs, occupied_locs):
     empty_partial = sorted(set(partial_candidates) - set(occupied_locs))
     return pd.DataFrame({"LocationName": empty_partial})
 
-occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
-master_locations = set(master_df.iloc[1:, 0].dropna().astype(str).unique())
-
 empty_bins_view_df = pd.DataFrame({"LocationName": [loc for loc in master_locations if loc not in occupied_locations]})
 full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)
 partial_bins_df = get_partial_bins(filtered_inventory_df)
@@ -78,6 +80,28 @@ empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locati
 
 damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
+
+# ---------------- BULK DISCREPANCY LOGIC ----------------
+def analyze_bulk_locations(df):
+    df = exclude_damage_missing(df)
+    results = []
+    for letter, max_pallets in bulk_rules.items():
+        letter_df = df[df["LocationName"].astype(str).str.startswith(letter)]
+        slot_counts = letter_df.groupby("LocationName").size()
+        for slot, count in slot_counts.items():
+            if count > max_pallets:
+                details = df[df["LocationName"] == slot]
+                for _, drow in details.iterrows():
+                    results.append({
+                        "LocationName": slot,
+                        "Qty": drow.get("Qty", ""),
+                        "WarehouseSku": drow.get("WarehouseSku", ""),
+                        "PalletId": drow.get("PalletId", ""),
+                        "CustomerLotReference": drow.get("CustomerLotReference", "")
+                    })
+    return pd.DataFrame(results)
+
+bulk_df = analyze_bulk_locations(filtered_inventory_df)
 
 # ---------------- DISCREPANCY LOGIC ----------------
 def analyze_discrepancies(df):
@@ -128,6 +152,7 @@ kpi_data = [
     {"title": "Damages", "value": len(damages_df), "icon": "🛠️"},
     {"title": "Missing", "value": len(missing_df), "icon": "❓"},
     {"title": "Discrepancies", "value": len(discrepancy_df), "icon": "⚠️"},
+    {"title": "Bulk Discrepancies", "value": len(bulk_df), "icon": "📦"}
 ]
 
 cols = st.columns(len(kpi_data))
@@ -135,6 +160,18 @@ for i, item in enumerate(kpi_data):
     with cols[i]:
         if st.button(f"{item['icon']} {item['title']} | {item['value']}", key=item['title']):
             st.session_state.active_view = item['title']
+
+# ---------------- SIDEBAR HISTORY ----------------
+with st.sidebar:
+    st.title("📋 Discrepancy History")
+    if os.path.exists(history_log_path):
+        history_df = pd.read_csv(history_log_path)
+        search = st.text_input("Search History")
+        if search:
+            history_df = history_df[history_df.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)]
+        st.dataframe(history_df)
+    else:
+        st.info("No discrepancy history found.")
 
 # ---------------- FILTER BAR ----------------
 st.markdown(f"### 🔍 Viewing: {st.session_state.active_view}")
@@ -210,3 +247,5 @@ elif st.session_state.active_view == "Damages":
     display_table(apply_filters(damages_df), ["WarehouseSku", "CustomerLotReference", "PalletId", "Qty"])
 elif st.session_state.active_view == "Missing":
     display_table(apply_filters(missing_df), ["WarehouseSku", "CustomerLotReference", "PalletId", "Qty"])
+elif st.session_state.active_view == "Bulk Discrepancies":
+    display_table(apply_filters(bulk_df), ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"])
