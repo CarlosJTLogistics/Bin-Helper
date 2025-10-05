@@ -236,6 +236,10 @@ active_df = apply_filters(view_map.get(st.session_state.active_view, pd.DataFram
 
 if st.session_state.active_view in ["Discrepancies", "Bulk Discrepancies"]:
     display_grouped(active_df)
+elif st.session_state.active_view in ["Full Pallet Bins", "Partial Bins", "Damages", "Missing"]:
+    st.dataframe(active_df[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
+elif st.session_state.active_view in ["Empty Bins", "Empty Partial Bins"]:
+    st.dataframe(active_df[["LocationName"]])
 else:
     st.dataframe(active_df)
 
