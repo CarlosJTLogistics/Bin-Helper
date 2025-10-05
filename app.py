@@ -301,8 +301,8 @@ elif st.session_state.active_view == "Discrepancies":
         key="discrepancy_grid"
     )
 
-    selected_rows = grid_response["selected_rows"]
-    if len(selected_rows) > 0 and st.button("✔ Apply Selected Discrepancy Corrections"):
+    selected_rows = grid_response.get("selected_rows", [])
+    if selected_rows is not None and len(selected_rows) > 0 and st.button("✔ Apply Selected Discrepancy Corrections"):
         for row in selected_rows:
             log_correction(row["LocationName"], row["Issue"], row["WarehouseSku"], row["PalletId"],
                            row["CustomerLotReference"], row["Qty"], row["Notes"])
@@ -327,8 +327,8 @@ elif st.session_state.active_view == "Bulk Discrepancies":
         key="bulk_grid"
     )
 
-    selected_rows = grid_response["selected_rows"]
-    if len(selected_rows) > 0 and st.button("✔ Apply Selected Bulk Corrections"):
+    selected_rows = grid_response.get("selected_rows", [])
+    if selected_rows is not None and len(selected_rows) > 0 and st.button("✔ Apply Selected Bulk Corrections"):
         for row in selected_rows:
             log_correction(row["Location"], row["Issue"], row["WarehouseSku"], row["PalletId"],
                            row["CustomerLotReference"], row["Qty"], row["Notes"])
