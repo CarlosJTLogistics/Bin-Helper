@@ -97,7 +97,8 @@ def analyze_bulk_locations(df):
                         "Qty": drow.get("Qty", ""),
                         "WarehouseSku": drow.get("WarehouseSku", ""),
                         "PalletId": drow.get("PalletId", ""),
-                        "CustomerLotReference": drow.get("CustomerLotReference", "")
+                        "CustomerLotReference": drow.get("CustomerLotReference", ""),
+                        "Issue": f"⚠️ Exceeds max allowed: {count} > {max_pallets}"
                     })
     return pd.DataFrame(results)
 
@@ -111,7 +112,7 @@ def analyze_discrepancies(df):
     partial_df = get_partial_bins(df)
     partial_errors = partial_df[(partial_df["Qty"] > 5) | (partial_df["PalletCount"] > 1)]
     for _, row in partial_errors.iterrows():
-        issue = "Qty too high for partial bin" if row["Qty"] > 5 else "Multiple pallets in partial bin"
+        issue = "⚠️ Qty too high for partial bin" if row["Qty"] > 5 else "⚠️ Multiple pallets in partial bin"
         results.append({
             "LocationName": row.get("LocationName", ""),
             "Qty": row.get("Qty", ""),
@@ -128,7 +129,7 @@ def analyze_discrepancies(df):
     ]
     full_errors = full_df[~full_df["Qty"].between(6, 15)]
     for _, row in full_errors.iterrows():
-        issue = "Qty out of range for full pallet bin"
+        issue = "⚠️ Qty out of range for full pallet bin"
         results.append({
             "LocationName": row.get("LocationName", ""),
             "Qty": row.get("Qty", ""),
@@ -161,7 +162,7 @@ for i, item in enumerate(kpi_data):
         if st.button(f"{item['icon']} {item['title']} | {item['value']}", key=item['title']):
             st.session_state.active_view = item['title']
 
-# ---------------- SIDEBAR HISTORY ----------------
+# ---------------- SIDEBAR ----------------
 with st.sidebar:
     st.title("📋 Discrepancy History")
     if os.path.exists(history_log_path):
@@ -173,53 +174,39 @@ with st.sidebar:
     else:
         st.info("No discrepancy history found.")
 
-# ---------------- FILTER BAR ----------------
-st.markdown(f"### 🔍 Viewing: {st.session_state.active_view}")
-with st.expander("🔍 Filter Options"):
+    st.markdown("### 🔍 Filter Options")
     st.session_state.filters["LocationName"] = st.text_input("Location", value=st.session_state.filters["LocationName"])
     st.session_state.filters["PalletId"] = st.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
     st.session_state.filters["WarehouseSku"] = st.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
     st.session_state.filters["CustomerLotReference"] = st.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
 
+# ---------------- FILTER FUNCTION ----------------
 def apply_filters(df):
     for key, value in st.session_state.filters.items():
         if value and key in df.columns:
             df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
 
-def refresh_discrepancy_data():
-    global discrepancy_df
-    discrepancy_df = analyze_discrepancies(filtered_inventory_df)
-
 # ---------------- DISPLAY TABS ----------------
-if st.session_state.active_view == "Discrepancies":
-    filtered_df = apply_filters(discrepancy_df)
-    grouped = filtered_df.groupby("LocationName")
+def display_grouped(df):
+    grouped = df.groupby("LocationName")
     for loc, group in grouped:
-        st.markdown(f"---\n**📍 Location:** {loc} | **Issues:** {len(group)}")
+        issue_text = group["Issue"].iloc[0] if "Issue" in group.columns else ""
+        badge = f"<span style='background-color:#FFCC00; color:#000; padding:4px; border-radius:4px;'>{issue_text}</span>" if issue_text else ""
+        st.markdown(f"---\n**📍 Location:** {loc} | {badge}", unsafe_allow_html=True)
         if loc in st.session_state.expanded_rows:
             for _, row in group.iterrows():
-                st.write(f"SKU: {row['WarehouseSku']} | LOT: {row['CustomerLotReference']} | Pallet ID: {row['PalletId']} | Qty: {row['Qty']} | Issue: {row['Issue']}")
+                st.write(f"SKU: {row['WarehouseSku']} | LOT: {row['CustomerLotReference']} | Pallet ID: {row['PalletId']} | Qty: {row['Qty']}")
             if st.button(f"Collapse {loc}", key=f"collapse_{loc}"):
                 st.session_state.expanded_rows.remove(loc)
         else:
             if st.button(f"Expand {loc}", key=f"expand_{loc}"):
                 st.session_state.expanded_rows.add(loc)
 
+if st.session_state.active_view == "Discrepancies":
+    display_grouped(apply_filters(discrepancy_df))
 elif st.session_state.active_view == "Bulk Discrepancies":
-    filtered_df = apply_filters(bulk_df)
-    grouped = filtered_df.groupby("LocationName")
-    for loc, group in grouped:
-        st.markdown(f"---\n**📍 Location:** {loc} | **Pallet Count:** {len(group)} | Issue: Exceeds max allowed")
-        if loc in st.session_state.expanded_rows:
-            for _, row in group.iterrows():
-                st.write(f"SKU: {row['WarehouseSku']} | LOT: {row['CustomerLotReference']} | Pallet ID: {row['PalletId']} | Qty: {row['Qty']}")
-            if st.button(f"Collapse {loc}", key=f"collapse_bulk_{loc}"):
-                st.session_state.expanded_rows.remove(loc)
-        else:
-            if st.button(f"Expand {loc}", key=f"expand_bulk_{loc}"):
-                st.session_state.expanded_rows.add(loc)
-
+    display_grouped(apply_filters(bulk_df))
 elif st.session_state.active_view == "Empty Bins":
     st.dataframe(apply_filters(empty_bins_view_df)[["LocationName"]])
 elif st.session_state.active_view == "Full Pallet Bins":
