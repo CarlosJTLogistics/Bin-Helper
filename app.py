@@ -7,6 +7,22 @@ from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
+# ---------------- CUSTOM CSS FOR DARK THEME ----------------
+st.markdown("""
+    <style>
+    .ag-theme-material {
+        background-color: #1e1e1e !important;
+        color: #ffffff !important;
+    }
+    .ag-theme-material .ag-header-cell-label {
+        color: #ffffff !important;
+    }
+    .ag-theme-material .ag-cell {
+        color: #ffffff !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
     st.session_state.active_view = "Empty Bins"
@@ -297,7 +313,7 @@ elif st.session_state.active_view == "Discrepancies":
         gridOptions=grid_options,
         update_mode=GridUpdateMode.VALUE_CHANGED,
         allow_unsafe_jscode=True,
-        theme="dark",
+        theme="material",
         key="discrepancy_grid"
     )
 
@@ -323,7 +339,7 @@ elif st.session_state.active_view == "Bulk Discrepancies":
         gridOptions=grid_options,
         update_mode=GridUpdateMode.VALUE_CHANGED,
         allow_unsafe_jscode=True,
-        theme="dark",
+        theme="material",
         key="bulk_grid"
     )
 
