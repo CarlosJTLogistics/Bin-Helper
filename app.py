@@ -7,6 +7,22 @@ from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
+# ---------------- CUSTOM CSS FOR DARK THEME ----------------
+st.markdown("""
+<style>
+.ag-theme-material {
+    background-color: #1e1e1e !important;
+    color: #ffffff !important;
+}
+.ag-theme-material .ag-header-cell-label {
+    color: #ffffff !important;
+}
+.ag-theme-material .ag-cell {
+    color: #ffffff !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
     st.session_state.active_view = "Empty Bins"
@@ -267,11 +283,14 @@ elif st.session_state.active_view == "Discrepancies":
     )
 
     selected_rows = grid_response.get("selected_rows", [])
-    if selected_rows and st.button("✔ Apply Selected Discrepancy Corrections"):
-        for row in selected_rows:
-            log_correction(row["Location"], row["Issue"], row["WarehouseSku"], row["PalletId"],
-                           row["CustomerLotReference"], row["Qty"], row["Notes"])
-        st.success(f"✅ {len(selected_rows)} corrections logged.")
+    if st.button("✔ Apply Selected Discrepancy Corrections"):
+        if len(selected_rows) > 0:
+            for row in selected_rows:
+                log_correction(row["Location"], row["Issue"], row["WarehouseSku"], row["PalletId"],
+                               row["CustomerLotReference"], row["Qty"], row["Notes"])
+            st.toast(f"✅ {len(selected_rows)} corrections logged.")
+        else:
+            st.toast("⚠️ Please select rows before applying corrections.")
 elif st.session_state.active_view == "Bulk Discrepancies":
     filtered_bulk_df = bulk_df.copy()
     if search_location:
@@ -297,8 +316,11 @@ elif st.session_state.active_view == "Bulk Discrepancies":
     )
 
     selected_rows = grid_response.get("selected_rows", [])
-    if selected_rows and st.button("✔ Apply Selected Bulk Corrections"):
-        for row in selected_rows:
-            log_correction(row["Location"], row["Issue"], row["WarehouseSku"], row["PalletId"],
-                           row["CustomerLotReference"], row["Qty"], row["Notes"])
-        st.success(f"✅ {len(selected_rows)} bulk corrections logged.")
+    if st.button("✔ Apply Selected Bulk Corrections"):
+        if len(selected_rows) > 0:
+            for row in selected_rows:
+                log_correction(row["Location"], row["Issue"], row["WarehouseSku"], row["PalletId"],
+                               row["CustomerLotReference"], row["Qty"], row["Notes"])
+            st.toast(f"✅ {len(selected_rows)} bulk corrections logged.")
+        else:
+            st.toast("⚠️ Please select rows before applying bulk corrections.")
