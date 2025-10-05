@@ -31,16 +31,12 @@ master_df = pd.read_excel(master_file_path, sheet_name="Master Locations", engin
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
 
-bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
-
 filtered_inventory_df = inventory_df[
     ~inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE", "MISSING"]) &
     ~inventory_df["LocationName"].astype(str).str.upper().str.startswith("IB")
 ]
 
-occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
-master_locations = set(master_df.iloc[1:, 0].dropna().astype(str).unique())
-
+# ---------------- BUSINESS RULES ----------------
 def exclude_damage_missing(df):
     return df[
         ~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"]) &
@@ -71,6 +67,9 @@ def get_empty_partial_bins(master_locs, occupied_locs):
     ]
     empty_partial = sorted(set(partial_candidates) - set(occupied_locs))
     return pd.DataFrame({"LocationName": empty_partial})
+
+occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
+master_locations = set(master_df.iloc[1:, 0].dropna().astype(str).unique())
 
 empty_bins_view_df = pd.DataFrame({"LocationName": [loc for loc in master_locations if loc not in occupied_locations]})
 full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)
@@ -173,10 +172,11 @@ if st.session_state.active_view == "Discrepancies":
     for idx, row in filtered_df.iterrows():
         loc = row["LocationName"]
         st.markdown(f"---\n**📍 Location:** {loc} | **Issue:** {row['Issue']}")
+        st.write(f"**SKU:** {row['WarehouseSku']} | **LOT:** {row['CustomerLotReference']} | **Pallet ID:** {row['PalletId']} | **Qty:** {row['Qty']}")
         if loc in st.session_state.expanded_rows:
             with st.form(key=f"fix_form_{loc}"):
-                new_qty = st.number_input("Qty", value=row["Qty"], step=1)
-                new_pallet = st.number_input("PalletCount", value=row["PalletCount"], step=1)
+                new_qty = st.number_input("Qty", value=int(row["Qty"]) if pd.notna(row["Qty"]) else 0, step=1)
+                new_pallet = st.number_input("PalletCount", value=int(row["PalletCount"]) if pd.notna(row["PalletCount"]) else 0, step=1)
                 note = st.text_area("Note about the fix")
                 submitted = st.form_submit_button("✅ Submit Fix")
                 if submitted:
