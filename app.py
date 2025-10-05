@@ -9,18 +9,18 @@ st.set_page_config(page_title="Bin Helper", layout="wide")
 
 # ---------------- CUSTOM CSS FOR DARK THEME ----------------
 st.markdown("""
-<style>
-.ag-theme-material {
-    background-color: #1e1e1e !important;
-    color: #ffffff !important;
-}
-.ag-theme-material .ag-header-cell-label {
-    color: #ffffff !important;
-}
-.ag-theme-material .ag-cell {
-    color: #ffffff !important;
-}
-</style>
+    <style>
+    .ag-theme-material {
+        background-color: #1e1e1e !important;
+        color: #ffffff !important;
+    }
+    .ag-theme-material .ag-header-cell-label {
+        color: #ffffff !important;
+    }
+    .ag-theme-material .ag-cell {
+        color: #ffffff !important;
+    }
+    </style>
 """, unsafe_allow_html=True)
 
 # ---------------- SESSION STATE ----------------
@@ -265,10 +265,11 @@ elif st.session_state.active_view == "Discrepancies":
 
     gb = GridOptionsBuilder.from_dataframe(filtered_df)
     gb.configure_selection("multiple", use_checkbox=True)
-    gb.configure_column("Notes", editable=True, cellStyle={"white-space": "normal"})
-    gb.configure_default_column(resizable=True, wrapText=True, autoHeight=True)
-    if not filtered_df.empty:
-        gb.configure_side_bar()
+    gb.configure_column("Notes", editable=True)
+    gb.configure_column("Location", rowGroup=True, hide=True)  # Group by Location
+    gb.configure_column("Location", rowGroup=True, hide=False)
+    gb.configure_column("Issue", rowGroup=True, hide=False)
+    gb.configure_side_bar()
     grid_options = gb.build()
 
     grid_response = AgGrid(
@@ -277,21 +278,15 @@ elif st.session_state.active_view == "Discrepancies":
         update_mode=GridUpdateMode.VALUE_CHANGED,
         allow_unsafe_jscode=True,
         theme="material",
-        key="discrepancy_grid",
-        height=600,
-        fit_columns_on_grid_load=True,
-        use_container_width=True
+        key="discrepancy_grid"
     )
 
     selected_rows = grid_response.get("selected_rows", [])
-    if st.button("✔ Apply Selected Discrepancy Corrections"):
-        if len(selected_rows) > 0:
-            for row in selected_rows:
-                log_correction(row["Location"], row["Issue"], row["WarehouseSku"], row["PalletId"],
-                               row["CustomerLotReference"], row["Qty"], row["Notes"])
-            st.toast(f"✅ {len(selected_rows)} corrections logged.")
-        else:
-            st.toast("⚠️ Please select rows before applying corrections.")
+    if selected_rows is not None and len(selected_rows) > 0 and st.button("✔ Apply Selected Discrepancy Corrections"):
+        for row in selected_rows:
+            log_correction(row["Location"], row["Issue"], row["WarehouseSku"], row["PalletId"],
+                           row["CustomerLotReference"], row["Qty"], row["Notes"])
+        st.success(f"✅ {len(selected_rows)} corrections logged.")
 elif st.session_state.active_view == "Bulk Discrepancies":
     filtered_bulk_df = bulk_df.copy()
     if search_location:
@@ -299,10 +294,11 @@ elif st.session_state.active_view == "Bulk Discrepancies":
 
     gb = GridOptionsBuilder.from_dataframe(filtered_bulk_df)
     gb.configure_selection("multiple", use_checkbox=True)
-    gb.configure_column("Notes", editable=True, cellStyle={"white-space": "normal"})
-    gb.configure_default_column(resizable=True, wrapText=True, autoHeight=True)
-    if not filtered_bulk_df.empty:
-        gb.configure_side_bar()
+    gb.configure_column("Notes", editable=True)
+    gb.configure_column("Location", rowGroup=True, hide=True)  # Group by Location
+    gb.configure_column("Location", rowGroup=True, hide=False)
+    gb.configure_column("Issue", rowGroup=True, hide=False)
+    gb.configure_side_bar()
     grid_options = gb.build()
 
     grid_response = AgGrid(
@@ -311,18 +307,12 @@ elif st.session_state.active_view == "Bulk Discrepancies":
         update_mode=GridUpdateMode.VALUE_CHANGED,
         allow_unsafe_jscode=True,
         theme="material",
-        key="bulk_grid",
-        height=600,
-        fit_columns_on_grid_load=True,
-        use_container_width=True
+        key="bulk_grid"
     )
 
     selected_rows = grid_response.get("selected_rows", [])
-    if st.button("✔ Apply Selected Bulk Corrections"):
-        if len(selected_rows) > 0:
-            for row in selected_rows:
-                log_correction(row["Location"], row["Issue"], row["WarehouseSku"], row["PalletId"],
-                               row["CustomerLotReference"], row["Qty"], row["Notes"])
-            st.toast(f"✅ {len(selected_rows)} bulk corrections logged.")
-        else:
-            st.toast("⚠️ Please select rows before applying bulk corrections.")
+    if selected_rows is not None and len(selected_rows) > 0 and st.button("✔ Apply Selected Bulk Corrections"):
+        for row in selected_rows:
+            log_correction(row["Location"], row["Issue"], row["WarehouseSku"], row["PalletId"],
+                           row["CustomerLotReference"], row["Qty"], row["Notes"])
+        st.success(f"✅ {len(selected_rows)} bulk corrections logged.")
