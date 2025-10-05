@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import streamlit as st
 from datetime import datetime
+from io import BytesIO
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
@@ -13,19 +14,35 @@ if "expanded_rows" not in st.session_state:
     st.session_state.expanded_rows = set()
 if "filters" not in st.session_state:
     st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
+if "auto_refresh" not in st.session_state:
+    st.session_state.auto_refresh = False
 
-# ---------------- FILE PATHS ----------------
-inventory_file_path = "persisted_inventory.xlsx"
-master_file_path = "persisted_master.xlsx"
-history_log_path = "discrepancy_history.csv"
+# ---------------- AUTO REFRESH ----------------
+if st.session_state.auto_refresh:
+    st.experimental_rerun()
+
+# ---------------- SIDEBAR SETTINGS ----------------
+with st.sidebar:
+    st.markdown("### ⚙️ Settings")
+    theme = st.radio("Theme", ["Light", "Dark"], index=0)
+    st.session_state.auto_refresh = st.checkbox("Auto Refresh", value=st.session_state.auto_refresh)
+
+    st.markdown("### 📤 Upload Files")
+    uploaded_inventory = st.file_uploader("Upload ON_HAND_INVENTORY.xlsx", type=["xlsx"])
+    uploaded_master = st.file_uploader("Upload Empty Bin Formula.xlsx", type=["xlsx"])
 
 # ---------------- LOAD DATA ----------------
-if not os.path.exists(inventory_file_path) or not os.path.exists(master_file_path):
+@st.cache_data
+def load_data(inventory_file, master_file):
+    inventory_df = pd.read_excel(inventory_file, engine="openpyxl")
+    master_df = pd.read_excel(master_file, sheet_name="Master Locations", engine="openpyxl")
+    return inventory_df, master_df
+
+if uploaded_inventory and uploaded_master:
+    inventory_df, master_df = load_data(uploaded_inventory, uploaded_master)
+else:
     st.error("Please upload both ON_HAND_INVENTORY.xlsx and Empty Bin Formula.xlsx to proceed.")
     st.stop()
-
-inventory_df = pd.read_excel(inventory_file_path, engine="openpyxl")
-master_df = pd.read_excel(master_file_path, sheet_name="Master Locations", engine="openpyxl")
 
 # ---------------- DATA PREP ----------------
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
@@ -144,7 +161,41 @@ def analyze_discrepancies(df):
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
-# ---------------- KPI CARDS AT TOP ----------------
+# ---------------- EXPORT FUNCTION ----------------
+def export_dataframe(df, filename):
+    output = BytesIO()
+    df.to_excel(output, index=False, engine="openpyxl")
+    st.download_button(
+        label="📥 Download Filtered Data",
+        data=output.getvalue(),
+        file_name=filename,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+# ---------------- FILTER FUNCTION ----------------
+def apply_filters(df):
+    for key, value in st.session_state.filters.items():
+        if value and key in df.columns:
+            df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
+    return df
+
+# ---------------- DISPLAY GROUPED ----------------
+def display_grouped(df):
+    grouped = df.groupby("LocationName")
+    for loc, group in grouped:
+        issue_text = group["Issue"].iloc[0] if "Issue" in group.columns else ""
+        badge = f"<span style='background-color:#FFCC00; color:#000; padding:4px; border-radius:4px;'>{issue_text}</span>" if issue_text else ""
+        st.markdown(f"---\n**📍 Location:** {loc} | {badge}", unsafe_allow_html=True)
+
+        if loc in st.session_state.expanded_rows:
+            st.dataframe(group[["WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
+            if st.button(f"Collapse {loc}", key=f"collapse_{loc}"):
+                st.session_state.expanded_rows.remove(loc)
+        else:
+            if st.button(f"Expand {loc}", key=f"expand_{loc}"):
+                st.session_state.expanded_rows.add(loc)
+
+# ---------------- KPI CARDS ----------------
 kpi_data = [
     {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
     {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
@@ -162,60 +213,30 @@ for i, item in enumerate(kpi_data):
         if st.button(f"{item['icon']} {item['title']} | {item['value']}", key=item['title']):
             st.session_state.active_view = item['title']
 
-# ---------------- SIDEBAR ----------------
-with st.sidebar:
-    st.title("📋 Discrepancy History")
-    if os.path.exists(history_log_path):
-        history_df = pd.read_csv(history_log_path)
-        search = st.text_input("Search History")
-        if search:
-            history_df = history_df[history_df.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)]
-        st.dataframe(history_df)
-    else:
-        st.info("No discrepancy history found.")
+# ---------------- FILTERS ----------------
+st.sidebar.markdown("### 🔍 Filter Options")
+st.session_state.filters["LocationName"] = st.sidebar.text_input("Location", value=st.session_state.filters["LocationName"])
+st.session_state.filters["PalletId"] = st.sidebar.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
+st.session_state.filters["WarehouseSku"] = st.sidebar.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
+st.session_state.filters["CustomerLotReference"] = st.sidebar.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
 
-    st.markdown("### 🔍 Filter Options")
-    st.session_state.filters["LocationName"] = st.text_input("Location", value=st.session_state.filters["LocationName"])
-    st.session_state.filters["PalletId"] = st.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
-    st.session_state.filters["WarehouseSku"] = st.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
-    st.session_state.filters["CustomerLotReference"] = st.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
+# ---------------- DISPLAY VIEWS ----------------
+view_map = {
+    "Discrepancies": discrepancy_df,
+    "Bulk Discrepancies": bulk_df,
+    "Empty Bins": empty_bins_view_df,
+    "Full Pallet Bins": full_pallet_bins_df,
+    "Empty Partial Bins": empty_partial_bins_df,
+    "Partial Bins": partial_bins_df,
+    "Damages": damages_df,
+    "Missing": missing_df
+}
 
-# ---------------- FILTER FUNCTION ----------------
-def apply_filters(df):
-    for key, value in st.session_state.filters.items():
-        if value and key in df.columns:
-            df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
-    return df
+active_df = apply_filters(view_map.get(st.session_state.active_view, pd.DataFrame()))
 
-# ---------------- DISPLAY TABS ----------------
-def display_grouped(df):
-    grouped = df.groupby("LocationName")
-    for loc, group in grouped:
-        issue_text = group["Issue"].iloc[0] if "Issue" in group.columns else ""
-        badge = f"<span style='background-color:#FFCC00; color:#000; padding:4px; border-radius:4px;'>{issue_text}</span>" if issue_text else ""
-        st.markdown(f"---\n**📍 Location:** {loc} | {badge}", unsafe_allow_html=True)
-        if loc in st.session_state.expanded_rows:
-            for _, row in group.iterrows():
-                st.write(f"SKU: {row['WarehouseSku']} | LOT: {row['CustomerLotReference']} | Pallet ID: {row['PalletId']} | Qty: {row['Qty']}")
-            if st.button(f"Collapse {loc}", key=f"collapse_{loc}"):
-                st.session_state.expanded_rows.remove(loc)
-        else:
-            if st.button(f"Expand {loc}", key=f"expand_{loc}"):
-                st.session_state.expanded_rows.add(loc)
+if st.session_state.active_view in ["Discrepancies", "Bulk Discrepancies"]:
+    display_grouped(active_df)
+else:
+    st.dataframe(active_df)
 
-if st.session_state.active_view == "Discrepancies":
-    display_grouped(apply_filters(discrepancy_df))
-elif st.session_state.active_view == "Bulk Discrepancies":
-    display_grouped(apply_filters(bulk_df))
-elif st.session_state.active_view == "Empty Bins":
-    st.dataframe(apply_filters(empty_bins_view_df)[["LocationName"]])
-elif st.session_state.active_view == "Full Pallet Bins":
-    st.dataframe(apply_filters(full_pallet_bins_df)[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
-elif st.session_state.active_view == "Empty Partial Bins":
-    st.dataframe(apply_filters(empty_partial_bins_df)[["LocationName"]])
-elif st.session_state.active_view == "Partial Bins":
-    st.dataframe(apply_filters(partial_bins_df)[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
-elif st.session_state.active_view == "Damages":
-    st.dataframe(apply_filters(damages_df)[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
-elif st.session_state.active_view == "Missing":
-    st.dataframe(apply_filters(missing_df)[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
+export_dataframe(active_df, f"{st.session_state.active_view.replace(' ', '_')}_filtered.xlsx")
