@@ -157,8 +157,10 @@ for i, item in enumerate(kpi_data):
 st.markdown(f"### 🔍 Viewing: {st.session_state.active_view}")
 search_location = st.text_input("🔍 Filter by Location")
 
-def display_table(df):
-    display_cols = ["WarehouseSku", "CustomerLotReference", "LocationName", "PalletId", "Qty"]
+def display_table(df, default_columns=None):
+    if default_columns is None:
+        default_columns = ["WarehouseSku", "CustomerLotReference", "LocationName", "PalletId", "Qty"]
+    available_columns = [col for col in default_columns if col in df.columns]
     renamed_cols = {
         "WarehouseSku": "SKU",
         "CustomerLotReference": "LOT",
@@ -166,25 +168,25 @@ def display_table(df):
         "PalletId": "Pallet ID",
         "Qty": "Quantity"
     }
-    df = df[display_cols].rename(columns=renamed_cols)
-    if search_location:
+    df = df[available_columns].rename(columns=renamed_cols)
+    if "Location" in df.columns and search_location:
         df = df[df["Location"].str.contains(search_location, case=False, na=False)]
     st.dataframe(df, use_container_width=True)
 
 if st.session_state.active_view == "Bulk Discrepancies":
-    display_table(bulk_df if not bulk_df.empty else pd.DataFrame(columns=["WarehouseSku","CustomerLotReference","LocationName","PalletId","Qty"]))
+    display_table(bulk_df)
 
 elif st.session_state.active_view == "Discrepancies":
-    display_table(discrepancy_df if not discrepancy_df.empty else pd.DataFrame(columns=["WarehouseSku","CustomerLotReference","LocationName","PalletId","Qty"]))
+    display_table(discrepancy_df)
 
 elif st.session_state.active_view == "Empty Bins":
-    display_table(empty_bins_view_df)
+    display_table(empty_bins_view_df, default_columns=["LocationName"])
 
 elif st.session_state.active_view == "Full Pallet Bins":
     display_table(full_pallet_bins_df)
 
 elif st.session_state.active_view == "Empty Partial Bins":
-    display_table(empty_partial_bins_df)
+    display_table(empty_partial_bins_df, default_columns=["LocationName"])
 
 elif st.session_state.active_view == "Partial Bins":
     display_table(partial_bins_df)
