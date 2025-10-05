@@ -21,6 +21,10 @@ if "auto_refresh" not in st.session_state:
 if st.session_state.auto_refresh:
     st.rerun()
 
+# ---------------- FILE PATHS ----------------
+inventory_file_path = "persisted_inventory.xlsx"
+master_file_path = "persisted_master.xlsx"
+
 # ---------------- SIDEBAR SETTINGS ----------------
 with st.sidebar:
     st.markdown("### ⚙️ Settings")
@@ -31,6 +35,13 @@ with st.sidebar:
     uploaded_inventory = st.file_uploader("Upload ON_HAND_INVENTORY.xlsx", type=["xlsx"])
     uploaded_master = st.file_uploader("Upload Empty Bin Formula.xlsx", type=["xlsx"])
 
+    if uploaded_inventory:
+        with open(inventory_file_path, "wb") as f:
+            f.write(uploaded_inventory.getbuffer())
+    if uploaded_master:
+        with open(master_file_path, "wb") as f:
+            f.write(uploaded_master.getbuffer())
+
 # ---------------- LOAD DATA ----------------
 @st.cache_data
 def load_data(inventory_file, master_file):
@@ -38,8 +49,8 @@ def load_data(inventory_file, master_file):
     master_df = pd.read_excel(master_file, sheet_name="Master Locations", engine="openpyxl")
     return inventory_df, master_df
 
-if uploaded_inventory and uploaded_master:
-    inventory_df, master_df = load_data(uploaded_inventory, uploaded_master)
+if os.path.exists(inventory_file_path) and os.path.exists(master_file_path):
+    inventory_df, master_df = load_data(inventory_file_path, master_file_path)
 else:
     st.error("Please upload both ON_HAND_INVENTORY.xlsx and Empty Bin Formula.xlsx to proceed.")
     st.stop()
@@ -179,7 +190,7 @@ def apply_filters(df):
             df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
 
-# ---------------- DISPLAY GROUPED WITH FIX BUTTON ----------------
+# ---------------- DISPLAY GROUPED WITH TABLE AND FIX BUTTON ----------------
 def display_grouped(df):
     grouped = df.groupby("LocationName")
     for loc, group in grouped:
@@ -188,9 +199,20 @@ def display_grouped(df):
         st.markdown(f"---\n**📍 Location:** {loc} | {badge}", unsafe_allow_html=True)
 
         if loc in st.session_state.expanded_rows:
+            header_cols = st.columns([2, 2, 2, 1, 1])
+            header_cols[0].write("WarehouseSku")
+            header_cols[1].write("CustomerLotReference")
+            header_cols[2].write("PalletId")
+            header_cols[3].write("Qty")
+            header_cols[4].write("Action")
+
             for idx, row in group.iterrows():
-                st.write(f"SKU: {row['WarehouseSku']} | LOT: {row['CustomerLotReference']} | Pallet ID: {row['PalletId']} | Qty: {row['Qty']}")
-                if st.button(f"✅ Fix Pallet {row['PalletId']}", key=f"fix_pallet_{row['PalletId']}"):
+                row_cols = st.columns([2, 2, 2, 1, 1])
+                row_cols[0].write(row["WarehouseSku"])
+                row_cols[1].write(row["CustomerLotReference"])
+                row_cols[2].write(row["PalletId"])
+                row_cols[3].write(row["Qty"])
+                if row_cols[4].button("✅ Fix", key=f"fix_{row['PalletId']}"):
                     st.success(f"Pallet {row['PalletId']} fixed!")
 
             if st.button(f"Collapse {loc}", key=f"collapse_{loc}"):
@@ -198,9 +220,6 @@ def display_grouped(df):
         else:
             if st.button(f"Expand {loc}", key=f"expand_{loc}"):
                 st.session_state.expanded_rows.add(loc)
-
-        if st.button(f"✅ Fix Location {loc}", key=f"fix_location_{loc}"):
-            st.success(f"Discrepancy at {loc} marked as fixed.")
 
 # ---------------- KPI CARDS ----------------
 st.markdown("<h1 style='text-align: center; color: #2E86C1;'>📊 Bin-Helper Dashboard</h1>", unsafe_allow_html=True)
@@ -212,7 +231,7 @@ kpi_data = [
     {"title": "Partial Bins", "value": len(partial_bins_df), "icon": "🟥"},
     {"title": "Damages", "value": len(damages_df), "icon": "🛠️"},
     {"title": "Missing", "value": len(missing_df), "icon": "❓"},
-    {"title": "Discrepancies", "value": len(discrepancy_df.groupby('LocationName')), "icon": "⚠️"},
+    {"title": "Rack Discrepancies", "value": len(discrepancy_df.groupby('LocationName')), "icon": "⚠️"},
     {"title": "Bulk Discrepancies", "value": len(bulk_df.groupby('LocationName')), "icon": "📦"}
 ]
 
@@ -231,7 +250,7 @@ st.session_state.filters["CustomerLotReference"] = st.sidebar.text_input("LOT", 
 
 # ---------------- DISPLAY VIEWS ----------------
 view_map = {
-    "Discrepancies": discrepancy_df,
+    "Rack Discrepancies": discrepancy_df,
     "Bulk Discrepancies": bulk_df,
     "Empty Bins": empty_bins_view_df,
     "Full Pallet Bins": full_pallet_bins_df,
@@ -244,7 +263,7 @@ view_map = {
 if st.session_state.active_view:
     active_df = apply_filters(view_map.get(st.session_state.active_view, pd.DataFrame()))
 
-    if st.session_state.active_view in ["Discrepancies", "Bulk Discrepancies"]:
+    if st.session_state.active_view in ["Rack Discrepancies", "Bulk Discrepancies"]:
         display_grouped(active_df)
     elif st.session_state.active_view in ["Full Pallet Bins", "Partial Bins", "Damages", "Missing"]:
         st.dataframe(active_df[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
