@@ -8,9 +8,11 @@ st.set_page_config(page_title="Bin Helper", layout="wide")
 
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
-    st.session_state.active_view = "Empty Bins"
-if "selected_discrepancy" not in st.session_state:
-    st.session_state.selected_discrepancy = None
+    st.session_state.active_view = "Discrepancies"
+if "expanded_rows" not in st.session_state:
+    st.session_state.expanded_rows = set()
+if "filters" not in st.session_state:
+    st.session_state.filters = {"Location": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
 
 # ---------------- FILE PATHS ----------------
 inventory_file_path = "persisted_inventory.xlsx"
@@ -129,7 +131,13 @@ kpi_data = [
     {"title": "Discrepancies", "value": len(discrepancy_df), "icon": "⚠️"},
 ]
 
-# ---------------- SIDEBAR: HISTORY ----------------
+cols = st.columns(len(kpi_data))
+for i, item in enumerate(kpi_data):
+    with cols[i]:
+        if st.button(f"{item['icon']} {item['title']} | {item['value']}", key=item['title']):
+            st.session_state.active_view = item['title']
+
+# ---------------- SIDEBAR HISTORY ----------------
 with st.sidebar:
     st.title("📋 Discrepancy History")
     if os.path.exists(history_log_path):
@@ -141,59 +149,73 @@ with st.sidebar:
     else:
         st.info("No discrepancy history found.")
 
-# ---------------- MAIN UI ----------------
+# ---------------- FILTER BAR ----------------
 st.markdown(f"### 🔍 Viewing: {st.session_state.active_view}")
-search_location = st.text_input("🔍 Filter by Location")
+with st.expander("🔍 Filter Options"):
+    st.session_state.filters["Location"] = st.text_input("Location", value=st.session_state.filters["Location"])
+    st.session_state.filters["PalletId"] = st.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
+    st.session_state.filters["WarehouseSku"] = st.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
+    st.session_state.filters["CustomerLotReference"] = st.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
 
-def display_table(df):
-    if "LocationName" in df.columns and search_location:
-        df = df[df["LocationName"].str.contains(search_location, case=False, na=False)]
-    st.dataframe(df, use_container_width=True)
+def apply_filters(df):
+    for key, value in st.session_state.filters.items():
+        if value:
+            df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
 
-if st.session_state.active_view == "Discrepancies":
-    st.markdown("### ⚠️ Discrepancies")
-    display_df = discrepancy_df.copy()
-    selected_row = st.selectbox("Select a discrepancy to fix", display_df["LocationName"].unique())
-    selected_issue = display_df[display_df["LocationName"] == selected_row].iloc[0] if not display_df[display_df["LocationName"] == selected_row].empty else None
+def refresh_discrepancy_data():
+    global discrepancy_df
+    discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
-    if selected_issue is not None:
-        with st.sidebar:
-            st.markdown("### 🛠️ Fix Discrepancy")
-            st.write(f"**Location:** {selected_issue['LocationName']}")
-            st.write(f"**Issue:** {selected_issue['Issue']}")
-            fix_note = st.text_area("📝 Add a note about the fix")
-            if st.button("✅ Submit Fix"):
-                new_entry = {
-                    "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "LocationName": selected_issue["LocationName"],
-                    "Issue": selected_issue["Issue"],
-                    "Note": fix_note
-                }
-                if os.path.exists(history_log_path):
-                    history_df = pd.read_csv(history_log_path)
-                    history_df = pd.concat([history_df, pd.DataFrame([new_entry])], ignore_index=True)
-                else:
-                    history_df = pd.DataFrame([new_entry])
-                history_df.to_csv(history_log_path, index=False)
-                st.success("Fix submitted and logged.")
+# ---------------- DISPLAY DISCREPANCY TABLE ----------------
+if st.session_state.active_view == "Discrepancies":
+    filtered_df = apply_filters(discrepancy_df)
+    for idx, row in filtered_df.iterrows():
+        loc = row["LocationName"]
+        st.markdown(f"---\n**📍 Location:** {loc} | **Issue:** {row['Issue']}")
+        if loc in st.session_state.expanded_rows:
+            with st.form(key=f"fix_form_{loc}"):
+                new_qty = st.number_input("Qty", value=row["Qty"], step=1)
+                new_pallet = st.number_input("PalletCount", value=row["PalletCount"], step=1)
+                note = st.text_area("Note about the fix")
+                submitted = st.form_submit_button("✅ Submit Fix")
+                if submitted:
+                    new_entry = {
+                        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "LocationName": loc,
+                        "Issue": row["Issue"],
+                        "OldQty": row["Qty"],
+                        "NewQty": new_qty,
+                        "OldPalletCount": row["PalletCount"],
+                        "NewPalletCount": new_pallet,
+                        "WarehouseSku": row["WarehouseSku"],
+                        "PalletId": row["PalletId"],
+                        "CustomerLotReference": row["CustomerLotReference"],
+                        "Note": note
+                    }
+                    if os.path.exists(history_log_path):
+                        history_df = pd.read_csv(history_log_path)
+                        history_df = pd.concat([history_df, pd.DataFrame([new_entry])], ignore_index=True)
+                    else:
+                        history_df = pd.DataFrame([new_entry])
+                    history_df.to_csv(history_log_path, index=False)
+                    st.success("Fix submitted and logged.")
+                    st.session_state.expanded_rows.remove(loc)
+                    refresh_discrepancy_data()
+                    st.experimental_rerun()
+        else:
+            if st.button(f"🛠️ Fix {loc}", key=f"expand_{loc}"):
+                st.session_state.expanded_rows.add(loc)
 else:
     if st.session_state.active_view == "Empty Bins":
-        display_table(empty_bins_view_df)
+        st.dataframe(apply_filters(empty_bins_view_df))
     elif st.session_state.active_view == "Full Pallet Bins":
-        display_table(full_pallet_bins_df)
+        st.dataframe(apply_filters(full_pallet_bins_df))
     elif st.session_state.active_view == "Empty Partial Bins":
-        display_table(empty_partial_bins_df)
+        st.dataframe(apply_filters(empty_partial_bins_df))
     elif st.session_state.active_view == "Partial Bins":
-        display_table(partial_bins_df)
+        st.dataframe(apply_filters(partial_bins_df))
     elif st.session_state.active_view == "Damages":
-        display_table(damages_df)
+        st.dataframe(apply_filters(damages_df))
     elif st.session_state.active_view == "Missing":
-        display_table(missing_df)
-
-# ---------------- KPI NAVIGATION ----------------
-cols = st.columns(len(kpi_data))
-for i, item in enumerate(kpi_data):
-    with cols[i]:
-        if st.button(f"{item['icon']} {item['title']} | {item['value']}", key=item['title']):
-            st.session_state.active_view = item['title']
+        st.dataframe(apply_filters(missing_df))
