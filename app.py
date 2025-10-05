@@ -23,6 +23,10 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# ---------------- SESSION STATE ----------------
+if "active_view" not in st.session_state:
+    st.session_state.active_view = "Empty Bins"
+
 # ---------------- FILE PATHS ----------------
 inventory_file_path = "persisted_inventory.xlsx"
 master_file_path = "persisted_master.xlsx"
@@ -32,13 +36,35 @@ log_file = "correction_log.csv"
 st.sidebar.title("📦 Bin Helper")
 search_location = st.sidebar.text_input("🔍 Filter by Location")
 
+# File Uploads
+st.sidebar.markdown("### 📂 Upload Files")
+if os.path.exists(inventory_file_path):
+    st.sidebar.markdown(f"✅ **Active Inventory File:** `{os.path.basename(inventory_file_path)}`")
+else:
+    uploaded_inventory = st.sidebar.file_uploader("Upload ON_HAND_INVENTORY.xlsx", type=["xlsx"], key="inv_file")
+    if uploaded_inventory:
+        with open(inventory_file_path, "wb") as f:
+            f.write(uploaded_inventory.getbuffer())
+        st.sidebar.success("✅ Inventory file uploaded and saved.")
+
+if os.path.exists(master_file_path):
+    st.sidebar.markdown(f"✅ **Active Master File:** `{os.path.basename(master_file_path)}`")
+else:
+    uploaded_master = st.sidebar.file_uploader("Upload Empty Bin Formula.xlsx", type=["xlsx"], key="master_file")
+    if uploaded_master:
+        with open(master_file_path, "wb") as f:
+            f.write(uploaded_master.getbuffer())
+        st.sidebar.success("✅ Master file uploaded and saved.")
+
 # Correction Log
+st.sidebar.markdown("### 📋 Correction Log")
 correction_df = pd.DataFrame()
 if os.path.exists(log_file):
     correction_df = pd.read_csv(log_file)
-    st.sidebar.markdown("### 📋 Correction Log")
     st.sidebar.dataframe(correction_df, use_container_width=True)
     st.sidebar.download_button("⬇️ Download Correction Log", correction_df.to_csv(index=False), "correction_log.csv", "text/csv")
+else:
+    st.sidebar.info("No correction log found yet.")
 
 # ---------------- LOAD DATA ----------------
 if not os.path.exists(inventory_file_path) or not os.path.exists(master_file_path):
@@ -65,6 +91,48 @@ def is_valid_location(loc):
     )
 
 filtered_inventory_df = inventory_df[inventory_df["LocationName"].apply(is_valid_location)]
+occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
+master_locations = set(master_df.iloc[1:, 0].dropna().astype(str).unique())
+
+# ---------------- BUSINESS RULES ----------------
+def exclude_damage_missing(df):
+    return df[~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"])]
+
+def get_full_pallet_bins(df):
+    df = exclude_damage_missing(df)
+    return df[
+        ((~df["LocationName"].astype(str).str.endswith("01")) | (df["LocationName"].astype(str).str.startswith("111")))
+        & (df["LocationName"].astype(str).str.isnumeric())
+        & (df["Qty"].between(6, 15))
+    ]
+
+def get_partial_bins(df):
+    df = exclude_damage_missing(df)
+    return df[
+        df["LocationName"].astype(str).str.endswith("01")
+        & ~df["LocationName"].astype(str).str.startswith("111")
+        & ~df["LocationName"].astype(str).str.upper().str.startswith("TUN")
+        & df["LocationName"].astype(str).str[0].str.isdigit()
+    ]
+
+def get_empty_partial_bins(master_locs, occupied_locs):
+    partial_candidates = [
+        loc for loc in master_locs
+        if loc.endswith("01")
+        and not loc.startswith("111")
+        and not str(loc).upper().startswith("TUN")
+        and str(loc)[0].isdigit()
+    ]
+    empty_partial = sorted(set(partial_candidates) - set(occupied_locs))
+    return pd.DataFrame({"LocationName": empty_partial})
+
+def get_damage(df):
+    mask = df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])
+    return df[mask]
+
+def get_missing(df):
+    mask = df["LocationName"].astype(str).str.upper().eq("MISSING")
+    return df[mask]
 
 # ---------------- DISCREPANCY LOGIC ----------------
 def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
@@ -99,13 +167,7 @@ def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
                     "CustomerLotReference": drow.get("CustomerLotReference", ""),
                     "Notes": ""
                 })
-    df_out = pd.DataFrame(rows)
-
-    if not correction_df.empty:
-        corrected_pairs = set(zip(correction_df["LocationName"], correction_df["Issue"]))
-        df_out = df_out[~df_out.apply(lambda x: (x["Location"], x["Issue"]) in corrected_pairs, axis=1)]
-
-    return df_out
+    return pd.DataFrame(rows)
 
 def analyze_bulk_locations(df):
     results = []
@@ -128,11 +190,7 @@ def analyze_bulk_locations(df):
                         "CustomerLotReference": drow.get("CustomerLotReference", ""),
                         "Notes": ""
                     })
-    df_out = pd.DataFrame(results)
-    if not correction_df.empty:
-        corrected_pairs = set(zip(correction_df["LocationName"], correction_df["Issue"]))
-        df_out = df_out[~df_out.apply(lambda x: (x["Location"], x["Issue"]) in corrected_pairs, axis=1)]
-    return df_out, discrepancies
+    return pd.DataFrame(results), discrepancies
 
 bulk_df, bulk_discrepancies = analyze_bulk_locations(filtered_inventory_df)
 discrepancy_df = find_discrepancies(filtered_inventory_df)
@@ -159,10 +217,40 @@ def log_correction(location, issue, sku, pallet_id, lot, qty, notes):
 # ---------------- UI ----------------
 st.markdown("## 📦 Bin Helper Dashboard")
 
-tabs = ["Discrepancies", "Bulk Discrepancies"]
-selected_tab = st.selectbox("Select View", tabs)
+# KPI Cards
+kpi_data = [
+    {"title": "Empty Bins", "value": f"QTY {len(empty_bins_view_df)}", "icon": "📦"},
+    {"title": "Full Pallet Bins", "value": f"QTY {len(get_full_pallet_bins(filtered_inventory_df))}", "icon": "🟩"},
+    {"title": "Empty Partial Bins", "value": f"QTY {len(get_empty_partial_bins(master_locations, occupied_locations))}", "icon": "🟨"},
+    {"title": "Partial Bins", "value": f"QTY {len(get_partial_bins(filtered_inventory_df))}", "icon": "🟥"},
+    {"title": "Damages", "value": f"QTY {int(get_damage(filtered_inventory_df)['Qty'].sum())}", "icon": "🛠️"},
+    {"title": "Missing", "value": f"QTY {int(get_missing(filtered_inventory_df)['Qty'].sum())}", "icon": "❓"},
+    {"title": "Discrepancies", "value": f"QTY {len(discrepancy_df)}", "icon": "⚠️"},
+    {"title": "Bulk Discrepancies", "value": f"QTY {bulk_discrepancies}", "icon": "📦"}
+]
+cols = st.columns(len(kpi_data))
+for i, item in enumerate(kpi_data):
+    with cols[i]:
+        if st.button(f"{item['icon']} {item['title']} | {item['value']}", key=item['title']):
+            st.session_state.active_view = item['title']
 
-if selected_tab == "Discrepancies":
+st.markdown(f"### 🔍 Viewing: {st.session_state.active_view}")
+
+columns_to_show = ["LocationName", "PalletId", "Qty", "CustomerLotReference", "WarehouseSku"]
+
+if st.session_state.active_view == "Empty Bins":
+    st.dataframe(empty_bins_view_df)
+elif st.session_state.active_view == "Full Pallet Bins":
+    st.dataframe(get_full_pallet_bins(filtered_inventory_df)[columns_to_show])
+elif st.session_state.active_view == "Empty Partial Bins":
+    st.dataframe(get_empty_partial_bins(master_locations, occupied_locations))
+elif st.session_state.active_view == "Partial Bins":
+    st.dataframe(get_partial_bins(filtered_inventory_df)[columns_to_show])
+elif st.session_state.active_view == "Damages":
+    st.dataframe(get_damage(filtered_inventory_df)[columns_to_show])
+elif st.session_state.active_view == "Missing":
+    st.dataframe(get_missing(filtered_inventory_df)[columns_to_show])
+elif st.session_state.active_view == "Discrepancies":
     filtered_df = discrepancy_df.copy()
     if search_location:
         filtered_df = filtered_df[filtered_df["Location"].str.contains(search_location, case=False, na=False)]
@@ -191,7 +279,7 @@ if selected_tab == "Discrepancies":
                            row["CustomerLotReference"], row["Qty"], row["Notes"])
         st.success(f"✅ {len(selected_rows)} corrections logged.")
 
-elif selected_tab == "Bulk Discrepancies":
+elif st.session_state.active_view == "Bulk Discrepancies":
     filtered_bulk_df = bulk_df.copy()
     if search_location:
         filtered_bulk_df = filtered_bulk_df[filtered_bulk_df["Location"].str.contains(search_location, case=False, na=False)]
