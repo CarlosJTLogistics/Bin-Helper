@@ -1,4 +1,3 @@
-import os
 import pandas as pd
 import streamlit as st
 from io import BytesIO
@@ -21,35 +20,21 @@ if "fixed_pallets" not in st.session_state:
 if st.session_state.auto_refresh:
     st.rerun()
 
-# ---------------- FILE PATHS ----------------
-inventory_file_path = "persisted_inventory.xlsx"
-master_file_path = "Empty Bin Formula.xlsx"  # Static file
-
-# ---------------- SIDEBAR SETTINGS ----------------
-with st.sidebar:
-    st.markdown("### ⚙️ Settings")
-    theme = st.radio("Theme", ["Light", "Dark"], index=0)
-    st.session_state.auto_refresh = st.checkbox("Auto Refresh", value=st.session_state.auto_refresh)
-
-    st.markdown("### 📤 Upload Inventory File")
-    uploaded_inventory = st.file_uploader("Upload ON_HAND_INVENTORY.xlsx", type=["xlsx"])
-
-    if uploaded_inventory:
-        with open(inventory_file_path, "wb") as f:
-            f.write(uploaded_inventory.getbuffer())
-        st.success("✅ Inventory file saved. Using latest uploaded file.")
+# ---------------- GITHUB FILE URLS ----------------
+inventory_url = "https://raw.githubusercontent.com/<your-username>/<your-repo>/main/ON_HAND_INVENTORY.xlsx"
+master_url = "https://raw.githubusercontent.com/<your-username>/<your-repo>/main/Empty%20Bin%20Formula.xlsx"
 
 # ---------------- LOAD DATA ----------------
 @st.cache_data
-def load_data(inventory_file, master_file):
-    inventory_df = pd.read_excel(inventory_file, engine="openpyxl")
-    master_df = pd.read_excel(master_file, sheet_name="Master Locations", engine="openpyxl")
+def load_data(inventory_url, master_url):
+    inventory_df = pd.read_excel(inventory_url, engine="openpyxl")
+    master_df = pd.read_excel(master_url, sheet_name="Master Locations", engine="openpyxl")
     return inventory_df, master_df
 
-if os.path.exists(inventory_file_path) and os.path.exists(master_file_path):
-    inventory_df, master_df = load_data(inventory_file_path, master_file_path)
-else:
-    st.error("Please upload ON_HAND_INVENTORY.xlsx and ensure Empty Bin Formula.xlsx is present.")
+try:
+    inventory_df, master_df = load_data(inventory_url, master_url)
+except Exception as e:
+    st.error(f"❌ Failed to load data from GitHub: {e}")
     st.stop()
 
 # ---------------- DATA PREP ----------------
