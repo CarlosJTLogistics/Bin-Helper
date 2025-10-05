@@ -89,13 +89,11 @@ def analyze_bulk_locations(df):
                 details = df[df["LocationName"] == slot]
                 for _, drow in details.iterrows():
                     results.append({
-                        "Location": slot,
-                        "Issue": f"Too many pallets ({count} > {max_pallets})",
+                        "LocationName": slot,
                         "Qty": drow.get("Qty", ""),
                         "WarehouseSku": drow.get("WarehouseSku", ""),
                         "PalletId": drow.get("PalletId", ""),
-                        "CustomerLotReference": drow.get("CustomerLotReference", ""),
-                        "Notes": ""
+                        "CustomerLotReference": drow.get("CustomerLotReference", "")
                     })
     return pd.DataFrame(results)
 
@@ -111,13 +109,11 @@ def analyze_discrepancies(df):
     partial_errors = partial_df[(partial_df["Qty"] > 5) | (partial_df["PalletCount"] > 1)]
     for _, row in partial_errors.iterrows():
         results.append({
-            "Location": row.get("LocationName", ""),
-            "Issue": "Partial bin error (Qty > 5 or multiple pallets)",
+            "LocationName": row.get("LocationName", ""),
             "Qty": row.get("Qty", ""),
             "WarehouseSku": row.get("WarehouseSku", ""),
             "PalletId": row.get("PalletId", ""),
-            "CustomerLotReference": row.get("CustomerLotReference", ""),
-            "Notes": ""
+            "CustomerLotReference": row.get("CustomerLotReference", "")
         })
 
     # Full pallet bin errors: Qty not between 6–15
@@ -128,13 +124,11 @@ def analyze_discrepancies(df):
     full_errors = full_df[~full_df["Qty"].between(6, 15)]
     for _, row in full_errors.iterrows():
         results.append({
-            "Location": row.get("LocationName", ""),
-            "Issue": "Full bin error (Qty outside 6–15)",
+            "LocationName": row.get("LocationName", ""),
             "Qty": row.get("Qty", ""),
             "WarehouseSku": row.get("WarehouseSku", ""),
             "PalletId": row.get("PalletId", ""),
-            "CustomerLotReference": row.get("CustomerLotReference", ""),
-            "Notes": ""
+            "CustomerLotReference": row.get("CustomerLotReference", "")
         })
 
     return pd.DataFrame(results)
@@ -163,52 +157,40 @@ for i, item in enumerate(kpi_data):
 st.markdown(f"### 🔍 Viewing: {st.session_state.active_view}")
 search_location = st.text_input("🔍 Filter by Location")
 
-if st.session_state.active_view == "Bulk Discrepancies":
-    filtered_bulk_df = bulk_df.copy()
+def display_table(df):
+    display_cols = ["WarehouseSku", "CustomerLotReference", "LocationName", "PalletId", "Qty"]
+    renamed_cols = {
+        "WarehouseSku": "SKU",
+        "CustomerLotReference": "LOT",
+        "LocationName": "Location",
+        "PalletId": "Pallet ID",
+        "Qty": "Quantity"
+    }
+    df = df[display_cols].rename(columns=renamed_cols)
     if search_location:
-        filtered_bulk_df = filtered_bulk_df[filtered_bulk_df["Location"].str.contains(search_location, case=False, na=False)]
+        df = df[df["Location"].str.contains(search_location, case=False, na=False)]
+    st.dataframe(df, use_container_width=True)
 
-    if filtered_bulk_df.empty:
-        st.warning("✅ No discrepancies found.")
-    else:
-        grouped_by_location = filtered_bulk_df.groupby("Location")
-        for location, loc_group in grouped_by_location:
-            with st.expander(f"📍 Location: {location} ({len(loc_group)} rows)"):
-                grouped_by_issue = loc_group.groupby("Issue")
-                for issue, issue_group in grouped_by_issue:
-                    with st.expander(f"⚠️ Issue: {issue} ({len(issue_group)} rows)"):
-                        st.table(issue_group.drop(columns=["Location", "Issue"]))
+if st.session_state.active_view == "Bulk Discrepancies":
+    display_table(bulk_df if not bulk_df.empty else pd.DataFrame(columns=["WarehouseSku","CustomerLotReference","LocationName","PalletId","Qty"]))
 
 elif st.session_state.active_view == "Discrepancies":
-    filtered_discrepancy_df = discrepancy_df.copy()
-    if search_location:
-        filtered_discrepancy_df = filtered_discrepancy_df[filtered_discrepancy_df["Location"].str.contains(search_location, case=False, na=False)]
-
-    if filtered_discrepancy_df.empty:
-        st.warning("✅ No discrepancies found.")
-    else:
-        grouped_by_location = filtered_discrepancy_df.groupby("Location")
-        for location, loc_group in grouped_by_location:
-            with st.expander(f"📍 Location: {location} ({len(loc_group)} rows)"):
-                grouped_by_issue = loc_group.groupby("Issue")
-                for issue, issue_group in grouped_by_issue:
-                    with st.expander(f"⚠️ Issue: {issue} ({len(issue_group)} rows)"):
-                        st.table(issue_group.drop(columns=["Location", "Issue"]))
+    display_table(discrepancy_df if not discrepancy_df.empty else pd.DataFrame(columns=["WarehouseSku","CustomerLotReference","LocationName","PalletId","Qty"]))
 
 elif st.session_state.active_view == "Empty Bins":
-    st.table(empty_bins_view_df)
+    display_table(empty_bins_view_df)
 
 elif st.session_state.active_view == "Full Pallet Bins":
-    st.table(full_pallet_bins_df)
+    display_table(full_pallet_bins_df)
 
 elif st.session_state.active_view == "Empty Partial Bins":
-    st.table(empty_partial_bins_df)
+    display_table(empty_partial_bins_df)
 
 elif st.session_state.active_view == "Partial Bins":
-    st.table(partial_bins_df)
+    display_table(partial_bins_df)
 
 elif st.session_state.active_view == "Damages":
-    st.table(damages_df)
+    display_table(damages_df)
 
 elif st.session_state.active_view == "Missing":
-    st.table(missing_df)
+    display_table(missing_df)
