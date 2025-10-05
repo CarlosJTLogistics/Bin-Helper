@@ -27,9 +27,9 @@ inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), 
 
 bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
 
-# Filter out DAMAGE, IBDAMAGE, and IB-prefixed locations globally
+# Filter out DAMAGE, IBDAMAGE, MISSING, and IB-prefixed locations for main logic
 filtered_inventory_df = inventory_df[
-    ~inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"]) &
+    ~inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE", "MISSING"]) &
     ~inventory_df["LocationName"].astype(str).str.upper().str.startswith("IB")
 ]
 
@@ -72,6 +72,10 @@ empty_bins_view_df = pd.DataFrame({"LocationName": [loc for loc in master_locati
 full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)
 partial_bins_df = get_partial_bins(filtered_inventory_df)
 empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locations)
+
+# Damages and Missing
+damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
+missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
 # ---------------- BULK DISCREPANCY LOGIC ----------------
 def analyze_bulk_locations(df):
@@ -121,6 +125,8 @@ kpi_data = [
     {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
     {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df), "icon": "🟨"},
     {"title": "Partial Bins", "value": len(partial_bins_df), "icon": "🟥"},
+    {"title": "Damages", "value": len(damages_df), "icon": "🛠️"},
+    {"title": "Missing", "value": len(missing_df), "icon": "❓"},
     {"title": "Discrepancies", "value": len(discrepancy_df), "icon": "⚠️"},
     {"title": "Bulk Discrepancies", "value": len(bulk_df), "icon": "📦"}
 ]
@@ -178,3 +184,9 @@ elif st.session_state.active_view == "Empty Partial Bins":
 
 elif st.session_state.active_view == "Partial Bins":
     st.table(partial_bins_df)
+
+elif st.session_state.active_view == "Damages":
+    st.table(damages_df)
+
+elif st.session_state.active_view == "Missing":
+    st.table(missing_df)
