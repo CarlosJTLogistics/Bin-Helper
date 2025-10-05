@@ -134,6 +134,14 @@ def get_missing(df):
     mask = df["LocationName"].astype(str).str.upper().eq("MISSING")
     return df[mask]
 
+# Compute KPI DataFrames
+empty_bins_view_df = pd.DataFrame({"LocationName": [loc for loc in master_locations if loc not in occupied_locations]})
+full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)
+partial_bins_df = get_partial_bins(filtered_inventory_df)
+empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locations)
+damage_df = get_damage(filtered_inventory_df)
+missing_df = get_missing(filtered_inventory_df)
+
 # ---------------- DISCREPANCY LOGIC ----------------
 def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     local = df.copy()
@@ -220,11 +228,11 @@ st.markdown("## 📦 Bin Helper Dashboard")
 # KPI Cards
 kpi_data = [
     {"title": "Empty Bins", "value": f"QTY {len(empty_bins_view_df)}", "icon": "📦"},
-    {"title": "Full Pallet Bins", "value": f"QTY {len(get_full_pallet_bins(filtered_inventory_df))}", "icon": "🟩"},
-    {"title": "Empty Partial Bins", "value": f"QTY {len(get_empty_partial_bins(master_locations, occupied_locations))}", "icon": "🟨"},
-    {"title": "Partial Bins", "value": f"QTY {len(get_partial_bins(filtered_inventory_df))}", "icon": "🟥"},
-    {"title": "Damages", "value": f"QTY {int(get_damage(filtered_inventory_df)['Qty'].sum())}", "icon": "🛠️"},
-    {"title": "Missing", "value": f"QTY {int(get_missing(filtered_inventory_df)['Qty'].sum())}", "icon": "❓"},
+    {"title": "Full Pallet Bins", "value": f"QTY {len(full_pallet_bins_df)}", "icon": "🟩"},
+    {"title": "Empty Partial Bins", "value": f"QTY {len(empty_partial_bins_df)}", "icon": "🟨"},
+    {"title": "Partial Bins", "value": f"QTY {len(partial_bins_df)}", "icon": "🟥"},
+    {"title": "Damages", "value": f"QTY {int(damage_df['Qty'].sum())}", "icon": "🛠️"},
+    {"title": "Missing", "value": f"QTY {int(missing_df['Qty'].sum())}", "icon": "❓"},
     {"title": "Discrepancies", "value": f"QTY {len(discrepancy_df)}", "icon": "⚠️"},
     {"title": "Bulk Discrepancies", "value": f"QTY {bulk_discrepancies}", "icon": "📦"}
 ]
@@ -241,15 +249,15 @@ columns_to_show = ["LocationName", "PalletId", "Qty", "CustomerLotReference", "W
 if st.session_state.active_view == "Empty Bins":
     st.dataframe(empty_bins_view_df)
 elif st.session_state.active_view == "Full Pallet Bins":
-    st.dataframe(get_full_pallet_bins(filtered_inventory_df)[columns_to_show])
+    st.dataframe(full_pallet_bins_df[columns_to_show])
 elif st.session_state.active_view == "Empty Partial Bins":
-    st.dataframe(get_empty_partial_bins(master_locations, occupied_locations))
+    st.dataframe(empty_partial_bins_df)
 elif st.session_state.active_view == "Partial Bins":
-    st.dataframe(get_partial_bins(filtered_inventory_df)[columns_to_show])
+    st.dataframe(partial_bins_df[columns_to_show])
 elif st.session_state.active_view == "Damages":
-    st.dataframe(get_damage(filtered_inventory_df)[columns_to_show])
+    st.dataframe(damage_df[columns_to_show])
 elif st.session_state.active_view == "Missing":
-    st.dataframe(get_missing(filtered_inventory_df)[columns_to_show])
+    st.dataframe(missing_df[columns_to_show])
 elif st.session_state.active_view == "Discrepancies":
     filtered_df = discrepancy_df.copy()
     if search_location:
