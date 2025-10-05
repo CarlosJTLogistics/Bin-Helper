@@ -12,7 +12,7 @@ if "active_view" not in st.session_state:
 if "expanded_rows" not in st.session_state:
     st.session_state.expanded_rows = set()
 if "filters" not in st.session_state:
-    st.session_state.filters = {"Location": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
+    st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
 
 # ---------------- FILE PATHS ----------------
 inventory_file_path = "persisted_inventory.xlsx"
@@ -120,7 +120,7 @@ def analyze_discrepancies(df):
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
-# ---------------- KPI CARDS ----------------
+# ---------------- KPI CARDS AT TOP ----------------
 kpi_data = [
     {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
     {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
@@ -152,7 +152,7 @@ with st.sidebar:
 # ---------------- FILTER BAR ----------------
 st.markdown(f"### 🔍 Viewing: {st.session_state.active_view}")
 with st.expander("🔍 Filter Options"):
-    st.session_state.filters["Location"] = st.text_input("Location", value=st.session_state.filters["Location"])
+    st.session_state.filters["LocationName"] = st.text_input("Location", value=st.session_state.filters["LocationName"])
     st.session_state.filters["PalletId"] = st.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
     st.session_state.filters["WarehouseSku"] = st.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
     st.session_state.filters["CustomerLotReference"] = st.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
