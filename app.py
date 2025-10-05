@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import streamlit as st
 from io import BytesIO
+from st_aggrid import AgGrid, GridOptionsBuilder, JsCode, GridUpdateMode
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
@@ -9,12 +10,12 @@ st.set_page_config(page_title="Bin Helper", layout="wide")
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
     st.session_state.active_view = None
-if "expanded_rows" not in st.session_state:
-    st.session_state.expanded_rows = set()
 if "filters" not in st.session_state:
     st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
 if "auto_refresh" not in st.session_state:
     st.session_state.auto_refresh = False
+if "fixed_pallets" not in st.session_state:
+    st.session_state.fixed_pallets = set()
 
 # ---------------- AUTO REFRESH ----------------
 if st.session_state.auto_refresh:
@@ -101,7 +102,6 @@ empty_bins_view_df = pd.DataFrame({"LocationName": [loc for loc in master_locati
 full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)
 partial_bins_df = get_partial_bins(filtered_inventory_df)
 empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locations)
-
 damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
@@ -122,7 +122,8 @@ def analyze_bulk_locations(df):
                         "WarehouseSku": drow.get("WarehouseSku", ""),
                         "PalletId": drow.get("PalletId", ""),
                         "CustomerLotReference": drow.get("CustomerLotReference", ""),
-                        "Issue": f"⚠️ Exceeds max allowed: {count} > {max_pallets}"
+                        "Issue": f"⚠️ Exceeds max allowed: {count} > {max_pallets}",
+                        "Action": "Fix"
                     })
     return pd.DataFrame(results)
 
@@ -144,7 +145,8 @@ def analyze_discrepancies(df):
             "WarehouseSku": row.get("WarehouseSku", ""),
             "PalletId": row.get("PalletId", ""),
             "CustomerLotReference": row.get("CustomerLotReference", ""),
-            "Issue": issue
+            "Issue": issue,
+            "Action": "Fix"
         })
 
     full_df = df[
@@ -161,7 +163,8 @@ def analyze_discrepancies(df):
             "WarehouseSku": row.get("WarehouseSku", ""),
             "PalletId": row.get("PalletId", ""),
             "CustomerLotReference": row.get("CustomerLotReference", ""),
-            "Issue": issue
+            "Issue": issue,
+            "Action": "Fix"
         })
 
     return pd.DataFrame(results)
@@ -186,36 +189,29 @@ def apply_filters(df):
             df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
 
-# ---------------- DISPLAY GROUPED WITH TABLE AND FIX BUTTON ----------------
-def display_grouped(df):
-    grouped = df.groupby("LocationName")
-    for loc, group in grouped:
-        issue_text = group["Issue"].iloc[0] if "Issue" in group.columns else ""
-        badge = f"<span style='background-color:#FFCC00; color:#000; padding:4px; border-radius:4px;'>{issue_text}</span>" if issue_text else ""
-        st.markdown(f"---\n**📍 Location:** {loc} | {badge}", unsafe_allow_html=True)
-
-        if loc in st.session_state.expanded_rows:
-            header_cols = st.columns([2, 2, 2, 1, 1])
-            header_cols[0].write("WarehouseSku")
-            header_cols[1].write("CustomerLotReference")
-            header_cols[2].write("PalletId")
-            header_cols[3].write("Qty")
-            header_cols[4].write("Action")
-
-            for idx, row in group.iterrows():
-                row_cols = st.columns([2, 2, 2, 1, 1])
-                row_cols[0].write(row["WarehouseSku"])
-                row_cols[1].write(row["CustomerLotReference"])
-                row_cols[2].write(row["PalletId"])
-                row_cols[3].write(row["Qty"])
-                if row_cols[4].button("✅ Fix", key=f"fix_{row['PalletId']}"):
-                    st.success(f"Pallet {row['PalletId']} fixed!")
-
-            if st.button(f"Collapse {loc}", key=f"collapse_{loc}"):
-                st.session_state.expanded_rows.remove(loc)
-        else:
-            if st.button(f"Expand {loc}", key=f"expand_{loc}"):
-                st.session_state.expanded_rows.add(loc)
+# ---------------- AGGRID DISPLAY ----------------
+def display_aggrid(df):
+    gb = GridOptionsBuilder.from_dataframe(df)
+    gb.configure_default_column(resizable=True, sortable=True, filter=True)
+    gb.configure_column("Action", cellRenderer=JsCode("""
+        function(params) {
+            return `<button style="background-color:#4CAF50;color:white;border:none;padding:5px;border-radius:4px;">Fix</button>`;
+        }
+    """))
+    grid_options = gb.build()
+    grid_response = AgGrid(
+        df,
+        gridOptions=grid_options,
+        update_mode=GridUpdateMode.SELECTION_CHANGED,
+        allow_unsafe_jscode=True,
+        enable_enterprise_modules=False
+    )
+    selected = grid_response.get("selected_rows", [])
+    if selected:
+        pallet_id = selected[0].get("PalletId")
+        if pallet_id and pallet_id not in st.session_state.fixed_pallets:
+            st.session_state.fixed_pallets.add(pallet_id)
+            st.success(f"✅ Pallet {pallet_id} fixed!")
 
 # ---------------- KPI CARDS ----------------
 st.markdown("<h1 style='text-align: center; color: #2E86C1;'>📊 Bin-Helper Dashboard</h1>", unsafe_allow_html=True)
@@ -227,8 +223,8 @@ kpi_data = [
     {"title": "Partial Bins", "value": len(partial_bins_df), "icon": "🟥"},
     {"title": "Damages", "value": len(damages_df), "icon": "🛠️"},
     {"title": "Missing", "value": len(missing_df), "icon": "❓"},
-    {"title": "Rack Discrepancies", "value": len(discrepancy_df.groupby('LocationName')), "icon": "⚠️"},
-    {"title": "Bulk Discrepancies", "value": len(bulk_df.groupby('LocationName')), "icon": "📦"}
+    {"title": "Rack Discrepancies", "value": len(discrepancy_df), "icon": "⚠️"},
+    {"title": "Bulk Discrepancies", "value": len(bulk_df), "icon": "📦"}
 ]
 
 cols = st.columns(len(kpi_data))
@@ -260,7 +256,7 @@ if st.session_state.active_view:
     active_df = apply_filters(view_map.get(st.session_state.active_view, pd.DataFrame()))
 
     if st.session_state.active_view in ["Rack Discrepancies", "Bulk Discrepancies"]:
-        display_grouped(active_df)
+        display_aggrid(active_df)
     elif st.session_state.active_view in ["Full Pallet Bins", "Partial Bins", "Damages", "Missing"]:
         st.dataframe(active_df[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
     elif st.session_state.active_view in ["Empty Bins", "Empty Partial Bins"]:
