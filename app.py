@@ -8,6 +8,8 @@ st.set_page_config(page_title="Bin Helper", layout="wide")
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
     st.session_state.active_view = "Empty Bins"
+if "debug_mode" not in st.session_state:
+    st.session_state.debug_mode = False
 
 # ---------------- FILE PATHS ----------------
 inventory_file_path = "persisted_inventory.xlsx"
@@ -156,6 +158,7 @@ for i, item in enumerate(kpi_data):
 # ---------------- UI ----------------
 st.markdown(f"### 🔍 Viewing: {st.session_state.active_view}")
 search_location = st.text_input("🔍 Filter by Location")
+st.checkbox("Enable Debug Mode", value=st.session_state.debug_mode, key="debug_mode")
 
 def display_table(df, default_columns=None):
     if default_columns is None:
@@ -172,27 +175,24 @@ def display_table(df, default_columns=None):
     if "Location" in df.columns and search_location:
         df = df[df["Location"].str.contains(search_location, case=False, na=False)]
     st.dataframe(df, use_container_width=True)
+    if st.session_state.debug_mode:
+        st.write("🔧 Debug Preview", df.head())
+        st.write("🔧 Row Count:", len(df))
+        st.write("🔧 Columns:", df.columns.tolist())
 
 if st.session_state.active_view == "Bulk Discrepancies":
     display_table(bulk_df)
-
 elif st.session_state.active_view == "Discrepancies":
     display_table(discrepancy_df)
-
 elif st.session_state.active_view == "Empty Bins":
     display_table(empty_bins_view_df, default_columns=["LocationName"])
-
 elif st.session_state.active_view == "Full Pallet Bins":
     display_table(full_pallet_bins_df)
-
 elif st.session_state.active_view == "Empty Partial Bins":
     display_table(empty_partial_bins_df, default_columns=["LocationName"])
-
 elif st.session_state.active_view == "Partial Bins":
     display_table(partial_bins_df)
-
 elif st.session_state.active_view == "Damages":
     display_table(damages_df)
-
 elif st.session_state.active_view == "Missing":
     display_table(missing_df)
