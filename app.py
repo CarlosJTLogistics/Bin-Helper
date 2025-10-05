@@ -267,7 +267,8 @@ elif st.session_state.active_view == "Discrepancies":
     gb.configure_selection("multiple", use_checkbox=True)
     gb.configure_column("Notes", editable=True, cellStyle={"white-space": "normal"})
     gb.configure_default_column(resizable=True, wrapText=True, autoHeight=True)
-    gb.configure_side_bar()
+    if not filtered_df.empty:
+        gb.configure_side_bar()
     grid_options = gb.build()
 
     grid_response = AgGrid(
@@ -300,7 +301,8 @@ elif st.session_state.active_view == "Bulk Discrepancies":
     gb.configure_selection("multiple", use_checkbox=True)
     gb.configure_column("Notes", editable=True, cellStyle={"white-space": "normal"})
     gb.configure_default_column(resizable=True, wrapText=True, autoHeight=True)
-    gb.configure_side_bar()
+    if not filtered_bulk_df.empty:
+        gb.configure_side_bar()
     grid_options = gb.build()
 
     grid_response = AgGrid(
