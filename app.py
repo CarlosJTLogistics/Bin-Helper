@@ -22,9 +22,6 @@ st.sidebar.title("📦 Bin Helper")
 # Search Filters
 st.sidebar.markdown("### 🔍 Search Filter")
 search_location = st.sidebar.text_input("Location Name")
-search_pallet = st.sidebar.text_input("Pallet ID")
-search_lot = st.sidebar.text_input("Customer Lot Reference")
-search_sku = st.sidebar.text_input("Warehouse SKU")
 
 # File Uploads
 st.sidebar.markdown("### 📂 Upload Files")
@@ -305,7 +302,7 @@ elif st.session_state.active_view == "Discrepancies":
     )
 
     selected_rows = grid_response["selected_rows"]
-    if selected_rows and st.button("✔ Apply Selected Discrepancy Corrections"):
+    if len(selected_rows) > 0 and st.button("✔ Apply Selected Discrepancy Corrections"):
         for row in selected_rows:
             log_correction(row["LocationName"], row["Issue"], row["WarehouseSku"], row["PalletId"],
                            row["CustomerLotReference"], row["Qty"], row["Notes"])
@@ -331,7 +328,7 @@ elif st.session_state.active_view == "Bulk Discrepancies":
     )
 
     selected_rows = grid_response["selected_rows"]
-    if selected_rows and st.button("✔ Apply Selected Bulk Corrections"):
+    if len(selected_rows) > 0 and st.button("✔ Apply Selected Bulk Corrections"):
         for row in selected_rows:
             log_correction(row["Location"], row["Issue"], row["WarehouseSku"], row["PalletId"],
                            row["CustomerLotReference"], row["Qty"], row["Notes"])
