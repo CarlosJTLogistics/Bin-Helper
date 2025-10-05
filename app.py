@@ -103,18 +103,40 @@ bulk_df = analyze_bulk_locations(filtered_inventory_df)
 
 # ---------------- DISCREPANCY LOGIC ----------------
 def analyze_discrepancies(df):
-    df = get_partial_bins(df)
+    df = exclude_damage_missing(df)
     results = []
-    for _, row in df.iterrows():
+
+    # Partial bin errors: Qty > 5 or PalletCount > 1
+    partial_df = get_partial_bins(df)
+    partial_errors = partial_df[(partial_df["Qty"] > 5) | (partial_df["PalletCount"] > 1)]
+    for _, row in partial_errors.iterrows():
         results.append({
             "Location": row.get("LocationName", ""),
-            "Issue": "Partial pallet needs relocation",
+            "Issue": "Partial bin error (Qty > 5 or multiple pallets)",
             "Qty": row.get("Qty", ""),
             "WarehouseSku": row.get("WarehouseSku", ""),
             "PalletId": row.get("PalletId", ""),
             "CustomerLotReference": row.get("CustomerLotReference", ""),
             "Notes": ""
         })
+
+    # Full pallet bin errors: Qty not between 6–15
+    full_df = df[
+        ((~df["LocationName"].astype(str).str.endswith("01")) | (df["LocationName"].astype(str).str.startswith("111"))) &
+        (df["LocationName"].astype(str).str.isnumeric())
+    ]
+    full_errors = full_df[~full_df["Qty"].between(6, 15)]
+    for _, row in full_errors.iterrows():
+        results.append({
+            "Location": row.get("LocationName", ""),
+            "Issue": "Full bin error (Qty outside 6–15)",
+            "Qty": row.get("Qty", ""),
+            "WarehouseSku": row.get("WarehouseSku", ""),
+            "PalletId": row.get("PalletId", ""),
+            "CustomerLotReference": row.get("CustomerLotReference", ""),
+            "Notes": ""
+        })
+
     return pd.DataFrame(results)
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
