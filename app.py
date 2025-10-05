@@ -1,7 +1,6 @@
 import os
 import pandas as pd
 import streamlit as st
-from datetime import datetime
 from io import BytesIO
 
 # ---------------- PAGE CONFIG ----------------
@@ -23,7 +22,7 @@ if st.session_state.auto_refresh:
 
 # ---------------- FILE PATHS ----------------
 inventory_file_path = "persisted_inventory.xlsx"
-master_file_path = "persisted_master.xlsx"
+master_file_path = "Empty Bin Formula.xlsx"  # Static file
 
 # ---------------- SIDEBAR SETTINGS ----------------
 with st.sidebar:
@@ -31,16 +30,13 @@ with st.sidebar:
     theme = st.radio("Theme", ["Light", "Dark"], index=0)
     st.session_state.auto_refresh = st.checkbox("Auto Refresh", value=st.session_state.auto_refresh)
 
-    st.markdown("### 📤 Upload Files")
+    st.markdown("### 📤 Upload Inventory File")
     uploaded_inventory = st.file_uploader("Upload ON_HAND_INVENTORY.xlsx", type=["xlsx"])
-    uploaded_master = st.file_uploader("Upload Empty Bin Formula.xlsx", type=["xlsx"])
 
     if uploaded_inventory:
         with open(inventory_file_path, "wb") as f:
             f.write(uploaded_inventory.getbuffer())
-    if uploaded_master:
-        with open(master_file_path, "wb") as f:
-            f.write(uploaded_master.getbuffer())
+        st.success("✅ Inventory file saved. Using latest uploaded file.")
 
 # ---------------- LOAD DATA ----------------
 @st.cache_data
@@ -52,7 +48,7 @@ def load_data(inventory_file, master_file):
 if os.path.exists(inventory_file_path) and os.path.exists(master_file_path):
     inventory_df, master_df = load_data(inventory_file_path, master_file_path)
 else:
-    st.error("Please upload both ON_HAND_INVENTORY.xlsx and Empty Bin Formula.xlsx to proceed.")
+    st.error("Please upload ON_HAND_INVENTORY.xlsx and ensure Empty Bin Formula.xlsx is present.")
     st.stop()
 
 # ---------------- DATA PREP ----------------
