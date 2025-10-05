@@ -27,7 +27,7 @@ inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), 
 
 bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
 
-# Filter out DAMAGE and IB locations for most calculations
+# Filter out DAMAGE, IBDAMAGE, and IB-prefixed locations globally
 filtered_inventory_df = inventory_df[
     ~inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"]) &
     ~inventory_df["LocationName"].astype(str).str.upper().str.startswith("IB")
@@ -38,7 +38,10 @@ occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(s
 master_locations = set(master_df.iloc[1:, 0].dropna().astype(str).unique())
 
 def exclude_damage_missing(df):
-    return df[~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"])]
+    return df[
+        ~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"]) &
+        ~df["LocationName"].astype(str).str.upper().str.startswith("IB")
+    ]
 
 def get_full_pallet_bins(df):
     df = exclude_damage_missing(df)
@@ -70,12 +73,9 @@ full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)
 partial_bins_df = get_partial_bins(filtered_inventory_df)
 empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locations)
 
-# Damages and Missing
-damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
-missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
-
 # ---------------- BULK DISCREPANCY LOGIC ----------------
 def analyze_bulk_locations(df):
+    df = exclude_damage_missing(df)
     results = []
     for letter, max_pallets in bulk_rules.items():
         letter_df = df[df["LocationName"].astype(str).str.startswith(letter)]
@@ -117,53 +117,18 @@ discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
 # ---------------- KPI CARDS ----------------
 kpi_data = [
-    {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦", "color": "#8B4513"},
-    {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩", "color": "#228B22"},
-    {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df), "icon": "🟨", "color": "#FFA500"},
-    {"title": "Partial Bins", "value": len(partial_bins_df), "icon": "🟥", "color": "#DC143C"},
-    {"title": "Damages", "value": len(damages_df), "icon": "🛠️", "color": "#808080"},
-    {"title": "Missing", "value": len(missing_df), "icon": "❓", "color": "#FF69B4"},
-    {"title": "Discrepancies", "value": len(discrepancy_df), "icon": "⚠️", "color": "#FF8C00"},
-    {"title": "Bulk Discrepancies", "value": len(bulk_df), "icon": "📦", "color": "#DAA520"}
+    {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
+    {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
+    {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df), "icon": "🟨"},
+    {"title": "Partial Bins", "value": len(partial_bins_df), "icon": "🟥"},
+    {"title": "Discrepancies", "value": len(discrepancy_df), "icon": "⚠️"},
+    {"title": "Bulk Discrepancies", "value": len(bulk_df), "icon": "📦"}
 ]
-
-st.markdown("""
-    <style>
-    .kpi-card {
-        background-color: #1e1e1e;
-        border-radius: 10px;
-        padding: 15px;
-        text-align: center;
-        color: white;
-        font-family: 'Segoe UI', sans-serif;
-        box-shadow: 0 0 10px rgba(0,0,0,0.3);
-        transition: transform 0.2s ease;
-        cursor: pointer;
-        border: 1px solid #444;
-    }
-    .kpi-card:hover {
-        transform: scale(1.05);
-        border-color: #888;
-    }
-    .kpi-icon {
-        font-size: 24px;
-    }
-    .kpi-title {
-        font-weight: bold;
-        font-size: 16px;
-        margin-top: 8px;
-    }
-    .kpi-value {
-        font-size: 14px;
-        margin-top: 4px;
-    }
-    </style>
-""", unsafe_allow_html=True)
 
 cols = st.columns(len(kpi_data))
 for i, item in enumerate(kpi_data):
     with cols[i]:
-        if st.button(f"{item['icon']} {item['title']} | QTY {item['value']}", key=item['title']):
+        if st.button(f"{item['icon']} {item['title']} | {item['value']}", key=item['title']):
             st.session_state.active_view = item['title']
 
 # ---------------- UI ----------------
@@ -213,9 +178,3 @@ elif st.session_state.active_view == "Empty Partial Bins":
 
 elif st.session_state.active_view == "Partial Bins":
     st.table(partial_bins_df)
-
-elif st.session_state.active_view == "Damages":
-    st.table(damages_df)
-
-elif st.session_state.active_view == "Missing":
-    st.table(missing_df)
