@@ -9,7 +9,7 @@ st.set_page_config(page_title="Bin Helper", layout="wide")
 
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
-    st.session_state.active_view = "Discrepancies"
+    st.session_state.active_view = None
 if "expanded_rows" not in st.session_state:
     st.session_state.expanded_rows = set()
 if "filters" not in st.session_state:
@@ -179,7 +179,7 @@ def apply_filters(df):
             df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
 
-# ---------------- DISPLAY GROUPED ----------------
+# ---------------- DISPLAY GROUPED WITH FIX BUTTON ----------------
 def display_grouped(df):
     grouped = df.groupby("LocationName")
     for loc, group in grouped:
@@ -194,6 +194,10 @@ def display_grouped(df):
         else:
             if st.button(f"Expand {loc}", key=f"expand_{loc}"):
                 st.session_state.expanded_rows.add(loc)
+
+        # Fix button
+        if st.button(f"✅ Fix {loc}", key=f"fix_{loc}"):
+            st.success(f"Discrepancy at {loc} marked as fixed.")
 
 # ---------------- KPI CARDS ----------------
 kpi_data = [
@@ -232,15 +236,18 @@ view_map = {
     "Missing": missing_df
 }
 
-active_df = apply_filters(view_map.get(st.session_state.active_view, pd.DataFrame()))
+if st.session_state.active_view:
+    active_df = apply_filters(view_map.get(st.session_state.active_view, pd.DataFrame()))
 
-if st.session_state.active_view in ["Discrepancies", "Bulk Discrepancies"]:
-    display_grouped(active_df)
-elif st.session_state.active_view in ["Full Pallet Bins", "Partial Bins", "Damages", "Missing"]:
-    st.dataframe(active_df[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
-elif st.session_state.active_view in ["Empty Bins", "Empty Partial Bins"]:
-    st.dataframe(active_df[["LocationName"]])
+    if st.session_state.active_view in ["Discrepancies", "Bulk Discrepancies"]:
+        display_grouped(active_df)
+    elif st.session_state.active_view in ["Full Pallet Bins", "Partial Bins", "Damages", "Missing"]:
+        st.dataframe(active_df[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
+    elif st.session_state.active_view in ["Empty Bins", "Empty Partial Bins"]:
+        st.dataframe(active_df[["LocationName"]])
+    else:
+        st.dataframe(active_df)
+
+    export_dataframe(active_df, f"{st.session_state.active_view.replace(' ', '_')}_filtered.xlsx")
 else:
-    st.dataframe(active_df)
-
-export_dataframe(active_df, f"{st.session_state.active_view.replace(' ', '_')}_filtered.xlsx")
+    st.info("👆 Select a KPI card above to view details.")
