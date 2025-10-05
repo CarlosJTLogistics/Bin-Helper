@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import streamlit as st
 from datetime import datetime
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
@@ -13,6 +14,7 @@ if "active_view" not in st.session_state:
 # ---------------- FILE PATHS ----------------
 inventory_file_path = "persisted_inventory.xlsx"
 master_file_path = "persisted_master.xlsx"
+log_file = "correction_log.csv"
 
 # ---------------- SIDEBAR ----------------
 st.sidebar.title("📦 Bin Helper")
@@ -20,9 +22,6 @@ st.sidebar.title("📦 Bin Helper")
 # Search Filters
 st.sidebar.markdown("### 🔍 Search Filter")
 search_location = st.sidebar.text_input("Location Name")
-search_pallet = st.sidebar.text_input("Pallet ID")
-search_lot = st.sidebar.text_input("Customer Lot Reference")
-search_sku = st.sidebar.text_input("Warehouse SKU")
 
 # File Uploads
 st.sidebar.markdown("### 📂 Upload Files")
@@ -51,7 +50,6 @@ else:
 
 # Correction Log
 st.sidebar.markdown("### 📋 Correction Log")
-log_file = "correction_log.csv"
 correction_df = pd.DataFrame()
 if os.path.exists(log_file):
     correction_df = pd.read_csv(log_file)
@@ -103,58 +101,10 @@ bulk_inventory_df = filtered_inventory_df[
     ~filtered_inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])
 ]
 
-empty_bins = [
-    loc for loc in master_locations
-    if loc not in occupied_locations
-    and not loc.endswith("01")
-    and "STAGE" not in loc.upper()
-    and loc.upper() not in ["DAMAGE", "IBDAMAGE", "MISSING"]
-]
-empty_bins_view_df = pd.DataFrame({"LocationName": empty_bins})
-
-def exclude_damage_missing(df):
-    return df[~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"])]
-
-def get_full_pallet_bins(df):
-    df = exclude_damage_missing(df)
-    return df[
-        ((~df["LocationName"].astype(str).str.endswith("01")) | (df["LocationName"].astype(str).str.startswith("111")))
-        & (df["LocationName"].astype(str).str.isnumeric())
-        & (df["Qty"].between(6, 15))
-    ]
-
-def get_partial_bins(df):
-    df = exclude_damage_missing(df)
-    return df[
-        df["LocationName"].astype(str).str.endswith("01")
-        & ~df["LocationName"].astype(str).str.startswith("111")
-        & ~df["LocationName"].astype(str).str.upper().str.startswith("TUN")
-        & df["LocationName"].astype(str).str[0].str.isdigit()
-    ]
-
-def get_empty_partial_bins(master_locs, occupied_locs):
-    partial_candidates = [
-        loc for loc in master_locs
-        if loc.endswith("01")
-        and not loc.startswith("111")
-        and not str(loc).upper().startswith("TUN")
-        and str(loc)[0].isdigit()
-    ]
-    empty_partial = sorted(set(partial_candidates) - set(occupied_locs))
-    return pd.DataFrame({"LocationName": empty_partial})
-
-def get_damage(df):
-    mask = df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])
-    return df[mask]
-
-def get_missing(df):
-    mask = df["LocationName"].astype(str).str.upper().eq("MISSING")
-    return df[mask]
-
 # ---------------- DISCREPANCY LOGIC ----------------
 def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
-        return pd.DataFrame(columns=["LocationName", "Qty", "Issue"])
+        return pd.DataFrame(columns=["LocationName", "Qty", "Issue", "Notes"])
     local = df.copy()
     local["LocationName"] = local["LocationName"].astype(str)
     issues_by_loc = {}
@@ -177,7 +127,7 @@ def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     for loc, issues in issues_by_loc.items():
         qty_sum = int(local.loc[local["LocationName"] == loc, "Qty"].sum())
         for issue in sorted(set(issues)):
-            rows.append({"LocationName": loc, "Qty": qty_sum, "Issue": issue})
+            rows.append({"LocationName": loc, "Qty": qty_sum, "Issue": issue, "Notes": ""})
     df_out = pd.DataFrame(rows)
 
     if not correction_df.empty:
@@ -197,12 +147,13 @@ def analyze_bulk_locations(df):
             if count > max_pallets:
                 issue = f"Too many pallets ({count} > {max_pallets})"
                 discrepancies += 1
-            results.append({
-                "Location": slot,
-                "Current Pallets": count,
-                "Max Allowed": max_pallets,
-                "Issue": issue
-            })
+                results.append({
+                    "Location": slot,
+                    "Current Pallets": count,
+                    "Max Allowed": max_pallets,
+                    "Issue": issue,
+                    "Notes": ""
+                })
     df_out = pd.DataFrame(results)
     if not correction_df.empty:
         corrected_pairs = set(zip(correction_df["LocationName"], correction_df["Issue"]))
@@ -210,14 +161,6 @@ def analyze_bulk_locations(df):
     return df_out, discrepancies
 
 bulk_df, bulk_discrepancies = analyze_bulk_locations(bulk_inventory_df)
-bulk_df["Issue"] = bulk_df["Issue"].fillna("").astype(str).str.strip()
-
-columns_to_show = ["LocationName", "PalletId", "Qty", "CustomerLotReference", "WarehouseSku"]
-full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)[columns_to_show]
-partial_bins_df = get_partial_bins(filtered_inventory_df)[columns_to_show]
-empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locations)
-damage_df = get_damage(filtered_inventory_df)[columns_to_show]
-missing_df = get_missing(filtered_inventory_df)[columns_to_show]
 discrepancy_df = find_discrepancies(filtered_inventory_df)
 
 # ---------------- LOGGING FUNCTION ----------------
@@ -234,26 +177,19 @@ def log_correction(location, issue, sku, pallet_id, lot, qty, notes):
         "Notes": notes
     }
     log_df = pd.DataFrame([log_entry])
-    if os.path.exists("correction_log.csv"):
-        log_df.to_csv("correction_log.csv", mode="a", header=False, index=False)
+    if os.path.exists(log_file):
+        log_df.to_csv(log_file, mode="a", header=False, index=False)
     else:
-        log_df.to_csv("correction_log.csv", index=False)
+        log_df.to_csv(log_file, index=False)
 
 # ---------------- UI ----------------
 st.markdown("## 📦 Bin Helper Dashboard")
 
 # KPI Cards
 kpi_data = [
-    {"title": "Empty Bins", "value": f"QTY {len(empty_bins_view_df)}", "icon": "📦"},
-    {"title": "Full Pallet Bins", "value": f"QTY {len(full_pallet_bins_df)}", "icon": "🟩"},
-    {"title": "Empty Partial Bins", "value": f"QTY {len(empty_partial_bins_df)}", "icon": "🟨"},
-    {"title": "Partial Bins", "value": f"QTY {len(partial_bins_df)}", "icon": "🟥"},
-    {"title": "Damages", "value": f"QTY {int(damage_df['Qty'].sum())}", "icon": "🛠️"},
-    {"title": "Missing", "value": f"QTY {int(missing_df['Qty'].sum())}", "icon": "❓"},
     {"title": "Discrepancies", "value": f"QTY {len(discrepancy_df)}", "icon": "⚠️"},
     {"title": "Bulk Discrepancies", "value": f"QTY {bulk_discrepancies}", "icon": "📦"}
 ]
-
 cols = st.columns(len(kpi_data))
 for i, item in enumerate(kpi_data):
     with cols[i]:
@@ -263,89 +199,59 @@ for i, item in enumerate(kpi_data):
 # Display Selected View
 st.markdown(f"### 🔍 Viewing: {st.session_state.active_view}")
 
-if st.session_state.active_view == "Empty Bins":
-    st.dataframe(empty_bins_view_df)
-elif st.session_state.active_view == "Full Pallet Bins":
-    st.dataframe(full_pallet_bins_df)
-elif st.session_state.active_view == "Empty Partial Bins":
-    st.dataframe(empty_partial_bins_df)
-elif st.session_state.active_view == "Partial Bins":
-    st.dataframe(partial_bins_df)
-elif st.session_state.active_view == "Damages":
-    st.dataframe(damage_df)
-elif st.session_state.active_view == "Missing":
-    st.dataframe(missing_df)
-elif st.session_state.active_view == "Discrepancies":
-    st.markdown("#### Drill-down Details")
+# ---------------- AGGRID TABS ----------------
+if st.session_state.active_view == "Discrepancies":
     filtered_df = discrepancy_df.copy()
     if search_location:
         filtered_df = filtered_df[filtered_df["LocationName"].str.contains(search_location, case=False, na=False)]
 
-    for loc in filtered_df["LocationName"].unique():
-        loc_issues = filtered_df[filtered_df["LocationName"] == loc]
-        with st.expander(f"📍 Location: {loc} — {len(loc_issues)} issue(s)"):
-            details = filtered_inventory_df[filtered_inventory_df["LocationName"] == loc]
-            st.write("**Inventory Details:**")
+    gb = GridOptionsBuilder.from_dataframe(filtered_df)
+    gb.configure_selection("multiple", use_checkbox=True)
+    gb.configure_column("Notes", editable=True)
+    grid_options = gb.build()
+
+    grid_response = AgGrid(
+        filtered_df,
+        gridOptions=grid_options,
+        update_mode=GridUpdateMode.MODEL_CHANGED,
+        allow_unsafe_jscode=True,
+        theme="dark",
+        key="discrepancy_grid"
+    )
+
+    selected_rows = grid_response["selected_rows"]
+    if selected_rows and st.button("✔ Apply Selected Discrepancy Corrections"):
+        for row in selected_rows:
+            details = filtered_inventory_df[filtered_inventory_df["LocationName"] == row["LocationName"]]
             for _, drow in details.iterrows():
-                st.write(f"• SKU: `{drow.get('WarehouseSku','')}` | Pallet ID: `{drow.get('PalletId','')}` | "
-                         f"Lot: `{drow.get('CustomerLotReference','')}` | Qty: `{drow.get('Qty','')}`")
+                log_correction(row["LocationName"], row["Issue"], drow.get("WarehouseSku",""), drow.get("PalletId",""),
+                               drow.get("CustomerLotReference",""), drow.get("Qty",""), row.get("Notes",""))
+        st.success(f"✅ {len(selected_rows)} corrections logged.")
 
-            st.markdown("**Issue | Qty | Notes | Select**")
-            selected_issues = []
-            for idx, row in loc_issues.iterrows():
-                issue = row["Issue"]
-                qty = row["Qty"]
-                col1, col2, col3, col4 = st.columns([3, 1, 3, 1])
-                with col1:
-                    st.write(issue)
-                with col2:
-                    st.write(f"QTY {qty}")
-                with col3:
-                    notes = st.text_input("", key=f"note_{loc}_{idx}", placeholder="Add notes...")
-                with col4:
-                    if st.checkbox("", key=f"chk_{loc}_{idx}"):
-                        selected_issues.append((issue, notes))
-
-            if selected_issues and st.button("✔ Apply Selected Corrections", key=f"apply_{loc}"):
-                for issue, notes in selected_issues:
-                    for _, drow in details.iterrows():
-                        log_correction(loc, issue, drow.get("WarehouseSku",""), drow.get("PalletId",""),
-                                       drow.get("CustomerLotReference",""), drow.get("Qty",""), notes)
-                st.success(f"✅ {len(selected_issues)} corrections applied for {loc}")
 elif st.session_state.active_view == "Bulk Discrepancies":
-    st.markdown("#### Drill-down Details")
     filtered_bulk_df = bulk_df[bulk_df["Issue"] != ""].copy()
     if search_location:
         filtered_bulk_df = filtered_bulk_df[filtered_bulk_df["Location"].str.contains(search_location, case=False, na=False)]
 
-    for loc in filtered_bulk_df["Location"].unique():
-        loc_issues = filtered_bulk_df[filtered_bulk_df["Location"] == loc]
-        with st.expander(f"📍 Bulk Location: {loc} — {len(loc_issues)} issue(s)"):
-            details = filtered_inventory_df[filtered_inventory_df["LocationName"] == loc]
-            st.write("**Inventory Details:**")
+    gb = GridOptionsBuilder.from_dataframe(filtered_bulk_df)
+    gb.configure_selection("multiple", use_checkbox=True)
+    gb.configure_column("Notes", editable=True)
+    grid_options = gb.build()
+
+    grid_response = AgGrid(
+        filtered_bulk_df,
+        gridOptions=grid_options,
+        update_mode=GridUpdateMode.MODEL_CHANGED,
+        allow_unsafe_jscode=True,
+        theme="dark",
+        key="bulk_grid"
+    )
+
+    selected_rows = grid_response["selected_rows"]
+    if selected_rows and st.button("✔ Apply Selected Bulk Corrections"):
+        for row in selected_rows:
+            details = filtered_inventory_df[filtered_inventory_df["LocationName"] == row["Location"]]
             for _, drow in details.iterrows():
-                st.write(f"• SKU: `{drow.get('WarehouseSku','')}` | Pallet ID: `{drow.get('PalletId','')}` | "
-                         f"Lot: `{drow.get('CustomerLotReference','')}` | Qty: `{drow.get('Qty','')}`")
-
-            st.markdown("**Issue | Qty | Notes | Select**")
-            selected_bulk_issues = []
-            for idx, row in loc_issues.iterrows():
-                issue = row["Issue"]
-                qty = row["Current Pallets"]
-                col1, col2, col3, col4 = st.columns([3, 1, 3, 1])
-                with col1:
-                    st.write(issue)
-                with col2:
-                    st.write(f"QTY {qty}")
-                with col3:
-                    notes = st.text_input("", key=f"bulk_note_{loc}_{idx}", placeholder="Add notes...")
-                with col4:
-                    if st.checkbox("", key=f"bulk_chk_{loc}_{idx}"):
-                        selected_bulk_issues.append((issue, notes))
-
-            if selected_bulk_issues and st.button("✔ Apply Selected Bulk Corrections", key=f"bulk_apply_{loc}"):
-                for issue, notes in selected_bulk_issues:
-                    for _, drow in details.iterrows():
-                        log_correction(loc, issue, drow.get("WarehouseSku",""), drow.get("PalletId",""),
-                                       drow.get("CustomerLotReference",""), drow.get("Qty",""), notes)
-                st.success(f"✅ {len(selected_bulk_issues)} bulk corrections applied for {loc}")
+                log_correction(row["Location"], row["Issue"], drow.get("WarehouseSku",""), drow.get("PalletId",""),
+                               drow.get("CustomerLotReference",""), drow.get("Qty",""), row.get("Notes",""))
+        st.success(f"✅ {len(selected_rows)} bulk corrections logged.")
