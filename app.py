@@ -195,11 +195,12 @@ def display_grouped(df):
             if st.button(f"Expand {loc}", key=f"expand_{loc}"):
                 st.session_state.expanded_rows.add(loc)
 
-        # Fix button
         if st.button(f"✅ Fix {loc}", key=f"fix_{loc}"):
             st.success(f"Discrepancy at {loc} marked as fixed.")
 
 # ---------------- KPI CARDS ----------------
+st.markdown("<h1 style='text-align: center; color: #2E86C1;'>📊 Bin-Helper Dashboard</h1>", unsafe_allow_html=True)
+
 kpi_data = [
     {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
     {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
