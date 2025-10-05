@@ -19,7 +19,7 @@ if "auto_refresh" not in st.session_state:
 
 # ---------------- AUTO REFRESH ----------------
 if st.session_state.auto_refresh:
-    st.experimental_rerun()
+    st.rerun()
 
 # ---------------- SIDEBAR SETTINGS ----------------
 with st.sidebar:
