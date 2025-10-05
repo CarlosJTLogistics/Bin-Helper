@@ -9,7 +9,7 @@ st.set_page_config(page_title="Bin Helper", layout="wide")
 
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
-    st.session_state.active_view = "Discrepancies"
+    st.session_state.active_view = "Empty Bins"
 
 # ---------------- FILE PATHS ----------------
 inventory_file_path = "persisted_inventory.xlsx"
@@ -22,6 +22,9 @@ st.sidebar.title("📦 Bin Helper")
 # Search Filters
 st.sidebar.markdown("### 🔍 Search Filter")
 search_location = st.sidebar.text_input("Location Name")
+search_pallet = st.sidebar.text_input("Pallet ID")
+search_lot = st.sidebar.text_input("Customer Lot Reference")
+search_sku = st.sidebar.text_input("Warehouse SKU")
 
 # File Uploads
 st.sidebar.markdown("### 📂 Upload Files")
@@ -94,9 +97,60 @@ def is_valid_location(loc):
     )
 
 filtered_inventory_df = inventory_df[inventory_df["LocationName"].apply(is_valid_location)]
+occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
+master_locations = set(master_locations_df.iloc[1:, 0].dropna().astype(str).unique())
+
 bulk_inventory_df = filtered_inventory_df[
     ~filtered_inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])
 ]
+
+empty_bins = [
+    loc for loc in master_locations
+    if loc not in occupied_locations
+    and not loc.endswith("01")
+    and "STAGE" not in loc.upper()
+    and loc.upper() not in ["DAMAGE", "IBDAMAGE", "MISSING"]
+]
+empty_bins_view_df = pd.DataFrame({"LocationName": empty_bins})
+
+def exclude_damage_missing(df):
+    return df[~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"])]
+
+def get_full_pallet_bins(df):
+    df = exclude_damage_missing(df)
+    return df[
+        ((~df["LocationName"].astype(str).str.endswith("01")) | (df["LocationName"].astype(str).str.startswith("111")))
+        & (df["LocationName"].astype(str).str.isnumeric())
+        & (df["Qty"].between(6, 15))
+    ]
+
+def get_partial_bins(df):
+    df = exclude_damage_missing(df)
+    return df[
+        df["LocationName"].astype(str).str.endswith("01")
+        & ~df["LocationName"].astype(str).str.startswith("111")
+        & ~df["LocationName"].astype(str).str.upper().str.startswith("TUN")
+        & df["LocationName"].astype(str).str[0].str.isdigit()
+    ]
+
+def get_empty_partial_bins(master_locs, occupied_locs):
+    partial_candidates = [
+        loc for loc in master_locs
+        if loc.endswith("01")
+        and not loc.startswith("111")
+        and not str(loc).upper().startswith("TUN")
+        and str(loc)[0].isdigit()
+    ]
+    empty_partial = sorted(set(partial_candidates) - set(occupied_locs))
+    return pd.DataFrame({"LocationName": empty_partial})
+
+def get_damage(df):
+    mask = df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])
+    return df[mask]
+
+def get_missing(df):
+    mask = df["LocationName"].astype(str).str.upper().eq("MISSING")
+    return df[mask]
 
 # ---------------- DISCREPANCY LOGIC ----------------
 def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
@@ -198,6 +252,12 @@ st.markdown("## 📦 Bin Helper Dashboard")
 
 # KPI Cards
 kpi_data = [
+    {"title": "Empty Bins", "value": f"QTY {len(empty_bins_view_df)}", "icon": "📦"},
+    {"title": "Full Pallet Bins", "value": f"QTY {len(get_full_pallet_bins(filtered_inventory_df))}", "icon": "🟩"},
+    {"title": "Empty Partial Bins", "value": f"QTY {len(get_empty_partial_bins(master_locations, occupied_locations))}", "icon": "🟨"},
+    {"title": "Partial Bins", "value": f"QTY {len(get_partial_bins(filtered_inventory_df))}", "icon": "🟥"},
+    {"title": "Damages", "value": f"QTY {int(get_damage(filtered_inventory_df)['Qty'].sum())}", "icon": "🛠️"},
+    {"title": "Missing", "value": f"QTY {int(get_missing(filtered_inventory_df)['Qty'].sum())}", "icon": "❓"},
     {"title": "Discrepancies", "value": f"QTY {len(discrepancy_df)}", "icon": "⚠️"},
     {"title": "Bulk Discrepancies", "value": f"QTY {bulk_discrepancies}", "icon": "📦"}
 ]
@@ -210,8 +270,22 @@ for i, item in enumerate(kpi_data):
 # Display Selected View
 st.markdown(f"### 🔍 Viewing: {st.session_state.active_view}")
 
-# ---------------- AGGRID TABS ----------------
-if st.session_state.active_view == "Discrepancies":
+# ---------------- TAB CONTENT ----------------
+columns_to_show = ["LocationName", "PalletId", "Qty", "CustomerLotReference", "WarehouseSku"]
+
+if st.session_state.active_view == "Empty Bins":
+    st.dataframe(empty_bins_view_df)
+elif st.session_state.active_view == "Full Pallet Bins":
+    st.dataframe(get_full_pallet_bins(filtered_inventory_df)[columns_to_show])
+elif st.session_state.active_view == "Empty Partial Bins":
+    st.dataframe(get_empty_partial_bins(master_locations, occupied_locations))
+elif st.session_state.active_view == "Partial Bins":
+    st.dataframe(get_partial_bins(filtered_inventory_df)[columns_to_show])
+elif st.session_state.active_view == "Damages":
+    st.dataframe(get_damage(filtered_inventory_df)[columns_to_show])
+elif st.session_state.active_view == "Missing":
+    st.dataframe(get_missing(filtered_inventory_df)[columns_to_show])
+elif st.session_state.active_view == "Discrepancies":
     filtered_df = discrepancy_df.copy()
     if search_location:
         filtered_df = filtered_df[filtered_df["LocationName"].str.contains(search_location, case=False, na=False)]
@@ -224,7 +298,7 @@ if st.session_state.active_view == "Discrepancies":
     grid_response = AgGrid(
         filtered_df,
         gridOptions=grid_options,
-        update_mode=GridUpdateMode.MODEL_CHANGED,
+        update_mode=GridUpdateMode.VALUE_CHANGED,
         allow_unsafe_jscode=True,
         theme="dark",
         key="discrepancy_grid"
@@ -250,7 +324,7 @@ elif st.session_state.active_view == "Bulk Discrepancies":
     grid_response = AgGrid(
         filtered_bulk_df,
         gridOptions=grid_options,
-        update_mode=GridUpdateMode.MODEL_CHANGED,
+        update_mode=GridUpdateMode.VALUE_CHANGED,
         allow_unsafe_jscode=True,
         theme="dark",
         key="bulk_grid"
