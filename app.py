@@ -9,7 +9,7 @@ st.set_page_config(page_title="Bin Helper", layout="wide")
 
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
-    st.session_state.active_view = "Empty Bins"
+    st.session_state.active_view = "Discrepancies"
 
 # ---------------- FILE PATHS ----------------
 inventory_file_path = "persisted_inventory.xlsx"
@@ -94,9 +94,6 @@ def is_valid_location(loc):
     )
 
 filtered_inventory_df = inventory_df[inventory_df["LocationName"].apply(is_valid_location)]
-occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
-master_locations = set(master_locations_df.iloc[1:, 0].dropna().astype(str).unique())
-
 bulk_inventory_df = filtered_inventory_df[
     ~filtered_inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])
 ]
@@ -104,7 +101,7 @@ bulk_inventory_df = filtered_inventory_df[
 # ---------------- DISCREPANCY LOGIC ----------------
 def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
-        return pd.DataFrame(columns=["LocationName", "Qty", "Issue", "Notes"])
+        return pd.DataFrame(columns=["LocationName", "Qty", "Issue", "WarehouseSku", "PalletId", "CustomerLotReference", "Notes"])
     local = df.copy()
     local["LocationName"] = local["LocationName"].astype(str)
     issues_by_loc = {}
@@ -125,9 +122,18 @@ def find_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
 
     rows = []
     for loc, issues in issues_by_loc.items():
-        qty_sum = int(local.loc[local["LocationName"] == loc, "Qty"].sum())
+        details = local[local["LocationName"] == loc]
         for issue in sorted(set(issues)):
-            rows.append({"LocationName": loc, "Qty": qty_sum, "Issue": issue, "Notes": ""})
+            for _, drow in details.iterrows():
+                rows.append({
+                    "LocationName": loc,
+                    "Issue": issue,
+                    "Qty": drow.get("Qty", ""),
+                    "WarehouseSku": drow.get("WarehouseSku", ""),
+                    "PalletId": drow.get("PalletId", ""),
+                    "CustomerLotReference": drow.get("CustomerLotReference", ""),
+                    "Notes": ""
+                })
     df_out = pd.DataFrame(rows)
 
     if not correction_df.empty:
@@ -147,13 +153,18 @@ def analyze_bulk_locations(df):
             if count > max_pallets:
                 issue = f"Too many pallets ({count} > {max_pallets})"
                 discrepancies += 1
-                results.append({
-                    "Location": slot,
-                    "Current Pallets": count,
-                    "Max Allowed": max_pallets,
-                    "Issue": issue,
-                    "Notes": ""
-                })
+                details = df[df["LocationName"] == slot]
+                for _, drow in details.iterrows():
+                    results.append({
+                        "Location": slot,
+                        "Issue": issue,
+                        "Current Pallets": count,
+                        "WarehouseSku": drow.get("WarehouseSku", ""),
+                        "PalletId": drow.get("PalletId", ""),
+                        "CustomerLotReference": drow.get("CustomerLotReference", ""),
+                        "Qty": drow.get("Qty", ""),
+                        "Notes": ""
+                    })
     df_out = pd.DataFrame(results)
     if not correction_df.empty:
         corrected_pairs = set(zip(correction_df["LocationName"], correction_df["Issue"]))
@@ -222,10 +233,8 @@ if st.session_state.active_view == "Discrepancies":
     selected_rows = grid_response["selected_rows"]
     if selected_rows and st.button("✔ Apply Selected Discrepancy Corrections"):
         for row in selected_rows:
-            details = filtered_inventory_df[filtered_inventory_df["LocationName"] == row["LocationName"]]
-            for _, drow in details.iterrows():
-                log_correction(row["LocationName"], row["Issue"], drow.get("WarehouseSku",""), drow.get("PalletId",""),
-                               drow.get("CustomerLotReference",""), drow.get("Qty",""), row.get("Notes",""))
+            log_correction(row["LocationName"], row["Issue"], row["WarehouseSku"], row["PalletId"],
+                           row["CustomerLotReference"], row["Qty"], row["Notes"])
         st.success(f"✅ {len(selected_rows)} corrections logged.")
 
 elif st.session_state.active_view == "Bulk Discrepancies":
@@ -250,8 +259,6 @@ elif st.session_state.active_view == "Bulk Discrepancies":
     selected_rows = grid_response["selected_rows"]
     if selected_rows and st.button("✔ Apply Selected Bulk Corrections"):
         for row in selected_rows:
-            details = filtered_inventory_df[filtered_inventory_df["LocationName"] == row["Location"]]
-            for _, drow in details.iterrows():
-                log_correction(row["Location"], row["Issue"], drow.get("WarehouseSku",""), drow.get("PalletId",""),
-                               drow.get("CustomerLotReference",""), drow.get("Qty",""), row.get("Notes",""))
+            log_correction(row["Location"], row["Issue"], row["WarehouseSku"], row["PalletId"],
+                           row["CustomerLotReference"], row["Qty"], row["Notes"])
         st.success(f"✅ {len(selected_rows)} bulk corrections logged.")
