@@ -8,7 +8,7 @@ st.set_page_config(page_title="Bin Helper", layout="wide")
 
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
-    st.session_state.active_view = "Discrepancies"
+    st.session_state.active_view = "Empty Bins"
 if "expanded_rows" not in st.session_state:
     st.session_state.expanded_rows = set()
 if "filters" not in st.session_state:
@@ -136,18 +136,6 @@ for i, item in enumerate(kpi_data):
         if st.button(f"{item['icon']} {item['title']} | {item['value']}", key=item['title']):
             st.session_state.active_view = item['title']
 
-# ---------------- SIDEBAR HISTORY ----------------
-with st.sidebar:
-    st.title("📋 Discrepancy History")
-    if os.path.exists(history_log_path):
-        history_df = pd.read_csv(history_log_path)
-        search = st.text_input("Search History")
-        if search:
-            history_df = history_df[history_df.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)]
-        st.dataframe(history_df)
-    else:
-        st.info("No discrepancy history found.")
-
 # ---------------- FILTER BAR ----------------
 st.markdown(f"### 🔍 Viewing: {st.session_state.active_view}")
 with st.expander("🔍 Filter Options"):
@@ -158,64 +146,24 @@ with st.expander("🔍 Filter Options"):
 
 def apply_filters(df):
     for key, value in st.session_state.filters.items():
-        if value:
+        if value and key in df.columns:
             df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
 
-def refresh_discrepancy_data():
-    global discrepancy_df
-    discrepancy_df = analyze_discrepancies(filtered_inventory_df)
+def display_table(df, columns):
+    df = df[columns]
+    st.dataframe(df, use_container_width=True)
 
-# ---------------- DISPLAY DISCREPANCY TABLE ----------------
-if st.session_state.active_view == "Discrepancies":
-    filtered_df = apply_filters(discrepancy_df)
-    for idx, row in filtered_df.iterrows():
-        loc = row["LocationName"]
-        st.markdown(f"---\n**📍 Location:** {loc} | **Issue:** {row['Issue']}")
-        st.write(f"**SKU:** {row['WarehouseSku']} | **LOT:** {row['CustomerLotReference']} | **Pallet ID:** {row['PalletId']} | **Qty:** {row['Qty']}")
-        if loc in st.session_state.expanded_rows:
-            with st.form(key=f"fix_form_{loc}"):
-                new_qty = st.number_input("Qty", value=int(row["Qty"]) if pd.notna(row["Qty"]) else 0, step=1)
-                new_pallet = st.number_input("PalletCount", value=int(row["PalletCount"]) if pd.notna(row["PalletCount"]) else 0, step=1)
-                note = st.text_area("Note about the fix")
-                submitted = st.form_submit_button("✅ Submit Fix")
-                if submitted:
-                    new_entry = {
-                        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "LocationName": loc,
-                        "Issue": row["Issue"],
-                        "OldQty": row["Qty"],
-                        "NewQty": new_qty,
-                        "OldPalletCount": row["PalletCount"],
-                        "NewPalletCount": new_pallet,
-                        "WarehouseSku": row["WarehouseSku"],
-                        "PalletId": row["PalletId"],
-                        "CustomerLotReference": row["CustomerLotReference"],
-                        "Note": note
-                    }
-                    if os.path.exists(history_log_path):
-                        history_df = pd.read_csv(history_log_path)
-                        history_df = pd.concat([history_df, pd.DataFrame([new_entry])], ignore_index=True)
-                    else:
-                        history_df = pd.DataFrame([new_entry])
-                    history_df.to_csv(history_log_path, index=False)
-                    st.success("Fix submitted and logged.")
-                    st.session_state.expanded_rows.remove(loc)
-                    refresh_discrepancy_data()
-                    st.experimental_rerun()
-        else:
-            if st.button(f"🛠️ Fix {loc}", key=f"expand_{loc}"):
-                st.session_state.expanded_rows.add(loc)
-else:
-    if st.session_state.active_view == "Empty Bins":
-        st.dataframe(apply_filters(empty_bins_view_df))
-    elif st.session_state.active_view == "Full Pallet Bins":
-        st.dataframe(apply_filters(full_pallet_bins_df))
-    elif st.session_state.active_view == "Empty Partial Bins":
-        st.dataframe(apply_filters(empty_partial_bins_df))
-    elif st.session_state.active_view == "Partial Bins":
-        st.dataframe(apply_filters(partial_bins_df))
-    elif st.session_state.active_view == "Damages":
-        st.dataframe(apply_filters(damages_df))
-    elif st.session_state.active_view == "Missing":
-        st.dataframe(apply_filters(missing_df))
+# ---------------- DISPLAY TABS ----------------
+if st.session_state.active_view == "Empty Bins":
+    display_table(apply_filters(empty_bins_view_df), ["LocationName"])
+elif st.session_state.active_view == "Full Pallet Bins":
+    display_table(apply_filters(full_pallet_bins_df), ["WarehouseSku", "CustomerLotReference", "PalletId", "Qty"])
+elif st.session_state.active_view == "Empty Partial Bins":
+    display_table(apply_filters(empty_partial_bins_df), ["LocationName"])
+elif st.session_state.active_view == "Partial Bins":
+    display_table(apply_filters(partial_bins_df), ["WarehouseSku", "CustomerLotReference", "PalletId", "Qty"])
+elif st.session_state.active_view == "Damages":
+    display_table(apply_filters(damages_df), ["WarehouseSku", "CustomerLotReference", "PalletId", "Qty"])
+elif st.session_state.active_view == "Missing":
+    display_table(apply_filters(missing_df), ["WarehouseSku", "CustomerLotReference", "PalletId", "Qty"])
