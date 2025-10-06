@@ -12,10 +12,6 @@ if "filters" not in st.session_state:
     st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
 if "auto_refresh" not in st.session_state:
     st.session_state.auto_refresh = False
-if "fixed_pallets" not in st.session_state:
-    st.session_state.fixed_pallets = set()
-if "use_filters" not in st.session_state:
-    st.session_state.use_filters = True
 
 # ---------------- AUTO REFRESH ----------------
 if st.session_state.auto_refresh:
@@ -108,8 +104,7 @@ def analyze_bulk_locations(df):
                         "WarehouseSku": drow.get("WarehouseSku", ""),
                         "PalletId": drow.get("PalletId", ""),
                         "CustomerLotReference": drow.get("CustomerLotReference", ""),
-                        "Issue": f"⚠️ Exceeds max allowed: {count} > {max_pallets}",
-                        "Action": "Fix"
+                        "Issue": f"Exceeds max allowed: {count} > {max_pallets}"
                     })
     return pd.DataFrame(results)
 
@@ -123,7 +118,7 @@ def analyze_discrepancies(df):
     partial_df = get_partial_bins(df)
     partial_errors = partial_df[(partial_df["Qty"] > 5) | (partial_df["PalletCount"] > 1)]
     for _, row in partial_errors.iterrows():
-        issue = "⚠️ Qty too high for partial bin" if row["Qty"] > 5 else "⚠️ Multiple pallets in partial bin"
+        issue = "Qty too high for partial bin" if row["Qty"] > 5 else "Multiple pallets in partial bin"
         results.append({
             "LocationName": row.get("LocationName", ""),
             "Qty": row.get("Qty", ""),
@@ -131,8 +126,7 @@ def analyze_discrepancies(df):
             "WarehouseSku": row.get("WarehouseSku", ""),
             "PalletId": row.get("PalletId", ""),
             "CustomerLotReference": row.get("CustomerLotReference", ""),
-            "Issue": issue,
-            "Action": "Fix"
+            "Issue": issue
         })
 
     full_df = df[
@@ -141,7 +135,7 @@ def analyze_discrepancies(df):
     ]
     full_errors = full_df[~full_df["Qty"].between(6, 15)]
     for _, row in full_errors.iterrows():
-        issue = "⚠️ Qty out of range for full pallet bin"
+        issue = "Qty out of range for full pallet bin"
         results.append({
             "LocationName": row.get("LocationName", ""),
             "Qty": row.get("Qty", ""),
@@ -149,8 +143,7 @@ def analyze_discrepancies(df):
             "WarehouseSku": row.get("WarehouseSku", ""),
             "PalletId": row.get("PalletId", ""),
             "CustomerLotReference": row.get("CustomerLotReference", ""),
-            "Issue": issue,
-            "Action": "Fix"
+            "Issue": issue
         })
 
     return pd.DataFrame(results)
@@ -174,51 +167,6 @@ def apply_filters(df):
         if value and key in df.columns:
             df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
-
-# ---------------- HORIZONTAL CARD DISPLAY ----------------
-def display_discrepancy_cards(df):
-    if df.empty:
-        st.warning("⚠️ No discrepancies found for this view.")
-        return
-
-    # Custom CSS for card styling
-    st.markdown("""
-        <style>
-        .card {
-            background-color: #1E1E1E;
-            border-radius: 8px;
-            padding: 15px;
-            margin: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-            color: #fff;
-        }
-        .issue-badge {
-            background-color: #FFC107;
-            color: #000;
-            padding: 3px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: bold;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
-    # Display cards in rows
-    for i in range(0, len(df), 2):  # 2 cards per row
-        cols = st.columns(2)
-        for j in range(2):
-            if i + j < len(df):
-                row = df.iloc[i + j]
-                with cols[j]:
-                    st.markdown(f"""
-                        <div class="card">
-                            <h4>📍 Location: {row['LocationName']}</h4>
-                            <div class="issue-badge">{row['Issue']}</div>
-                            <p>SKU: {row['WarehouseSku']} | LOT: {row['CustomerLotReference']}<br>
-                            Pallet: {row['PalletId']} | Qty: {row['Qty']}</p>
-                            <button style="background-color:#4CAF50;color:white;border:none;padding:8px;border-radius:4px;">✅ Fix Pallet</button>
-                        </div>
-                    """, unsafe_allow_html=True)
 
 # ---------------- KPI CARDS ----------------
 st.markdown("<h1 style='text-align: center; color: #2E86C1;'>📊 Bin-Helper Dashboard</h1>", unsafe_allow_html=True)
@@ -246,7 +194,6 @@ st.session_state.filters["LocationName"] = st.sidebar.text_input("Location", val
 st.session_state.filters["PalletId"] = st.sidebar.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
 st.session_state.filters["WarehouseSku"] = st.sidebar.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
 st.session_state.filters["CustomerLotReference"] = st.sidebar.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
-st.session_state.use_filters = st.sidebar.checkbox("Apply filters", value=True)
 
 # ---------------- DISPLAY VIEWS ----------------
 view_map = {
@@ -262,13 +209,10 @@ view_map = {
 
 if st.session_state.active_view:
     raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
-    active_df = apply_filters(raw_df) if st.session_state.use_filters else raw_df
+    active_df = apply_filters(raw_df)
 
-    if st.session_state.active_view in ["Rack Discrepancies", "Bulk Discrepancies"]:
-        st.subheader(f"📋 {st.session_state.active_view}")
-        display_discrepancy_cards(active_df)
-    else:
-        st.dataframe(active_df)
+    st.subheader(f"{st.session_state.active_view}")
+    st.dataframe(active_df)
 
     export_dataframe(active_df, f"{st.session_state.active_view.replace(' ', '_')}_filtered.xlsx")
 else:
