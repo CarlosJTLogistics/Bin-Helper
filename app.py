@@ -91,8 +91,8 @@ empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locati
 damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
-# ---------------- BULK DISCREPANCY LOGIC ----------------
-def analyze_bulk_locations(df):
+# ---------------- BULK DISCREPANCY LOGIC (Grouped) ----------------
+def analyze_bulk_locations_grouped(df):
     df = exclude_damage_missing(df)
     results = []
     for letter, max_pallets in bulk_rules.items():
@@ -100,19 +100,15 @@ def analyze_bulk_locations(df):
         slot_counts = letter_df.groupby("LocationName").size()
         for slot, count in slot_counts.items():
             if count > max_pallets:
-                details = df[df["LocationName"] == slot]
-                for _, drow in details.iterrows():
-                    results.append({
-                        "LocationName": slot,
-                        "Qty": drow.get("Qty", ""),
-                        "WarehouseSku": drow.get("WarehouseSku", ""),
-                        "PalletId": drow.get("PalletId", ""),
-                        "CustomerLotReference": drow.get("CustomerLotReference", ""),
-                        "Issue": f"Exceeds max allowed: {count} > {max_pallets}"
-                    })
+                results.append({
+                    "LocationName": slot,
+                    "TotalPallets": count,
+                    "MaxAllowed": max_pallets,
+                    "Issue": f"Exceeds max allowed: {count} > {max_pallets}"
+                })
     return pd.DataFrame(results)
 
-bulk_df = analyze_bulk_locations(filtered_inventory_df)
+bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
 
 # ---------------- DISCREPANCY LOGIC ----------------
 def analyze_discrepancies(df):
