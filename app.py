@@ -218,6 +218,7 @@ if st.session_state.active_view:
                     if row_id in st.session_state.resolved_items:
                         continue
                     st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
+                    st.markdown(f"⚠️ **Reason:** <span style='color:red;'>{row['Issue']}</span>", unsafe_allow_html=True)
                     note_key = f"note_bulk_{idx}_{i}"
                     note = st.text_input(f"Note for Pallet {drow['PalletId']}", key=note_key)
                     if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{idx}_{i}"):
@@ -229,7 +230,8 @@ if st.session_state.active_view:
             row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
             if row_id in st.session_state.resolved_items:
                 continue
-            st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
+            st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Issue"]])
+            st.markdown(f"⚠️ **Reason:** <span style='color:red;'>{row['Issue']}</span>", unsafe_allow_html=True)
             note_key = f"note_rack_{idx}"
             note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
             if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{idx}"):
