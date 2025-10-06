@@ -1,6 +1,5 @@
 import pandas as pd
 import streamlit as st
-from io import BytesIO
 import os
 import csv
 
@@ -119,15 +118,7 @@ def analyze_discrepancies(df):
     partial_errors = partial_df[(partial_df["Qty"] > 5) | (partial_df["PalletCount"] > 1)]
     for _, row in partial_errors.iterrows():
         issue = "Qty too high for partial bin" if row["Qty"] > 5 else "Multiple pallets in partial bin"
-        results.append({
-            "LocationName": row.get("LocationName", ""),
-            "Qty": row.get("Qty", ""),
-            "PalletCount": row.get("PalletCount", ""),
-            "WarehouseSku": row.get("WarehouseSku", ""),
-            "PalletId": row.get("PalletId", ""),
-            "CustomerLotReference": row.get("CustomerLotReference", ""),
-            "Issue": issue
-        })
+        results.append(row.to_dict() | {"Issue": issue})
 
     full_df = df[
         ((~df["LocationName"].astype(str).str.endswith("01")) | (df["LocationName"].astype(str).str.startswith("111"))) &
@@ -136,15 +127,7 @@ def analyze_discrepancies(df):
     full_errors = full_df[~full_df["Qty"].between(6, 15)]
     for _, row in full_errors.iterrows():
         issue = "Qty out of range for full pallet bin"
-        results.append({
-            "LocationName": row.get("LocationName", ""),
-            "Qty": row.get("Qty", ""),
-            "PalletCount": row.get("PalletCount", ""),
-            "WarehouseSku": row.get("WarehouseSku", ""),
-            "PalletId": row.get("PalletId", ""),
-            "CustomerLotReference": row.get("CustomerLotReference", ""),
-            "Issue": issue
-        })
+        results.append(row.to_dict() | {"Issue": issue})
 
     return pd.DataFrame(results)
 
@@ -223,7 +206,8 @@ if st.session_state.active_view:
     st.subheader(f"{st.session_state.active_view}")
 
     if st.session_state.active_view == "Bulk Discrepancies":
-        for idx, row in active_df.iterrows():
+        grouped_df = analyze_bulk_locations_grouped(filtered_inventory_df)
+        for idx, row in grouped_df.iterrows():
             location = row["LocationName"]
             with st.expander(f"{location} | {row['Issue']}"):
                 details = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
@@ -247,6 +231,8 @@ if st.session_state.active_view:
                 st.success(f"Pallet {row['PalletId']} logged as fixed!")
                 st.experimental_rerun()
     else:
-        st.dataframe(active_df[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]].reset_index(drop=True), use_container_width=True, hide_index=True)
+        required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
+        available_cols = [col for col in required_cols if col in active_df.columns]
+        st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
 else:
     st.info("👆 Select a KPI card above to view details.")
