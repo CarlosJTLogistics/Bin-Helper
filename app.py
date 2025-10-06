@@ -199,6 +199,15 @@ st.session_state.filters["PalletId"] = st.sidebar.text_input("Pallet ID", value=
 st.session_state.filters["WarehouseSku"] = st.sidebar.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
 st.session_state.filters["CustomerLotReference"] = st.sidebar.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
 
+# ---------------- HISTORY LOG ----------------
+st.sidebar.markdown("### ✅ History Log")
+log_file = "resolved_discrepancies.csv"
+if os.path.exists(log_file):
+    history_df = pd.read_csv(log_file)
+    st.sidebar.dataframe(history_df.reset_index(drop=True), use_container_width=True, hide_index=True)
+else:
+    st.sidebar.info("No resolved discrepancies logged yet.")
+
 # ---------------- DISPLAY VIEWS ----------------
 view_map = {
     "Rack Discrepancies": discrepancy_df,
@@ -242,6 +251,6 @@ if st.session_state.active_view:
                 st.success(f"Pallet {row['PalletId']} logged as fixed!")
                 st.experimental_rerun()
     else:
-        st.dataframe(active_df)
+        st.dataframe(active_df.reset_index(drop=True), use_container_width=True, hide_index=True)
 else:
     st.info("👆 Select a KPI card above to view details.")
