@@ -1,18 +1,19 @@
-import pandas as pd
 import streamlit as st
+import pandas as pd
 import os
 import csv
+import requests
+from streamlit_lottie import st_lottie  # Install with: pip install streamlit-lottie
 
 # ---------------- PAGE CONFIG ----------------
-st.set_page_config(page_title="Bin Helper", layout="wide")
+st.set_page_config(page_title="Bin Helper", layout="wide", initial_sidebar_state="expanded")
 
 # ---------------- APP VERSION ----------------
 APP_VERSION = "v1.2.0"
-st.markdown(f"<h1 style='text-align: center; color: #2E86C1;'>📊 Bin-Helper Dashboard <span style='font-size:18px; color:gray;'>({APP_VERSION})</span></h1>", unsafe_allow_html=True)
 
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
-    st.session_state.active_view = None
+    st.session_state.active_view = "Dashboard"
 if "filters" not in st.session_state:
     st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
 if "resolved_items" not in st.session_state:
@@ -36,11 +37,19 @@ if st.sidebar.checkbox("Enable Auto Refresh", value=st.session_state.auto_refres
 else:
     st.session_state.auto_refresh = False
 
-# ---------------- GITHUB FILE URLS ----------------
+# ---------------- LOTTIE LOADER ----------------
+def load_lottie(url):
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    return r.json()
+
+lottie_icon = load_lottie("https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json")
+
+# ---------------- LOAD DATA ----------------
 inventory_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/ON_HAND_INVENTORY.xlsx"
 master_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/Empty%20Bin%20Formula.xlsx"
 
-# ---------------- LOAD DATA ----------------
 @st.cache_data
 def load_data(inventory_url, master_url):
     inventory_df = pd.read_excel(inventory_url, engine="openpyxl")
@@ -105,7 +114,6 @@ empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locati
 damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
-# ---------------- BULK DISCREPANCY LOGIC ----------------
 def analyze_bulk_locations_grouped(df):
     df = exclude_damage_missing(df)
     results = []
@@ -124,7 +132,6 @@ def analyze_bulk_locations_grouped(df):
 
 bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
 
-# ---------------- DISCREPANCY LOGIC ----------------
 def analyze_discrepancies(df):
     df = exclude_damage_missing(df)
     results = []
@@ -166,22 +173,12 @@ def apply_filters(df):
             df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
 
-# ---------------- KPI CARDS ----------------
-kpi_data = [
-    {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
-    {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
-    {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df), "icon": "🟨"},
-    {"title": "Partial Bins", "value": len(partial_bins_df), "icon": "🟥"},
-    {"title": "Damages", "value": len(damages_df), "icon": "🛠️"},
-    {"title": "Missing", "value": len(missing_df), "icon": "❓"},
-    {"title": "Rack Discrepancies", "value": len(discrepancy_df), "icon": "⚠️"},
-    {"title": "Bulk Discrepancies", "value": len(bulk_df), "icon": "📦"}
-]
-cols = st.columns(len(kpi_data))
-for i, item in enumerate(kpi_data):
-    with cols[i]:
-        if st.button(f"{item['icon']} {item['title']} \n {item['value']}", key=item['title']):
-            st.session_state.active_view = item['title']
+# ---------------- SIDEBAR MENU ----------------
+menu = st.sidebar.radio("📂 Dashboard Menu", [
+    "Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins",
+    "Partial Bins", "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies"
+])
+st.session_state.active_view = menu
 
 # ---------------- FILTERS ----------------
 st.sidebar.markdown("### 🔍 Filter Options")
@@ -199,18 +196,43 @@ if os.path.exists(log_file):
 else:
     st.sidebar.info("No resolved discrepancies logged yet.")
 
+# ---------------- DASHBOARD VIEW ----------------
+if st.session_state.active_view == "Dashboard":
+    st_lottie(lottie_icon, height=150)
+    st.markdown(f"<h1 style='text-align: center; color: #2E86C1;'>📊 Bin-Helper Dashboard <span style='font-size:18px; color:gray;'>({APP_VERSION})</span></h1>", unsafe_allow_html=True)
+
+    total_bins_occupied = len(full_pallet_bins_df) + len(partial_bins_df)
+    total_empty_bins = len(empty_bins_view_df) + len(empty_partial_bins_df)
+    total_discrepancies = len(discrepancy_df) + len(bulk_df)
+
+    kpi_data = [
+        {"title": "Total Bins Occupied", "value": total_bins_occupied, "icon": "📦"},
+        {"title": "Total Empty Bins", "value": total_empty_bins, "icon": "🗑️"},
+        {"title": "Total Discrepancies", "value": total_discrepancies, "icon": "⚠️"}
+    ]
+    cols = st.columns(len(kpi_data))
+    for i, item in enumerate(kpi_data):
+        with cols[i]:
+            st.markdown(f"""
+                <div style="background-color:#1f77b4; padding:20px; border-radius:10px; text-align:center; color:white; transition:0.3s;">
+                    <h3>{item['icon']} {item['title']}</h3>
+                    <h2>{item['value']}</h2>
+                </div>
+            """, unsafe_allow_html=True)
+
 # ---------------- DISPLAY VIEWS ----------------
 view_map = {
-    "Rack Discrepancies": discrepancy_df,
-    "Bulk Discrepancies": bulk_df,
     "Empty Bins": empty_bins_view_df,
     "Full Pallet Bins": full_pallet_bins_df,
     "Empty Partial Bins": empty_partial_bins_df,
     "Partial Bins": partial_bins_df,
     "Damages": damages_df,
-    "Missing": missing_df
+    "Missing": missing_df,
+    "Rack Discrepancies": discrepancy_df,
+    "Bulk Discrepancies": bulk_df
 }
-if st.session_state.active_view:
+
+if st.session_state.active_view != "Dashboard":
     raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
     active_df = apply_filters(raw_df)
     st.subheader(f"{st.session_state.active_view}")
@@ -219,7 +241,7 @@ if st.session_state.active_view:
         grouped_df = analyze_bulk_locations_grouped(filtered_inventory_df)
         for idx, row in grouped_df.iterrows():
             location = row["LocationName"]
-            with st.expander(f"{location} \n {row['Issue']}"):
+            with st.expander(f"{location} - {row['Issue']}"):
                 details = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
                 for i, drow in details.iterrows():
                     row_id = drow.get("LocationName", "") + str(drow.get("PalletId", ""))
@@ -261,5 +283,3 @@ if st.session_state.active_view:
         required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
         available_cols = [col for col in required_cols if col in active_df.columns]
         st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
-else:
-    st.info("👆 Select a KPI card above to view details.")
