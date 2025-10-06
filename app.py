@@ -21,8 +21,8 @@ if st.session_state.auto_refresh:
     st.rerun()
 
 # ---------------- GITHUB FILE URLS ----------------
-inventory_url = "https://raw.githubusercontent.com/<your-username>/<your-repo>/main/ON_HAND_INVENTORY.xlsx"
-master_url = "https://raw.githubusercontent.com/<your-username>/<your-repo>/main/Empty%20Bin%20Formula.xlsx"
+inventory_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/ON_HAND_INVENTORY.xlsx"
+master_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/Empty%20Bin%20Formula.xlsx"
 
 # ---------------- LOAD DATA ----------------
 @st.cache_data
@@ -251,4 +251,3 @@ if st.session_state.active_view:
 
     export_dataframe(active_df, f"{st.session_state.active_view.replace(' ', '_')}_filtered.xlsx")
 else:
-    st.info("👆 Select a KPI card above to view details.")
