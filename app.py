@@ -211,14 +211,14 @@ if st.session_state.active_view:
         grouped_df = analyze_bulk_locations_grouped(filtered_inventory_df)
         for idx, row in grouped_df.iterrows():
             location = row["LocationName"]
-            with st.expander(f"{location} \n {row['Issue']}"):
+            with st.expander(f"⚠️ Reason: {row['Issue']}"):
+                st.write(f"**Max Allowed:** {row['MaxAllowed']} | **Total Pallets:** {row['TotalPallets']}")
                 details = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
                 for i, drow in details.iterrows():
                     row_id = drow.get("LocationName", "") + str(drow.get("PalletId", ""))
                     if row_id in st.session_state.resolved_items:
                         continue
-                    st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
-                    st.markdown(f"⚠️ **Reason:** <span style='color:red;'>{row['Issue']}</span>", unsafe_allow_html=True)
+                    st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
                     note_key = f"note_bulk_{idx}_{i}"
                     note = st.text_input(f"Note for Pallet {drow['PalletId']}", key=note_key)
                     if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{idx}_{i}"):
@@ -230,14 +230,15 @@ if st.session_state.active_view:
             row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
             if row_id in st.session_state.resolved_items:
                 continue
-            st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Issue"]])
-            st.markdown(f"⚠️ **Reason:** <span style='color:red;'>{row['Issue']}</span>", unsafe_allow_html=True)
-            note_key = f"note_rack_{idx}"
-            note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
-            if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{idx}"):
-                log_resolved_discrepancy_with_note(row.to_dict(), note)
-                st.success(f"Pallet {row['PalletId']} logged as fixed!")
-                st.experimental_rerun()
+            with st.expander(f"⚠️ Reason: {row['Issue']}"):
+                st.write(f"**Qty:** {row.get('Qty', 'N/A')}")
+                st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty", "Issue"]])
+                note_key = f"note_rack_{idx}"
+                note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
+                if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{idx}"):
+                    log_resolved_discrepancy_with_note(row.to_dict(), note)
+                    st.success(f"Pallet {row['PalletId']} logged as fixed!")
+                    st.experimental_rerun()
     else:
         required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
         available_cols = [col for col in required_cols if col in active_df.columns]
