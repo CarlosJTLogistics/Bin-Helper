@@ -231,7 +231,7 @@ if st.session_state.active_view:
                     row_id = drow.get("LocationName", "") + str(drow.get("PalletId", ""))
                     if row_id in st.session_state.resolved_items:
                         continue
-                    st.write(drow[["LocationName", "Qty", "WarehouseSku", "PalletId", "CustomerLotReference"]])
+                    st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
                     if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{idx}_{i}"):
                         log_resolved_discrepancy(drow.to_dict())
                         st.success(f"Pallet {drow['PalletId']} logged as fixed!")
@@ -241,12 +241,12 @@ if st.session_state.active_view:
             row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
             if row_id in st.session_state.resolved_items:
                 continue
-            st.write(row[["LocationName", "Qty", "PalletCount", "WarehouseSku", "PalletId", "CustomerLotReference", "Issue"]])
+            st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
             if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{idx}"):
                 log_resolved_discrepancy(row.to_dict())
                 st.success(f"Pallet {row['PalletId']} logged as fixed!")
                 st.experimental_rerun()
     else:
-        st.dataframe(active_df.reset_index(drop=True), use_container_width=True, hide_index=True)
+        st.dataframe(active_df[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]].reset_index(drop=True), use_container_width=True, hide_index=True)
 else:
     st.info("👆 Select a KPI card above to view details.")
