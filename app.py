@@ -91,7 +91,7 @@ empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locati
 damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
-# ---------------- BULK DISCREPANCY LOGIC ----------------
+# ---------------- BULK DISCREPANCY LOGIC (Grouped) ----------------
 def analyze_bulk_locations_grouped(df):
     df = exclude_damage_missing(df)
     results = []
@@ -108,28 +108,7 @@ def analyze_bulk_locations_grouped(df):
                 })
     return pd.DataFrame(results)
 
-def analyze_bulk_locations_detailed(df):
-    df = exclude_damage_missing(df)
-    results = []
-    for letter, max_pallets in bulk_rules.items():
-        letter_df = df[df["LocationName"].astype(str).str.startswith(letter)]
-        slot_counts = letter_df.groupby("LocationName").size()
-        for slot, count in slot_counts.items():
-            if count > max_pallets:
-                details = df[df["LocationName"] == slot]
-                for _, drow in details.iterrows():
-                    results.append({
-                        "LocationName": slot,
-                        "Qty": drow.get("Qty", ""),
-                        "WarehouseSku": drow.get("WarehouseSku", ""),
-                        "PalletId": drow.get("PalletId", ""),
-                        "CustomerLotReference": drow.get("CustomerLotReference", ""),
-                        "Issue": f"Exceeds max allowed: {count} > {max_pallets}"
-                    })
-    return pd.DataFrame(results)
-
-bulk_view_type = st.sidebar.radio("Bulk Discrepancy View", ["Grouped", "Detailed"], index=0)
-bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df) if bulk_view_type == "Grouped" else analyze_bulk_locations_detailed(filtered_inventory_df)
+bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
 
 # ---------------- DISCREPANCY LOGIC ----------------
 def analyze_discrepancies(df):
@@ -244,25 +223,21 @@ if st.session_state.active_view:
     active_df = apply_filters(raw_df)
 
     st.subheader(f"{st.session_state.active_view}")
-    st.dataframe(active_df)
 
-    # Add logging buttons for discrepancies
-    if st.session_state.active_view in ["Rack Discrepancies", "Bulk Discrepancies"]:
-        filtered_rows = []
+    if st.session_state.active_view == "Bulk Discrepancies":
         for idx, row in active_df.iterrows():
-            row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
-            if row_id in st.session_state.resolved_items:
+            location = row["LocationName"]
+            if location in st.session_state.resolved_items:
                 continue
-            col1, col2 = st.columns([8, 2])
-            with col1:
-                st.write(row)
-            with col2:
-                if st.button(f"✅ Mark Fixed", key=f"fix_{idx}"):
-                    log_resolved_discrepancy(row.to_dict())
+            with st.expander(f"{location} | {row['Issue']}"):
+                details = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
+                st.dataframe(details[["LocationName", "Qty", "WarehouseSku", "PalletId", "CustomerLotReference"]])
+                if st.button(f"✅ Mark {location} Fixed", key=f"fix_{idx}"):
+                    log_resolved_discrepancy(row)
+                    st.success(f"{location} logged as fixed!")
                     st.experimental_rerun()
-            filtered_rows.append(row)
-        active_df = pd.DataFrame(filtered_rows)
-
-    # export_dataframe(active_df, f"{st.session_state.active_view.replace(' ', '_')}_filtered.xlsx")  # Hidden
+    else:
+        st.dataframe(active_df)
+        # export_dataframe(active_df, f"{st.session_state.active_view.replace(' ', '_')}_filtered.xlsx")  # Hidden
 else:
     st.info("👆 Select a KPI card above to view details.")
