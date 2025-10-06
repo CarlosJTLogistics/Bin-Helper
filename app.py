@@ -1,6 +1,8 @@
 import pandas as pd
 import streamlit as st
 from io import BytesIO
+import os
+import csv
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
@@ -10,6 +12,8 @@ if "active_view" not in st.session_state:
     st.session_state.active_view = None
 if "filters" not in st.session_state:
     st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
+if "resolved_items" not in st.session_state:
+    st.session_state.resolved_items = set()
 if "auto_refresh" not in st.session_state:
     st.session_state.auto_refresh = False
 
@@ -87,8 +91,8 @@ empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locati
 damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
-# ---------------- BULK DISCREPANCY LOGIC (Grouped) ----------------
-def analyze_bulk_locations(df):
+# ---------------- BULK DISCREPANCY LOGIC ----------------
+def analyze_bulk_locations_grouped(df):
     df = exclude_damage_missing(df)
     results = []
     for letter, max_pallets in bulk_rules.items():
@@ -104,7 +108,28 @@ def analyze_bulk_locations(df):
                 })
     return pd.DataFrame(results)
 
-bulk_df = analyze_bulk_locations(filtered_inventory_df)
+def analyze_bulk_locations_detailed(df):
+    df = exclude_damage_missing(df)
+    results = []
+    for letter, max_pallets in bulk_rules.items():
+        letter_df = df[df["LocationName"].astype(str).str.startswith(letter)]
+        slot_counts = letter_df.groupby("LocationName").size()
+        for slot, count in slot_counts.items():
+            if count > max_pallets:
+                details = df[df["LocationName"] == slot]
+                for _, drow in details.iterrows():
+                    results.append({
+                        "LocationName": slot,
+                        "Qty": drow.get("Qty", ""),
+                        "WarehouseSku": drow.get("WarehouseSku", ""),
+                        "PalletId": drow.get("PalletId", ""),
+                        "CustomerLotReference": drow.get("CustomerLotReference", ""),
+                        "Issue": f"Exceeds max allowed: {count} > {max_pallets}"
+                    })
+    return pd.DataFrame(results)
+
+bulk_view_type = st.sidebar.radio("Bulk Discrepancy View", ["Grouped", "Detailed"], index=0)
+bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df) if bulk_view_type == "Grouped" else analyze_bulk_locations_detailed(filtered_inventory_df)
 
 # ---------------- DISCREPANCY LOGIC ----------------
 def analyze_discrepancies(df):
@@ -145,6 +170,17 @@ def analyze_discrepancies(df):
     return pd.DataFrame(results)
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
+
+# ---------------- LOGGING FUNCTION ----------------
+def log_resolved_discrepancy(row):
+    log_file = "resolved_discrepancies.csv"
+    file_exists = os.path.isfile(log_file)
+    with open(log_file, mode='a', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=row.keys())
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(row)
+    st.session_state.resolved_items.add(row.get("LocationName", "") + str(row.get("PalletId", "")))
 
 # ---------------- EXPORT FUNCTION ----------------
 def export_dataframe(df, filename):
@@ -209,6 +245,23 @@ if st.session_state.active_view:
 
     st.subheader(f"{st.session_state.active_view}")
     st.dataframe(active_df)
+
+    # Add logging buttons for discrepancies
+    if st.session_state.active_view in ["Rack Discrepancies", "Bulk Discrepancies"]:
+        filtered_rows = []
+        for idx, row in active_df.iterrows():
+            row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
+            if row_id in st.session_state.resolved_items:
+                continue
+            col1, col2 = st.columns([8, 2])
+            with col1:
+                st.write(row)
+            with col2:
+                if st.button(f"✅ Mark Fixed", key=f"fix_{idx}"):
+                    log_resolved_discrepancy(row.to_dict())
+                    st.experimental_rerun()
+            filtered_rows.append(row)
+        active_df = pd.DataFrame(filtered_rows)
 
     # export_dataframe(active_df, f"{st.session_state.active_view.replace(' ', '_')}_filtered.xlsx")  # Hidden
 else:
