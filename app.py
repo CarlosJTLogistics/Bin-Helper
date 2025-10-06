@@ -1,150 +1,202 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
+import os
+import csv
+import requests
+from streamlit_lottie import st_lottie  # Install with: pip install streamlit-lottie
 
-# Page configuration
-st.set_page_config(page_title="Bin Helper Dashboard", layout="wide", initial_sidebar_state="expanded")
+# ---------------- PAGE CONFIG ----------------
+st.set_page_config(page_title="Bin Helper", layout="wide", initial_sidebar_state="expanded")
 
-# Sidebar refresh controls
-st.sidebar.title("🔄 Refresh Controls")
-auto_refresh = st.sidebar.checkbox("Auto-refresh every 5 minutes", value=False)
-if st.sidebar.button("Manual Refresh"):
-    st.experimental_rerun()
+# ---------------- APP VERSION ----------------
+APP_VERSION = "v1.3.1"
 
-# Load inventory data from ON_HAND_INVENTORY.xlsx
-inventory_df = pd.read_excel("ON_HAND_INVENTORY.xlsx", engine="openpyxl")
-inventory_df["LocationName"] = inventory_df["LocationName"].astype(str)
-inventory_df["Qty"] = pd.to_numeric(inventory_df["Qty"], errors="coerce").fillna(0)
-inventory_df["PalletId"] = inventory_df["PalletId"].astype(str)
-filtered_inventory_df = inventory_df[~inventory_df["LocationName"].str.startswith("ZZ")]
+# ---------------- SESSION STATE ----------------
+if "active_view" not in st.session_state:
+    st.session_state.active_view = "Dashboard"
+if "filters" not in st.session_state:
+    st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
+if "resolved_items" not in st.session_state:
+    st.session_state.resolved_items = set()
+if "auto_refresh" not in st.session_state:
+    st.session_state.auto_refresh = False
+if "refresh_triggered" not in st.session_state:
+    st.session_state.refresh_triggered = False
 
-# Load master location data from Empty Bin Formula.xlsx
-master_df = pd.read_excel("Empty Bin Formula.xlsx", sheet_name="Master Locations", engine="openpyxl")
-master_df["LocationName"] = master_df["LocationName"].astype(str)
+# ---------------- AUTO REFRESH ----------------
+if st.session_state.auto_refresh or st.session_state.refresh_triggered:
+    st.session_state.refresh_triggered = False
+    st.rerun()
 
-# Define bulk zone rules
-bulk_rules = {zone: 8 for zone in "ABCDEFGHI"}
+# ---------------- SIDEBAR CONTROLS ----------------
+st.sidebar.markdown("### 🔄 Auto Refresh")
+if st.sidebar.button("🔁 Refresh Now"):
+    st.session_state.refresh_triggered = True
+if st.sidebar.checkbox("Enable Auto Refresh", value=st.session_state.auto_refresh):
+    st.session_state.auto_refresh = True
+else:
+    st.session_state.auto_refresh = False
 
-# Analyze bulk locations
+# ---------------- LOTTIE LOADER ----------------
+def load_lottie(url):
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    return r.json()
+
+lottie_icon = load_lottie("https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json")
+
+# ---------------- LOAD DATA ----------------
+inventory_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/ON_HAND_INVENTORY.xlsx"
+master_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/Empty%20Bin%20Formula.xlsx"
+
+@st.cache_data
+def load_data(inventory_url, master_url):
+    inventory_df = pd.read_excel(inventory_url, engine="openpyxl")
+    master_df = pd.read_excel(master_url, sheet_name="Master Locations", engine="openpyxl")
+    return inventory_df, master_df
+
+try:
+    inventory_df, master_df = load_data(inventory_url, master_url)
+except Exception as e:
+    st.error(f"❌ Failed to load data from GitHub: {e}")
+    st.stop()
+
+# ---------------- DATA PREP ----------------
+inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
+inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
+bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
+
+filtered_inventory_df = inventory_df[
+    ~inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE", "MISSING"]) &
+    ~inventory_df["LocationName"].astype(str).str.upper().str.startswith("IB")
+]
+
+# ---------------- BULK ROW LOGIC ----------------
 def analyze_bulk_rows(df):
-    bulk_rows = df[df["LocationName"].str.match(r"^[A-I]\d{2}$")].copy()
-    bulk_rows["Zone"] = bulk_rows["LocationName"].str[0]
-    bulk_rows["PalletCount"] = bulk_rows.groupby("LocationName")["PalletId"].transform("count")
-    bulk_rows = bulk_rows.drop_duplicates(subset=["LocationName"])
-    bulk_rows["MaxAllowed"] = bulk_rows["Zone"].map(bulk_rules)
-    bulk_rows["Discrepancy"] = bulk_rows["PalletCount"] > bulk_rows["MaxAllowed"]
-    bulk_rows["DiscrepancyReason"] = np.where(
-        bulk_rows["PalletCount"] > bulk_rows["MaxAllowed"],
-        "Too many pallets",
-        ""
-    )
-    return bulk_rows
+    df = df.copy()
+    df["Zone"] = df["LocationName"].astype(str).str[0]
+    bulk_locations = []
+    bulk_discrepancies = []
+    empty_bulk_locations = []
 
-bulk_locations_df = analyze_bulk_rows(filtered_inventory_df)
-bulk_discrepancies_df = bulk_locations_df[bulk_locations_df["Discrepancy"] == True]
+    for zone, max_pallets in bulk_rules.items():
+        zone_df = df[df["Zone"] == zone]
+        row_counts = zone_df.groupby("LocationName")["PalletId"].count()
+        for location, count in row_counts.items():
+            bulk_locations.append({
+                "LocationName": location,
+                "Zone": zone,
+                "Pallets": count,
+                "MaxAllowed": max_pallets
+            })
+            if count > max_pallets:
+                bulk_discrepancies.append({
+                    "LocationName": location,
+                    "Zone": zone,
+                    "Pallets": count,
+                    "MaxAllowed": max_pallets,
+                    "Issue": f"Too many pallets in {location} (Max: {max_pallets})"
+                })
+            elif count < max_pallets:
+                empty_bulk_locations.append({
+                    "LocationName": location,
+                    "Zone": zone,
+                    "Pallets": count,
+                    "MaxAllowed": max_pallets,
+                    "Issue": f"{location} has empty pallet slots (Max: {max_pallets})"
+                })
+    return pd.DataFrame(bulk_locations), pd.DataFrame(bulk_discrepancies), pd.DataFrame(empty_bulk_locations)
 
-# Identify empty bulk locations
-all_bulk_locations = [f"{zone}{str(i).zfill(2)}" for zone in bulk_rules.keys() for i in range(1, 21)]
-occupied_bulk_locations = bulk_locations_df["LocationName"].unique().tolist()
-empty_bulk_locations = [loc for loc in all_bulk_locations if loc not in occupied_bulk_locations]
-empty_bulk_locations_df = pd.DataFrame({"LocationName": empty_bulk_locations})
+bulk_locations_df, bulk_discrepancies_df, empty_bulk_locations_df = analyze_bulk_rows(filtered_inventory_df)
 
-# Identify full pallet bins
-full_pallet_bins_df = filtered_inventory_df[
-    filtered_inventory_df["LocationName"].str.startswith("111") &
-    ~filtered_inventory_df["LocationName"].str.endswith("01") &
-    (filtered_inventory_df["Qty"] >= 6) & (filtered_inventory_df["Qty"] <= 15)
-]
+# ---------------- OTHER BUSINESS LOGIC ----------------
+def exclude_damage_missing(df):
+    return df[
+        ~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"]) &
+        ~df["LocationName"].astype(str).str.upper().str.startswith("IB")
+    ]
 
-# Identify partial bins
-partial_bins_df = filtered_inventory_df[
-    filtered_inventory_df["LocationName"].str.endswith("01") &
-    ~filtered_inventory_df["LocationName"].str.startswith("111") &
-    ~filtered_inventory_df["LocationName"].str.contains("TUN") &
-    filtered_inventory_df["LocationName"].str[0].str.isdigit()
-]
+def get_partial_bins(df):
+    df = exclude_damage_missing(df)
+    return df[
+        df["LocationName"].astype(str).str.endswith("01") &
+        ~df["LocationName"].astype(str).str.startswith("111") &
+        ~df["LocationName"].astype(str).str.upper().str.startswith("TUN") &
+        df["LocationName"].astype(str).str[0].str.isdigit()
+    ]
 
-# Identify damages and missing
-damage_df = filtered_inventory_df[filtered_inventory_df["LocationName"].str.contains("DAMAGE")]
-ibdamage_df = filtered_inventory_df[filtered_inventory_df["LocationName"].str.contains("IBDAMAGE")]
-missing_df = filtered_inventory_df[filtered_inventory_df["LocationName"].str.contains("MISSING")]
+def get_full_pallet_bins(df):
+    df = exclude_damage_missing(df)
+    return df[
+        ((~df["LocationName"].astype(str).str.endswith("01")) |
+         (df["LocationName"].astype(str).str.startswith("111"))) &
+        (df["LocationName"].astype(str).str.isnumeric()) &
+        (df["Qty"].between(6, 15))
+    ]
 
-# Identify empty bins
-master_locations = master_df["LocationName"].dropna().astype(str).unique().tolist()
-occupied_locations = filtered_inventory_df["LocationName"].dropna().astype(str).unique().tolist()
+def get_empty_partial_bins(master_locs, occupied_locs):
+    partial_candidates = [
+        loc for loc in master_locs
+        if loc.endswith("01") and not loc.startswith("111") and not str(loc).upper().startswith("TUN") and str(loc)[0].isdigit()
+    ]
+    empty_partial = sorted(set(partial_candidates) - set(occupied_locs))
+    return pd.DataFrame({"LocationName": empty_partial})
+
 empty_bins_view_df = pd.DataFrame({"LocationName": [loc for loc in master_locations if loc not in occupied_locations]})
+full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)
+partial_bins_df = get_partial_bins(filtered_inventory_df)
+empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locations)
+damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
+missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
-# Identify empty partial bins
-master_partial_candidates = master_df[
-    master_df["LocationName"].str.endswith("01") &
-    ~master_df["LocationName"].str.startswith("111") &
-    ~master_df["LocationName"].str.contains("TUN") &
-    master_df["LocationName"].str[0].str.isdigit()
-]["LocationName"].dropna().astype(str).unique().tolist()
-
-occupied_partial_locations = partial_bins_df["LocationName"].dropna().astype(str).unique().tolist()
-empty_partial_bins_df = pd.DataFrame({"LocationName": [loc for loc in master_partial_candidates if loc not in occupied_partial_locations]})
-
-# Dashboard header
-st.title("📦 Bin Helper Dashboard")
-
-# KPI cards
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("🟦 Full Pallet Bins", len(full_pallet_bins_df))
-col2.metric("🟨 Partial Bins", len(partial_bins_df))
-col3.metric("📭 Empty Bins", len(empty_bins_view_df))
-col4.metric("⚠️ Missing", len(missing_df))
-
-# Sidebar navigation
-view = st.sidebar.radio("📊 Select View", [
-    "Dashboard",
-    "Empty Bins",
-    "Full Pallet Bins",
-    "Empty Partial Bins",
-    "Partial Bins",
-    "Damages",
-    "Missing",
-    "Bulk Locations",
-    "Bulk Discrepancies",
-    "Empty Bulk Locations"
+# ---------------- SIDEBAR MENU ----------------
+menu = st.sidebar.radio("📂 Dashboard Menu", [
+    "Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins",
+    "Partial Bins", "Damages", "Missing", "Rack Discrepancies",
+    "Bulk Locations", "Bulk Discrepancies", "Empty Bulk Locations"
 ])
+st.session_state.active_view = menu
 
-# View rendering
-if view == "Dashboard":
-    st.subheader("📊 Inventory Overview")
-    st.dataframe(filtered_inventory_df)
+# ---------------- DASHBOARD VIEW ----------------
+if st.session_state.active_view == "Dashboard":
+    st_lottie(lottie_icon, height=150)
+    st.markdown(f"<h1 style='text-align: center; color: #2E86C1;'>📊 Bin-Helper Dashboard <span style='font-size:18px; color:gray;'>({APP_VERSION})</span></h1>", unsafe_allow_html=True)
 
-elif view == "Empty Bins":
-    st.subheader("📭 Empty Bins")
-    st.dataframe(empty_bins_view_df)
+    total_bins_occupied = len(full_pallet_bins_df) + len(partial_bins_df)
+    total_empty_bins = len(empty_bins_view_df) + len(empty_partial_bins_df)
+    total_discrepancies = len(bulk_discrepancies_df)
 
-elif view == "Full Pallet Bins":
-    st.subheader("🟦 Full Pallet Bins")
-    st.dataframe(full_pallet_bins_df)
+    kpi_data = [
+        {"title": "Total Bins Occupied", "value": total_bins_occupied, "icon": "📦"},
+        {"title": "Total Empty Bins", "value": total_empty_bins, "icon": "🗑️"},
+        {"title": "Bulk Locations", "value": len(bulk_locations_df), "icon": "📍"},
+        {"title": "Empty Bulk Locations", "value": len(empty_bulk_locations_df), "icon": "📭"},
+        {"title": "Bulk Discrepancies", "value": len(bulk_discrepancies_df), "icon": "⚠️"}
+    ]
+    cols = st.columns(len(kpi_data))
+    for i, item in enumerate(kpi_data):
+        with cols[i]:
+            st.markdown(f"""
+                <div style="background-color:#1f77b4; padding:20px; border-radius:10px; text-align:center; color:white;">
+                    <h3>{item['icon']} {item['title']}</h3>
+                    <h2>{item['value']}</h2>
+                </div>
+            """, unsafe_allow_html=True)
 
-elif view == "Empty Partial Bins":
-    st.subheader("📭 Empty Partial Bins")
-    st.dataframe(empty_partial_bins_df)
+# ---------------- DISPLAY VIEWS ----------------
+view_map = {
+    "Empty Bins": empty_bins_view_df,
+    "Full Pallet Bins": full_pallet_bins_df,
+    "Empty Partial Bins": empty_partial_bins_df,
+    "Partial Bins": partial_bins_df,
+    "Damages": damages_df,
+    "Missing": missing_df,
+    "Bulk Locations": bulk_locations_df,
+    "Bulk Discrepancies": bulk_discrepancies_df,
+    "Empty Bulk Locations": empty_bulk_locations_df
+}
 
-elif view == "Partial Bins":
-    st.subheader("🟨 Partial Bins")
-    st.dataframe(partial_bins_df)
-
-elif view == "Damages":
-    st.subheader("🟥 Damaged Bins")
-    st.dataframe(pd.concat([damage_df, ibdamage_df]))
-
-elif view == "Missing":
-    st.subheader("⚠️ Missing Bins")
-    st.dataframe(missing_df)
-
-elif view == "Bulk Locations":
-    st.subheader("📦 Bulk Locations")
-    st.dataframe(bulk_locations_df)
-
-elif view == "Bulk Discrepancies":
-    st.subheader("🚨 Bulk Discrepancies")
-    st.dataframe(bulk_discrepancies_df)
-
-elif view == "Empty Bulk Locations":
-    st.subheader("📭 Empty Bulk Locations")
+if st.session_state.active_view != "Dashboard":
+    raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
+    st.subheader(f"{st.session_state.active_view}")
