@@ -38,16 +38,6 @@ except Exception as e:
     st.error(f"❌ Failed to load data from GitHub: {e}")
     st.stop()
 
-# --- LOAD RESOLVED DISCREPANCIES ---
-resolved_keys = set()
-log_file = "resolved_discrepancies.csv"
-if os.path.exists(log_file):
-    try:
-        resolved_df = pd.read_csv(log_file)
-        resolved_keys = set(resolved_df["LocationName"].astype(str) + resolved_df["PalletId"].astype(str))
-    except Exception as e:
-        st.warning(f"⚠️ Could not load resolved discrepancies: {e}")
-
 # --- DATA PREP ---
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
@@ -178,7 +168,7 @@ for i, item in enumerate(kpi_data):
         if st.button(f"{item['icon']} {item['title']}\n{item['value']}", key=item['title']):
             st.session_state.active_view = item['title']
 
-# --- SIDEBAR FILTERS ---
+# --- FILTERS ---
 st.sidebar.markdown("### 🔍 Filter Options")
 st.session_state.filters["LocationName"] = st.sidebar.text_input("Location", value=st.session_state.filters["LocationName"])
 st.session_state.filters["PalletId"] = st.sidebar.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
@@ -187,6 +177,7 @@ st.session_state.filters["CustomerLotReference"] = st.sidebar.text_input("LOT", 
 
 # --- HISTORY LOG ---
 st.sidebar.markdown("### ✅ History Log")
+log_file = "resolved_discrepancies.csv"
 if os.path.exists(log_file):
     history_df = pd.read_csv(log_file)
     st.sidebar.dataframe(history_df.reset_index(drop=True), use_container_width=True, hide_index=True)
@@ -233,12 +224,12 @@ if st.session_state.active_view:
         grouped_df = analyze_bulk_locations_grouped(filtered_inventory_df)
         for idx, row in grouped_df.iterrows():
             location = row["LocationName"]
-            with st.expander(f"⚠️ Reason: {row['Issue']}"):
+            with st.expander(f"⚠️ {row['LocationName']} — {row['Issue']}"):
                 st.write(f"**Max Allowed:** {row['MaxAllowed']}\n**Total Pallets:** {row['TotalPallets']}")
                 details = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
                 for i, drow in details.iterrows():
-                    row_id = str(drow.get("LocationName", "")) + str(drow.get("PalletId", ""))
-                    if row_id in resolved_keys:
+                    row_id = drow.get("LocationName", "") + str(drow.get("PalletId", ""))
+                    if row_id in st.session_state.resolved_items:
                         continue
                     st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
                     note_key = f"note_bulk_{idx}_{i}"
@@ -250,10 +241,10 @@ if st.session_state.active_view:
                         st.stop()
     elif st.session_state.active_view == "Rack Discrepancies":
         for idx, row in active_df.iterrows():
-            row_id = str(row.get("LocationName", "")) + str(row.get("PalletId", ""))
-            if row_id in resolved_keys:
+            row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
+            if row_id in st.session_state.resolved_items:
                 continue
-            with st.expander(f"⚠️ Reason: {row['Issue']}"):
+            with st.expander(f"⚠️ {row['LocationName']} — {row['Issue']}"):
                 st.write(f"**Qty:** {row.get('Qty', 'N/A')}")
                 st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty", "Issue"]])
                 note_key = f"note_rack_{idx}"
