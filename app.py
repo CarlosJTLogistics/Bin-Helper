@@ -134,14 +134,16 @@ def analyze_discrepancies(df):
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
 # ---------------- LOGGING FUNCTION ----------------
-def log_resolved_discrepancy(row):
+def log_resolved_discrepancy_with_note(row, note):
     log_file = "resolved_discrepancies.csv"
+    row_with_note = row.copy()
+    row_with_note["Note"] = note
     file_exists = os.path.isfile(log_file)
     with open(log_file, mode='a', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=row.keys())
+        writer = csv.DictWriter(f, fieldnames=row_with_note.keys())
         if not file_exists:
             writer.writeheader()
-        writer.writerow(row)
+        writer.writerow(row_with_note)
     st.session_state.resolved_items.add(row.get("LocationName", "") + str(row.get("PalletId", "")))
 
 # ---------------- FILTER FUNCTION ----------------
@@ -216,8 +218,10 @@ if st.session_state.active_view:
                     if row_id in st.session_state.resolved_items:
                         continue
                     st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
+                    note_key = f"note_bulk_{idx}_{i}"
+                    note = st.text_input(f"Note for Pallet {drow['PalletId']}", key=note_key)
                     if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{idx}_{i}"):
-                        log_resolved_discrepancy(drow.to_dict())
+                        log_resolved_discrepancy_with_note(drow.to_dict(), note)
                         st.success(f"Pallet {drow['PalletId']} logged as fixed!")
                         st.experimental_rerun()
     elif st.session_state.active_view == "Rack Discrepancies":
@@ -226,8 +230,10 @@ if st.session_state.active_view:
             if row_id in st.session_state.resolved_items:
                 continue
             st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
+            note_key = f"note_rack_{idx}"
+            note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
             if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{idx}"):
-                log_resolved_discrepancy(row.to_dict())
+                log_resolved_discrepancy_with_note(row.to_dict(), note)
                 st.success(f"Pallet {row['PalletId']} logged as fixed!")
                 st.experimental_rerun()
     else:
@@ -235,4 +241,3 @@ if st.session_state.active_view:
         available_cols = [col for col in required_cols if col in active_df.columns]
         st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
 else:
-    st.info("👆 Select a KPI card above to view details.")
