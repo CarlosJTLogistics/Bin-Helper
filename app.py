@@ -87,7 +87,7 @@ empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locati
 damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
-# ---------------- BULK DISCREPANCY LOGIC ----------------
+# ---------------- BULK DISCREPANCY LOGIC (Grouped) ----------------
 def analyze_bulk_locations(df):
     df = exclude_damage_missing(df)
     results = []
@@ -96,16 +96,12 @@ def analyze_bulk_locations(df):
         slot_counts = letter_df.groupby("LocationName").size()
         for slot, count in slot_counts.items():
             if count > max_pallets:
-                details = df[df["LocationName"] == slot]
-                for _, drow in details.iterrows():
-                    results.append({
-                        "LocationName": slot,
-                        "Qty": drow.get("Qty", ""),
-                        "WarehouseSku": drow.get("WarehouseSku", ""),
-                        "PalletId": drow.get("PalletId", ""),
-                        "CustomerLotReference": drow.get("CustomerLotReference", ""),
-                        "Issue": f"Exceeds max allowed: {count} > {max_pallets}"
-                    })
+                results.append({
+                    "LocationName": slot,
+                    "TotalPallets": count,
+                    "MaxAllowed": max_pallets,
+                    "Issue": f"Exceeds max allowed: {count} > {max_pallets}"
+                })
     return pd.DataFrame(results)
 
 bulk_df = analyze_bulk_locations(filtered_inventory_df)
@@ -154,12 +150,12 @@ discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 def export_dataframe(df, filename):
     output = BytesIO()
     df.to_excel(output, index=False, engine="openpyxl")
-    st.download_button(
-        label="📥 Download Filtered Data",
-        data=output.getvalue(),
-        file_name=filename,
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    # st.download_button(  # Hidden by commenting out
+    #     label="📥 Download Filtered Data",
+    #     data=output.getvalue(),
+    #     file_name=filename,
+    #     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    # )
 
 # ---------------- FILTER FUNCTION ----------------
 def apply_filters(df):
@@ -214,6 +210,6 @@ if st.session_state.active_view:
     st.subheader(f"{st.session_state.active_view}")
     st.dataframe(active_df)
 
-    export_dataframe(active_df, f"{st.session_state.active_view.replace(' ', '_')}_filtered.xlsx")
+    # export_dataframe(active_df, f"{st.session_state.active_view.replace(' ', '_')}_filtered.xlsx")  # Hidden
 else:
     st.info("👆 Select a KPI card above to view details.")
