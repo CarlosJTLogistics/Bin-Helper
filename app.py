@@ -8,7 +8,7 @@ from streamlit_lottie import st_lottie  # pip install streamlit-lottie
 st.set_page_config(page_title="Bin Helper", layout="wide", initial_sidebar_state="expanded")
 
 # -------------------- APP VERSION --------------------
-APP_VERSION = "v1.3.2"
+APP_VERSION = "v1.3.3"  # hotfix: master column quick map
 
 # -------------------- SESSION STATE --------------------
 if "active_view" not in st.session_state:
@@ -54,12 +54,23 @@ def load_data(inventory_url, master_url):
     # Inventory
     inventory_df = pd.read_excel(inventory_url, engine="openpyxl")
 
-    # Try to read the "Master Locations" sheet but fall back to the first sheet if needed
+    # Master (try named sheet, else default)
     try:
         master_df = pd.read_excel(master_url, sheet_name="Master Locations", engine="openpyxl")
     except Exception:
-        # Read workbook to get first sheet
         master_df = pd.read_excel(master_url, engine="openpyxl")
+
+    # ---------------- QUICK FIX: map your known headers to expected name ----------------
+    # If LocationName isn't present, rename "Rack Location Column" or "Empty Locations" to "LocationName"
+    if "LocationName" not in master_df.columns:
+        rename_map = {}
+        if "Rack Location Column" in master_df.columns:
+            rename_map["Rack Location Column"] = "LocationName"
+        elif "Empty Locations" in master_df.columns:
+            rename_map["Empty Locations"] = "LocationName"
+        if rename_map:
+            master_df = master_df.rename(columns=rename_map)
+    # ------------------------------------------------------------------------------------
 
     return inventory_df, master_df
 
@@ -74,7 +85,7 @@ except Exception as e:
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
 
-# Convenience: uppercased location for filtering
+# Convenience: normalized location series
 def _loc_series(df):
     return df["LocationName"].astype(str).str.strip()
 
@@ -99,17 +110,23 @@ MASTER_CANDIDATE_KEYS = {
 }
 
 def extract_master_locations(master_df: pd.DataFrame):
-    chosen_col = None
-    for col in master_df.columns:
-        if _normalize_col(col) in MASTER_CANDIDATE_KEYS:
-            chosen_col = col
-            break
+    # Prefer LocationName if the quick fix mapped it
+    if "LocationName" in master_df.columns:
+        chosen_col = "LocationName"
+    else:
+        chosen_col = None
+        for col in master_df.columns:
+            if _normalize_col(col) in MASTER_CANDIDATE_KEYS:
+                chosen_col = col
+                break
 
     if chosen_col is None:
         st.error(
             "⚠️ Could not auto-detect the Master Location column in **Empty Bin Formula.xlsx**.\n\n"
             f"Found columns: `{list(master_df.columns)}`\n\n"
-            "Rename the correct column to `LocationName` (or one of: Location, Bin, Loc, Location Code, MasterLocation) and rerun."
+            "Tip: rename your location column to one of: "
+            "`LocationName`, `Location`, `Bin`, `Loc`, `Location Code`, `MasterLocation`.\n"
+            "This app also recognizes your headers 'Rack Location Column' or 'Empty Locations' automatically."
         )
         st.stop()
 
@@ -184,12 +201,13 @@ def get_empty_bins_view(master_locs, occupied_locs) -> pd.DataFrame:
     return pd.DataFrame({"LocationName": empty_all})
 
 # -------------------- BULK ROW LOGIC (Inventory only) --------------------
-# Zone capacity rules; adjust as needed
+# Zone capacity rules; includes A, B, I (and others you had before)
 bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
 
 def analyze_bulk_rows(df: pd.DataFrame):
     df = df.copy()
     df["Zone"] = _loc_series(df).str[0].str.upper()
+
     # Use unique pallet IDs per location if available to avoid double counting
     if "PalletId" in df.columns:
         row_counts = df.groupby("LocationName")["PalletId"].nunique()
@@ -227,6 +245,12 @@ def analyze_bulk_rows(df: pd.DataFrame):
 
 bulk_locations_df, bulk_discrepancies_df, empty_bulk_locations_df = analyze_bulk_rows(filtered_inventory_df)
 
+# Total QTY in Bulk Zones KPI (sum Qty where first char is a tracked bulk zone)
+bulk_zone_letters = set(bulk_rules.keys())
+bulk_zone_qty_total = filtered_inventory_df[
+    _loc_series(filtered_inventory_df).str[0].str.upper().isin(bulk_zone_letters)
+]["Qty"].sum()
+
 # -------------------- VIEWS (now using defined variables) --------------------
 full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)
 partial_bins_df = get_partial_bins(filtered_inventory_df)
@@ -235,6 +259,9 @@ empty_bins_view_df = get_empty_bins_view(master_locations, occupied_locations)
 
 damages_df = inventory_df[_loc_series(inventory_df).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[_loc_series(inventory_df).str.upper() == "MISSING"]
+
+# Placeholder for a future feature so the menu doesn't error out
+rack_discrepancies_df = pd.DataFrame()
 
 # -------------------- SIDEBAR MENU --------------------
 menu = st.sidebar.radio(
@@ -260,11 +287,12 @@ if st.session_state.active_view == "Dashboard":
     total_empty_bins = len(empty_bins_view_df) + len(empty_partial_bins_df)
 
     kpi_data = [
-        {"title": "Total Bins Occupied", "value": total_bins_occupied, "icon": "📦"},
-        {"title": "Total Empty Bins", "value": total_empty_bins, "icon": "🗑️"},
-        {"title": "Bulk Locations", "value": len(bulk_locations_df), "icon": "📍"},
-        {"title": "Empty Bulk Locations", "value": len(empty_bulk_locations_df), "icon": "🧯"},
-        {"title": "Bulk Discrepancies", "value": len(bulk_discrepancies_df), "icon": "⚠️"},
+        {"title": "Total Bins Occupied", "value": int(total_bins_occupied), "icon": "📦"},
+        {"title": "Total Empty Bins", "value": int(total_empty_bins), "icon": "🗑️"},
+        {"title": "Bulk Locations", "value": int(len(bulk_locations_df)), "icon": "📍"},
+        {"title": "Empty Bulk Locations", "value": int(len(empty_bulk_locations_df)), "icon": "🧯"},
+        {"title": "Bulk Discrepancies", "value": int(len(bulk_discrepancies_df)), "icon": "⚠️"},
+        {"title": "Total QTY in Bulk Zones", "value": int(bulk_zone_qty_total), "icon": "🔢"},
     ]
 
     cols = st.columns(len(kpi_data))
@@ -298,22 +326,25 @@ view_map = {
     "Bulk Locations": bulk_locations_df,
     "Bulk Discrepancies": bulk_discrepancies_df,
     "Empty Bulk Locations": empty_bulk_locations_df,
+    "Rack Discrepancies": rack_discrepancies_df,
 }
 
 if st.session_state.active_view != "Dashboard":
     raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
     st.subheader(f"{st.session_state.active_view}")
 
-    # Special guidance/warnings
+    # Special guidance/warnings for Full / Partial tabs
     if st.session_state.active_view in ("Full Pallet Bins", "Partial Bins"):
         st.markdown(
             "<div style='background:#ffe6e6; color:#8a0000; padding:10px; border-left:4px solid #ff0000;'>"
-            "⚠️ These results follow current rules: "
-            "<b>Full</b> = starts with 111 OR (not ending with 01 and Qty > 5); "
+            "⚠️ Rules: <b>Full</b> = starts with 111 OR (not ending with 01 and Qty > 5); "
             "<b>Partial</b> = ends with 01, not 111***, not TUN*, Qty > 0."
             "</div>",
             unsafe_allow_html=True,
         )
+
+    if st.session_state.active_view == "Rack Discrepancies":
+        st.info("Rack Discrepancies view is reserved for a future rule set. No records to display yet.")
 
     df_show = apply_location_filter(raw_df)
     st.dataframe(df_show, use_container_width=True)
