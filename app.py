@@ -15,6 +15,8 @@ if "auto_refresh" not in st.session_state:
     st.session_state.auto_refresh = False
 if "fixed_pallets" not in st.session_state:
     st.session_state.fixed_pallets = set()
+if "use_filters" not in st.session_state:
+    st.session_state.use_filters = True
 
 # ---------------- AUTO REFRESH ----------------
 if st.session_state.auto_refresh:
@@ -176,6 +178,16 @@ def apply_filters(df):
 
 # ---------------- AGGRID DISPLAY ----------------
 def display_aggrid(df):
+    if df.empty:
+        st.warning("⚠️ No discrepancies found for this view.")
+        return
+
+    required_cols = ["LocationName", "Qty", "PalletId", "WarehouseSku", "CustomerLotReference", "Issue", "Action"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        st.error(f"❌ Missing columns: {missing_cols}")
+        return
+
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_default_column(resizable=True, sortable=True, filter=True)
     gb.configure_column("Action", cellRenderer=JsCode("""
@@ -224,6 +236,7 @@ st.session_state.filters["LocationName"] = st.sidebar.text_input("Location", val
 st.session_state.filters["PalletId"] = st.sidebar.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
 st.session_state.filters["WarehouseSku"] = st.sidebar.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
 st.session_state.filters["CustomerLotReference"] = st.sidebar.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
+st.session_state.use_filters = st.sidebar.checkbox("Apply filters", value=True)
 
 # ---------------- DISPLAY VIEWS ----------------
 view_map = {
@@ -238,13 +251,14 @@ view_map = {
 }
 
 if st.session_state.active_view:
-    active_df = apply_filters(view_map.get(st.session_state.active_view, pd.DataFrame()))
+    raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
+    active_df = apply_filters(raw_df) if st.session_state.use_filters else raw_df
 
     if st.session_state.active_view in ["Rack Discrepancies", "Bulk Discrepancies"]:
+        st.subheader(f"📋 {st.session_state.active_view} Table")
         display_aggrid(active_df)
     else:
         st.dataframe(active_df)
 
     export_dataframe(active_df, f"{st.session_state.active_view.replace(' ', '_')}_filtered.xlsx")
 else:
-    st.info("👆 Select a KPI card above to view details.")
