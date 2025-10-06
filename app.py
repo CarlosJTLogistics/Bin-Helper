@@ -143,7 +143,7 @@ def get_empty_partial_bins(master_locs, occupied_locs):
     empty_partial = sorted(set(partial_candidates) - set(occupied_locs))
     return pd.DataFrame({"LocationName": empty_partial})
 
-master_locations = master_df["LocationName"].dropna().astype(str).unique().tolist()
+master_locations = master_df["Location Name"].dropna().astype(str).unique().tolist()
 occupied_locations = filtered_inventory_df["LocationName"].dropna().astype(str).unique().tolist()
 empty_bins_view_df = pd.DataFrame({"LocationName": [loc for loc in master_locations if loc not in occupied_locations]})
 full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)
