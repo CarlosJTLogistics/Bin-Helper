@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st
 import os
 import csv
-import time  # Added for safe rerun handling
+import time
 
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
@@ -37,6 +37,16 @@ try:
 except Exception as e:
     st.error(f"❌ Failed to load data from GitHub: {e}")
     st.stop()
+
+# --- LOAD RESOLVED DISCREPANCIES ---
+resolved_keys = set()
+log_file = "resolved_discrepancies.csv"
+if os.path.exists(log_file):
+    try:
+        resolved_df = pd.read_csv(log_file)
+        resolved_keys = set(resolved_df["LocationName"].astype(str) + resolved_df["PalletId"].astype(str))
+    except Exception as e:
+        st.warning(f"⚠️ Could not load resolved discrepancies: {e}")
 
 # --- DATA PREP ---
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
@@ -89,7 +99,7 @@ empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locati
 damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
-# --- BULK DISCREPANCY LOGIC (Grouped) ---
+# --- BULK DISCREPANCY LOGIC ---
 def analyze_bulk_locations_grouped(df):
     df = exclude_damage_missing(df)
     results = []
@@ -168,7 +178,7 @@ for i, item in enumerate(kpi_data):
         if st.button(f"{item['icon']} {item['title']}\n{item['value']}", key=item['title']):
             st.session_state.active_view = item['title']
 
-# --- FILTERS ---
+# --- SIDEBAR FILTERS ---
 st.sidebar.markdown("### 🔍 Filter Options")
 st.session_state.filters["LocationName"] = st.sidebar.text_input("Location", value=st.session_state.filters["LocationName"])
 st.session_state.filters["PalletId"] = st.sidebar.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
@@ -177,10 +187,30 @@ st.session_state.filters["CustomerLotReference"] = st.sidebar.text_input("LOT", 
 
 # --- HISTORY LOG ---
 st.sidebar.markdown("### ✅ History Log")
-log_file = "resolved_discrepancies.csv"
 if os.path.exists(log_file):
     history_df = pd.read_csv(log_file)
     st.sidebar.dataframe(history_df.reset_index(drop=True), use_container_width=True, hide_index=True)
+else:
+    st.sidebar.info("No resolved discrepancies logged yet.")
+
+# --- UNDO FIX PANEL ---
+st.sidebar.markdown("### 🔄 Undo Fix")
+if os.path.exists(log_file):
+    try:
+        undo_df = pd.read_csv(log_file)
+        if not undo_df.empty and "LocationName" in undo_df.columns and "PalletId" in undo_df.columns:
+            undo_df["Key"] = undo_df["LocationName"].astype(str) + undo_df["PalletId"].astype(str)
+            selected_key = st.sidebar.selectbox("Select a resolved item to undo", undo_df["Key"])
+            if st.sidebar.button("Undo Fix"):
+                updated_df = undo_df[undo_df["Key"] != selected_key].drop(columns=["Key"])
+                updated_df.to_csv(log_file, index=False)
+                st.sidebar.success("✅ Fix undone. Item will reappear in the dashboard.")
+                time.sleep(1)
+                st.stop()
+        else:
+            st.sidebar.info("No resolved items to undo.")
+    except Exception as e:
+        st.sidebar.error(f"Error loading resolved discrepancies: {e}")
 else:
     st.sidebar.info("No resolved discrepancies logged yet.")
 
@@ -207,8 +237,8 @@ if st.session_state.active_view:
                 st.write(f"**Max Allowed:** {row['MaxAllowed']}\n**Total Pallets:** {row['TotalPallets']}")
                 details = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
                 for i, drow in details.iterrows():
-                    row_id = drow.get("LocationName", "") + str(drow.get("PalletId", ""))
-                    if row_id in st.session_state.resolved_items:
+                    row_id = str(drow.get("LocationName", "")) + str(drow.get("PalletId", ""))
+                    if row_id in resolved_keys:
                         continue
                     st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
                     note_key = f"note_bulk_{idx}_{i}"
@@ -220,8 +250,8 @@ if st.session_state.active_view:
                         st.stop()
     elif st.session_state.active_view == "Rack Discrepancies":
         for idx, row in active_df.iterrows():
-            row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
-            if row_id in st.session_state.resolved_items:
+            row_id = str(row.get("LocationName", "")) + str(row.get("PalletId", ""))
+            if row_id in resolved_keys:
                 continue
             with st.expander(f"⚠️ Reason: {row['Issue']}"):
                 st.write(f"**Qty:** {row.get('Qty', 'N/A')}")
