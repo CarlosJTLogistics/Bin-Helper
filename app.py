@@ -6,6 +6,10 @@ import csv
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
+# ---------------- APP VERSION ----------------
+APP_VERSION = "v1.2.0"
+st.markdown(f"<h1 style='text-align: center; color: #2E86C1;'>📊 Bin-Helper Dashboard <span style='font-size:18px; color:gray;'>({APP_VERSION})</span></h1>", unsafe_allow_html=True)
+
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
     st.session_state.active_view = None
@@ -15,10 +19,22 @@ if "resolved_items" not in st.session_state:
     st.session_state.resolved_items = set()
 if "auto_refresh" not in st.session_state:
     st.session_state.auto_refresh = False
+if "refresh_triggered" not in st.session_state:
+    st.session_state.refresh_triggered = False
 
 # ---------------- AUTO REFRESH ----------------
-if st.session_state.auto_refresh:
+if st.session_state.auto_refresh or st.session_state.refresh_triggered:
+    st.session_state.refresh_triggered = False
     st.rerun()
+
+# ---------------- SIDEBAR CONTROLS ----------------
+st.sidebar.markdown("### 🔄 Auto Refresh")
+if st.sidebar.button("🔁 Refresh Now"):
+    st.session_state.refresh_triggered = True
+if st.sidebar.checkbox("Enable Auto Refresh", value=st.session_state.auto_refresh):
+    st.session_state.auto_refresh = True
+else:
+    st.session_state.auto_refresh = False
 
 # ---------------- GITHUB FILE URLS ----------------
 inventory_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/ON_HAND_INVENTORY.xlsx"
@@ -151,7 +167,6 @@ def apply_filters(df):
     return df
 
 # ---------------- KPI CARDS ----------------
-st.markdown("<h1 style='text-align: center; color: #2E86C1;'>📊 Bin-Helper Dashboard</h1>", unsafe_allow_html=True)
 kpi_data = [
     {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
     {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
