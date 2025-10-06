@@ -9,7 +9,7 @@ from streamlit_lottie import st_lottie  # Install with: pip install streamlit-lo
 st.set_page_config(page_title="Bin Helper", layout="wide", initial_sidebar_state="expanded")
 
 # ---------------- APP VERSION ----------------
-APP_VERSION = "v1.3.0"
+APP_VERSION = "v1.3.1"
 
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
@@ -71,10 +71,46 @@ filtered_inventory_df = inventory_df[
     ~inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE", "MISSING"]) &
     ~inventory_df["LocationName"].astype(str).str.upper().str.startswith("IB")
 ]
-occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
-master_locations = set(master_df.iloc[1:, 0].dropna().astype(str).unique())
 
-# ---------------- BUSINESS RULES ----------------
+# ---------------- BULK ROW LOGIC ----------------
+def analyze_bulk_rows(df):
+    df = df.copy()
+    df["Zone"] = df["LocationName"].astype(str).str[0]
+    bulk_locations = []
+    bulk_discrepancies = []
+    empty_bulk_locations = []
+
+    for zone, max_pallets in bulk_rules.items():
+        zone_df = df[df["Zone"] == zone]
+        row_counts = zone_df.groupby("LocationName")["PalletId"].count()
+        for location, count in row_counts.items():
+            bulk_locations.append({
+                "LocationName": location,
+                "Zone": zone,
+                "Pallets": count,
+                "MaxAllowed": max_pallets
+            })
+            if count > max_pallets:
+                bulk_discrepancies.append({
+                    "LocationName": location,
+                    "Zone": zone,
+                    "Pallets": count,
+                    "MaxAllowed": max_pallets,
+                    "Issue": f"Too many pallets in {location} (Max: {max_pallets})"
+                })
+            elif count < max_pallets:
+                empty_bulk_locations.append({
+                    "LocationName": location,
+                    "Zone": zone,
+                    "Pallets": count,
+                    "MaxAllowed": max_pallets,
+                    "Issue": f"{location} has empty pallet slots (Max: {max_pallets})"
+                })
+    return pd.DataFrame(bulk_locations), pd.DataFrame(bulk_discrepancies), pd.DataFrame(empty_bulk_locations)
+
+bulk_locations_df, bulk_discrepancies_df, empty_bulk_locations_df = analyze_bulk_rows(filtered_inventory_df)
+
+# ---------------- OTHER BUSINESS LOGIC ----------------
 def exclude_damage_missing(df):
     return df[
         ~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"]) &
@@ -114,101 +150,13 @@ empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locati
 damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
-# ---------------- BULK ROW LOGIC ----------------
-def analyze_bulk_rows(df):
-    df = df.copy()
-    df["Zone"] = df["LocationName"].astype(str).str[0]
-    bulk_discrepancies = []
-    empty_bulk_locations = []
-
-    for zone, max_pallets in bulk_rules.items():
-        zone_df = df[df["Zone"] == zone]
-        row_counts = zone_df.groupby("LocationName")["PalletId"].count()
-        for location, count in row_counts.items():
-            if count > max_pallets:
-                bulk_discrepancies.append({
-                    "LocationName": location,
-                    "Zone": zone,
-                    "Pallets": count,
-                    "MaxAllowed": max_pallets,
-                    "Issue": f"Too many pallets in {location} (Max: {max_pallets})"
-                })
-            elif count < max_pallets:
-                empty_bulk_locations.append({
-                    "LocationName": location,
-                    "Zone": zone,
-                    "Pallets": count,
-                    "MaxAllowed": max_pallets,
-                    "Issue": f"{location} has empty pallet slots (Max: {max_pallets})"
-                })
-    return pd.DataFrame(bulk_discrepancies), pd.DataFrame(empty_bulk_locations)
-
-bulk_discrepancies_df, empty_bulk_locations_df = analyze_bulk_rows(filtered_inventory_df)
-
-# ---------------- DISCREPANCY LOGIC ----------------
-def analyze_discrepancies(df):
-    df = exclude_damage_missing(df)
-    results = []
-    partial_df = get_partial_bins(df)
-    partial_errors = partial_df[(partial_df["Qty"] > 5) | (partial_df["PalletCount"] > 1)]
-    for _, row in partial_errors.iterrows():
-        issue = "Qty over Max of 5" if row["Qty"] > 5 else "Partial needs to be moved to Partial Bin."
-        results.append(row.to_dict() | {"Issue": issue})
-    full_df = df[
-        ((~df["LocationName"].astype(str).str.endswith("01")) |
-         (df["LocationName"].astype(str).str.startswith("111"))) &
-        (df["LocationName"].astype(str).str.isnumeric())
-    ]
-    full_errors = full_df[~full_df["Qty"].between(6, 15)]
-    for _, row in full_errors.iterrows():
-        issue = "Too many pallets in location" if row["Qty"] > 15 else "Move to Partial Bin" if row["Qty"] <= 5 else "Qty out of range for full pallet bin"
-        results.append(row.to_dict() | {"Issue": issue})
-    return pd.DataFrame(results)
-
-discrepancy_df = analyze_discrepancies(filtered_inventory_df)
-
-# ---------------- LOGGING FUNCTION ----------------
-def log_resolved_discrepancy_with_note(row, note):
-    log_file = "resolved_discrepancies.csv"
-    row_with_note = row.copy()
-    row_with_note["Note"] = note
-    file_exists = os.path.isfile(log_file)
-    with open(log_file, mode='a', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=row_with_note.keys())
-        if not file_exists:
-            writer.writeheader()
-        writer.writerow(row_with_note)
-    st.session_state.resolved_items.add(row.get("LocationName", "") + str(row.get("PalletId", "")))
-
-# ---------------- FILTER FUNCTION ----------------
-def apply_filters(df):
-    for key, value in st.session_state.filters.items():
-        if value and key in df.columns:
-            df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
-    return df
-
 # ---------------- SIDEBAR MENU ----------------
 menu = st.sidebar.radio("📂 Dashboard Menu", [
     "Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins",
-    "Partial Bins", "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies", "Empty Bulk Locations"
+    "Partial Bins", "Damages", "Missing", "Rack Discrepancies",
+    "Bulk Locations", "Bulk Discrepancies", "Empty Bulk Locations"
 ])
 st.session_state.active_view = menu
-
-# ---------------- FILTERS ----------------
-st.sidebar.markdown("### 🔍 Filter Options")
-st.session_state.filters["LocationName"] = st.sidebar.text_input("Location", value=st.session_state.filters["LocationName"])
-st.session_state.filters["PalletId"] = st.sidebar.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
-st.session_state.filters["WarehouseSku"] = st.sidebar.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
-st.session_state.filters["CustomerLotReference"] = st.sidebar.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
-
-# ---------------- HISTORY LOG ----------------
-st.sidebar.markdown("### ✅ History Log")
-log_file = "resolved_discrepancies.csv"
-if os.path.exists(log_file):
-    history_df = pd.read_csv(log_file)
-    st.sidebar.dataframe(history_df.reset_index(drop=True), use_container_width=True, hide_index=True)
-else:
-    st.sidebar.info("No resolved discrepancies logged yet.")
 
 # ---------------- DASHBOARD VIEW ----------------
 if st.session_state.active_view == "Dashboard":
@@ -217,20 +165,20 @@ if st.session_state.active_view == "Dashboard":
 
     total_bins_occupied = len(full_pallet_bins_df) + len(partial_bins_df)
     total_empty_bins = len(empty_bins_view_df) + len(empty_partial_bins_df)
-    total_discrepancies = len(discrepancy_df) + len(bulk_discrepancies_df)
+    total_discrepancies = len(bulk_discrepancies_df)
 
     kpi_data = [
         {"title": "Total Bins Occupied", "value": total_bins_occupied, "icon": "📦"},
         {"title": "Total Empty Bins", "value": total_empty_bins, "icon": "🗑️"},
-        {"title": "Total Discrepancies", "value": total_discrepancies, "icon": "⚠️"},
+        {"title": "Bulk Locations", "value": len(bulk_locations_df), "icon": "📍"},
         {"title": "Empty Bulk Locations", "value": len(empty_bulk_locations_df), "icon": "📭"},
-        {"title": "Bulk Discrepancies", "value": len(bulk_discrepancies_df), "icon": "📦"}
+        {"title": "Bulk Discrepancies", "value": len(bulk_discrepancies_df), "icon": "⚠️"}
     ]
     cols = st.columns(len(kpi_data))
     for i, item in enumerate(kpi_data):
         with cols[i]:
             st.markdown(f"""
-                <div style="background-color:#1f77b4; padding:20px; border-radius:10px; text-align:center; color:white; transition:0.3s;">
+                <div style="background-color:#1f77b4; padding:20px; border-radius:10px; text-align:center; color:white;">
                     <h3>{item['icon']} {item['title']}</h3>
                     <h2>{item['value']}</h2>
                 </div>
@@ -244,12 +192,11 @@ view_map = {
     "Partial Bins": partial_bins_df,
     "Damages": damages_df,
     "Missing": missing_df,
-    "Rack Discrepancies": discrepancy_df,
+    "Bulk Locations": bulk_locations_df,
     "Bulk Discrepancies": bulk_discrepancies_df,
     "Empty Bulk Locations": empty_bulk_locations_df
 }
 
 if st.session_state.active_view != "Dashboard":
     raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
-    active_df = apply_filters(raw_df)
     st.subheader(f"{st.session_state.active_view}")
