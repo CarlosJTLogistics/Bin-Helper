@@ -90,7 +90,7 @@ empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locati
 damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
-# ---------------- BULK DISCREPANCY LOGIC (Grouped) ----------------
+# ---------------- BULK DISCREPANCY LOGIC ----------------
 def analyze_bulk_locations_grouped(df):
     df = exclude_damage_missing(df)
     results = []
@@ -103,7 +103,7 @@ def analyze_bulk_locations_grouped(df):
                     "LocationName": slot,
                     "TotalPallets": count,
                     "MaxAllowed": max_pallets,
-                    "Issue": f"Exceeds max allowed: {count} > {max_pallets}"
+                    "Issue": "Too many Pallets in Location"
                 })
     return pd.DataFrame(results)
 
@@ -117,7 +117,7 @@ def analyze_discrepancies(df):
     partial_df = get_partial_bins(df)
     partial_errors = partial_df[(partial_df["Qty"] > 5) | (partial_df["PalletCount"] > 1)]
     for _, row in partial_errors.iterrows():
-        issue = "Qty too high for partial bin" if row["Qty"] > 5 else "Multiple pallets in partial bin"
+        issue = "Partial needs to be moved to Partial Bin."
         results.append(row.to_dict() | {"Issue": issue})
 
     full_df = df[
@@ -126,7 +126,7 @@ def analyze_discrepancies(df):
     ]
     full_errors = full_df[~full_df["Qty"].between(6, 15)]
     for _, row in full_errors.iterrows():
-        issue = "Qty out of range for full pallet bin"
+        issue = "Too many Pallets in Location"
         results.append(row.to_dict() | {"Issue": issue})
 
     return pd.DataFrame(results)
@@ -218,6 +218,7 @@ if st.session_state.active_view:
                     if row_id in st.session_state.resolved_items:
                         continue
                     st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
+                    st.markdown(f"**Error:** {row['Issue']}")
                     note_key = f"note_bulk_{idx}_{i}"
                     note = st.text_input(f"Note for Pallet {drow['PalletId']}", key=note_key)
                     if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{idx}_{i}"):
@@ -230,6 +231,8 @@ if st.session_state.active_view:
             if row_id in st.session_state.resolved_items:
                 continue
             st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
+            if "Issue" in row:
+                st.markdown(f"**Error:** {row['Issue']}")
             note_key = f"note_rack_{idx}"
             note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
             if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{idx}"):
