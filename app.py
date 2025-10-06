@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import re
 import requests
 
 from streamlit_lottie import st_lottie  # pip install streamlit-lottie
@@ -8,7 +9,7 @@ from streamlit_lottie import st_lottie  # pip install streamlit-lottie
 st.set_page_config(page_title="Bin Helper", layout="wide", initial_sidebar_state="expanded")
 
 # -------------------- APP VERSION --------------------
-APP_VERSION = "v1.3.3"  # hotfix: master column quick map
+APP_VERSION = "v1.3.4"  # robust master column detection + cleanup
 
 # -------------------- SESSION STATE --------------------
 if "active_view" not in st.session_state:
@@ -38,14 +39,18 @@ loc_query = st.sidebar.text_input("🔎 Filter by Location (contains)", "")
 
 # -------------------- LOTTIE LOADER --------------------
 def load_lottie(url: str):
-    r = requests.get(url)
-    if r.status_code != 200:
+    try:
+        r = requests.get(url, timeout=10)
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except Exception:
         return None
-    return r.json()
 
 lottie_icon = load_lottie("https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json")
 
 # -------------------- LOAD DATA --------------------
+# Remote canonical sources (Streamlit Cloud)
 inventory_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/ON_HAND_INVENTORY.xlsx"
 master_url    = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/Empty%20Bin%20Formula.xlsx"
 
@@ -54,24 +59,11 @@ def load_data(inventory_url, master_url):
     # Inventory
     inventory_df = pd.read_excel(inventory_url, engine="openpyxl")
 
-    # Master (try named sheet, else default)
+    # Master (try specific sheet, else first sheet)
     try:
         master_df = pd.read_excel(master_url, sheet_name="Master Locations", engine="openpyxl")
     except Exception:
         master_df = pd.read_excel(master_url, engine="openpyxl")
-
-    # ---------------- QUICK FIX: map your known headers to expected name ----------------
-    # If LocationName isn't present, rename "Rack Location Column" or "Empty Locations" to "LocationName"
-    if "LocationName" not in master_df.columns:
-        rename_map = {}
-        if "Rack Location Column" in master_df.columns:
-            rename_map["Rack Location Column"] = "LocationName"
-        elif "Empty Locations" in master_df.columns:
-            rename_map["Empty Locations"] = "LocationName"
-        if rename_map:
-            master_df = master_df.rename(columns=rename_map)
-    # ------------------------------------------------------------------------------------
-
     return inventory_df, master_df
 
 try:
@@ -85,8 +77,7 @@ except Exception as e:
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
 
-# Convenience: normalized location series
-def _loc_series(df):
+def _loc_series(df: pd.DataFrame) -> pd.Series:
     return df["LocationName"].astype(str).str.strip()
 
 # Exclusions (DAMAGE/IBDAMAGE/MISSING and any "IB*" locations)
@@ -97,11 +88,14 @@ def exclude_damage_missing(df: pd.DataFrame) -> pd.DataFrame:
 
 # -------------------- MASTER LOCATIONS EXTRACTION --------------------
 def _normalize_col(name: str) -> str:
-    return str(name).strip().lower().replace(" ", "").replace("_", "")
+    return re.sub(r"[^a-z0-9]", "", str(name).strip().lower())
 
+# Accept any of these if found (we'll union them)
 MASTER_CANDIDATE_KEYS = {
     "locationname",
     "location",
+    "racklocationcolumn",
+    "emptylocations",
     "bin",
     "loc",
     "locationcode",
@@ -109,39 +103,62 @@ MASTER_CANDIDATE_KEYS = {
     "masterlocations",
 }
 
-def extract_master_locations(master_df: pd.DataFrame):
-    # Prefer LocationName if the quick fix mapped it
-    if "LocationName" in master_df.columns:
-        chosen_col = "LocationName"
-    else:
-        chosen_col = None
-        for col in master_df.columns:
-            if _normalize_col(col) in MASTER_CANDIDATE_KEYS:
-                chosen_col = col
-                break
+# Fast validator for location-looking strings (keeps TUN#### or alphanumeric bins, no spaces)
+_location_re = re.compile(r"^(?:TUN\d{3,}|[A-Z]?\d{5,}|[A-Z]{1,3}\d{3,})$")
 
-    if chosen_col is None:
+def _is_valid_location(val: str) -> bool:
+    v = str(val).strip().upper()
+    # Drop obvious noise
+    if not v or v in {"N/A", "#N/A", "NA"}:
+        return False
+    if "EMPTY" in v or "UNASSIGNED" in v or "UNNAMED" in v or "SHEET" in v or "MASTER" in v:
+        return False
+    if " " in v or "\t" in v:
+        return False
+    # Accept common formats
+    return bool(_location_re.match(v))
+
+def extract_master_locations(master_df: pd.DataFrame):
+    # Gather any candidate columns present
+    candidate_cols = []
+    for col in master_df.columns:
+        if _normalize_col(col) in MASTER_CANDIDATE_KEYS:
+            candidate_cols.append(col)
+
+    # If none detected, attempt a heuristic: any object-like column with many non-null values
+    if not candidate_cols:
+        for col in master_df.columns:
+            ser = master_df[col]
+            if ser.dtype == "object" or str(ser.dtype).startswith("string"):
+                if ser.notna().sum() >= 5:  # arbitrary threshold
+                    candidate_cols.append(col)
+
+    if not candidate_cols:
         st.error(
-            "⚠️ Could not auto-detect the Master Location column in **Empty Bin Formula.xlsx**.\n\n"
-            f"Found columns: `{list(master_df.columns)}`\n\n"
-            "Tip: rename your location column to one of: "
-            "`LocationName`, `Location`, `Bin`, `Loc`, `Location Code`, `MasterLocation`.\n"
-            "This app also recognizes your headers 'Rack Location Column' or 'Empty Locations' automatically."
+            "⚠️ Could not detect a master location column in **Empty Bin Formula.xlsx**.\n"
+            f"Found columns: `{list(master_df.columns)}`\n"
+            "Try renaming your location column to one of: LocationName, Location, Rack Location Column, Empty Locations."
         )
         st.stop()
 
-    master_locations = (
-        master_df[chosen_col]
-        .dropna()
-        .astype(str)
-        .str.strip()
-        .str.upper()
-        .unique()
-        .tolist()
-    )
-    return master_locations, chosen_col
+    # Union values from all candidate columns, clean, uppercase, dedupe
+    master_values = []
+    for col in candidate_cols:
+        ser = master_df[col].dropna().astype(str).str.strip()
+        master_values.extend(ser.tolist())
 
-master_locations, master_col = extract_master_locations(master_df)
+    # Clean & filter to plausible locations
+    master_locations = sorted(set(v.upper() for v in master_values if _is_valid_location(v)))
+    if not master_locations:
+        st.error(
+            "⚠️ After cleaning, no valid master locations were found. "
+            "Please check the sheet headers and ensure the location list isn't mixed with notes."
+        )
+        st.stop()
+
+    return master_locations, candidate_cols
+
+master_locations, master_cols_used = extract_master_locations(master_df)
 
 # Occupied locations from inventory (after exclusions)
 occupied_locations = (
@@ -201,7 +218,7 @@ def get_empty_bins_view(master_locs, occupied_locs) -> pd.DataFrame:
     return pd.DataFrame({"LocationName": empty_all})
 
 # -------------------- BULK ROW LOGIC (Inventory only) --------------------
-# Zone capacity rules; includes A, B, I (and others you had before)
+# Zone capacity rules; includes A, B, I (and others)
 bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
 
 def analyze_bulk_rows(df: pd.DataFrame):
@@ -222,7 +239,7 @@ def analyze_bulk_rows(df: pd.DataFrame):
         zone = str(location)[0].upper()
         max_pallets = bulk_rules.get(zone, None)
         if max_pallets is None:
-            continue  # not a bulk zone we track
+            continue  # not a tracked bulk zone
 
         entry = {
             "LocationName": location,
@@ -251,7 +268,7 @@ bulk_zone_qty_total = filtered_inventory_df[
     _loc_series(filtered_inventory_df).str[0].str.upper().isin(bulk_zone_letters)
 ]["Qty"].sum()
 
-# -------------------- VIEWS (now using defined variables) --------------------
+# -------------------- VIEWS --------------------
 full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)
 partial_bins_df = get_partial_bins(filtered_inventory_df)
 empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locations)
@@ -260,7 +277,7 @@ empty_bins_view_df = get_empty_bins_view(master_locations, occupied_locations)
 damages_df = inventory_df[_loc_series(inventory_df).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[_loc_series(inventory_df).str.upper() == "MISSING"]
 
-# Placeholder for a future feature so the menu doesn't error out
+# Placeholder so the menu doesn't error out (future feature)
 rack_discrepancies_df = pd.DataFrame()
 
 # -------------------- SIDEBAR MENU --------------------
@@ -276,7 +293,8 @@ st.session_state.active_view = menu
 
 # -------------------- DASHBOARD VIEW --------------------
 if st.session_state.active_view == "Dashboard":
-    st_lottie(lottie_icon, height=150)
+    if lottie_icon:
+        st_lottie(lottie_icon, height=150)
     st.markdown(
         f"<h1 style='text-align:center; color:#2E86C1;'>📊 Bin-Helper Dashboard "
         f"<span style='font-size:18px; color:gray;'>({APP_VERSION})</span></h1>",
@@ -285,6 +303,10 @@ if st.session_state.active_view == "Dashboard":
 
     total_bins_occupied = len(full_pallet_bins_df) + len(partial_bins_df)
     total_empty_bins = len(empty_bins_view_df) + len(empty_partial_bins_df)
+
+    # Show which columns were used from master (small help text)
+    with st.expander("ℹ️ Master columns used"):
+        st.write(master_cols_used)
 
     kpi_data = [
         {"title": "Total Bins Occupied", "value": int(total_bins_occupied), "icon": "📦"},
