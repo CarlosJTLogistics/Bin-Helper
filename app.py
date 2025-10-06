@@ -91,8 +91,8 @@ empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locati
 damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
-# ---------------- BULK DISCREPANCY LOGIC (Grouped) ----------------
-def analyze_bulk_locations_grouped(df):
+# ---------------- BULK DISCREPANCY LOGIC ----------------
+def analyze_bulk_locations(df):
     df = exclude_damage_missing(df)
     results = []
     for letter, max_pallets in bulk_rules.items():
@@ -100,15 +100,19 @@ def analyze_bulk_locations_grouped(df):
         slot_counts = letter_df.groupby("LocationName").size()
         for slot, count in slot_counts.items():
             if count > max_pallets:
-                results.append({
-                    "LocationName": slot,
-                    "TotalPallets": count,
-                    "MaxAllowed": max_pallets,
-                    "Issue": f"Exceeds max allowed: {count} > {max_pallets}"
-                })
+                details = df[df["LocationName"] == slot]
+                for _, drow in details.iterrows():
+                    results.append({
+                        "LocationName": slot,
+                        "Qty": drow.get("Qty", ""),
+                        "WarehouseSku": drow.get("WarehouseSku", ""),
+                        "PalletId": drow.get("PalletId", ""),
+                        "CustomerLotReference": drow.get("CustomerLotReference", ""),
+                        "Issue": f"Exceeds max allowed: {count} > {max_pallets}"
+                    })
     return pd.DataFrame(results)
 
-bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
+bulk_df = analyze_bulk_locations(filtered_inventory_df)
 
 # ---------------- DISCREPANCY LOGIC ----------------
 def analyze_discrepancies(df):
@@ -160,17 +164,6 @@ def log_resolved_discrepancy(row):
             writer.writeheader()
         writer.writerow(row)
     st.session_state.resolved_items.add(row.get("LocationName", "") + str(row.get("PalletId", "")))
-
-# ---------------- EXPORT FUNCTION ----------------
-def export_dataframe(df, filename):
-    output = BytesIO()
-    df.to_excel(output, index=False, engine="openpyxl")
-    # st.download_button(  # Hidden by commenting out
-    #     label="📥 Download Filtered Data",
-    #     data=output.getvalue(),
-    #     file_name=filename,
-    #     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    # )
 
 # ---------------- FILTER FUNCTION ----------------
 def apply_filters(df):
@@ -227,17 +220,28 @@ if st.session_state.active_view:
     if st.session_state.active_view == "Bulk Discrepancies":
         for idx, row in active_df.iterrows():
             location = row["LocationName"]
-            if location in st.session_state.resolved_items:
-                continue
             with st.expander(f"{location} | {row['Issue']}"):
                 details = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
-                st.dataframe(details[["LocationName", "Qty", "WarehouseSku", "PalletId", "CustomerLotReference"]])
-                if st.button(f"✅ Mark {location} Fixed", key=f"fix_{idx}"):
-                    log_resolved_discrepancy(row)
-                    st.success(f"{location} logged as fixed!")
-                    st.experimental_rerun()
+                for i, drow in details.iterrows():
+                    row_id = drow.get("LocationName", "") + str(drow.get("PalletId", ""))
+                    if row_id in st.session_state.resolved_items:
+                        continue
+                    st.write(drow[["LocationName", "Qty", "WarehouseSku", "PalletId", "CustomerLotReference"]])
+                    if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{idx}_{i}"):
+                        log_resolved_discrepancy(drow.to_dict())
+                        st.success(f"Pallet {drow['PalletId']} logged as fixed!")
+                        st.experimental_rerun()
+    elif st.session_state.active_view == "Rack Discrepancies":
+        for idx, row in active_df.iterrows():
+            row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
+            if row_id in st.session_state.resolved_items:
+                continue
+            st.write(row[["LocationName", "Qty", "PalletCount", "WarehouseSku", "PalletId", "CustomerLotReference", "Issue"]])
+            if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{idx}"):
+                log_resolved_discrepancy(row.to_dict())
+                st.success(f"Pallet {row['PalletId']} logged as fixed!")
+                st.experimental_rerun()
     else:
         st.dataframe(active_df)
-        # export_dataframe(active_df, f"{st.session_state.active_view.replace(' ', '_')}_filtered.xlsx")  # Hidden
 else:
     st.info("👆 Select a KPI card above to view details.")
