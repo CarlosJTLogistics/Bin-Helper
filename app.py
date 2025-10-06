@@ -1,7 +1,6 @@
 import pandas as pd
 import streamlit as st
 from io import BytesIO
-from st_aggrid import AgGrid, GridOptionsBuilder, JsCode, GridUpdateMode
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
@@ -176,39 +175,50 @@ def apply_filters(df):
             df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
 
-# ---------------- AGGRID DISPLAY ----------------
-def display_aggrid(df):
+# ---------------- HORIZONTAL CARD DISPLAY ----------------
+def display_discrepancy_cards(df):
     if df.empty:
         st.warning("⚠️ No discrepancies found for this view.")
         return
 
-    required_cols = ["LocationName", "Qty", "PalletId", "WarehouseSku", "CustomerLotReference", "Issue", "Action"]
-    missing_cols = [col for col in required_cols if col not in df.columns]
-    if missing_cols:
-        st.error(f"❌ Missing columns: {missing_cols}")
-        return
-
-    gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_default_column(resizable=True, sortable=True, filter=True)
-    gb.configure_column("Action", cellRenderer=JsCode("""
-        function(params) {
-            return `<button style="background-color:#4CAF50;color:white;border:none;padding:5px;border-radius:4px;">Fix</button>`;
+    # Custom CSS for card styling
+    st.markdown("""
+        <style>
+        .card {
+            background-color: #1E1E1E;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            color: #fff;
         }
-    """))
-    grid_options = gb.build()
-    grid_response = AgGrid(
-        df,
-        gridOptions=grid_options,
-        update_mode=GridUpdateMode.SELECTION_CHANGED,
-        allow_unsafe_jscode=True,
-        enable_enterprise_modules=False
-    )
-    selected = grid_response.get("selected_rows", [])
-    if selected:
-        pallet_id = selected[0].get("PalletId")
-        if pallet_id and pallet_id not in st.session_state.fixed_pallets:
-            st.session_state.fixed_pallets.add(pallet_id)
-            st.success(f"✅ Pallet {pallet_id} fixed!")
+        .issue-badge {
+            background-color: #FFC107;
+            color: #000;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # Display cards in rows
+    for i in range(0, len(df), 2):  # 2 cards per row
+        cols = st.columns(2)
+        for j in range(2):
+            if i + j < len(df):
+                row = df.iloc[i + j]
+                with cols[j]:
+                    st.markdown(f"""
+                        <div class="card">
+                            <h4>📍 Location: {row['LocationName']}</h4>
+                            <div class="issue-badge">{row['Issue']}</div>
+                            <p>SKU: {row['WarehouseSku']} | LOT: {row['CustomerLotReference']}<br>
+                            Pallet: {row['PalletId']} | Qty: {row['Qty']}</p>
+                            <button style="background-color:#4CAF50;color:white;border:none;padding:8px;border-radius:4px;">✅ Fix Pallet</button>
+                        </div>
+                    """, unsafe_allow_html=True)
 
 # ---------------- KPI CARDS ----------------
 st.markdown("<h1 style='text-align: center; color: #2E86C1;'>📊 Bin-Helper Dashboard</h1>", unsafe_allow_html=True)
@@ -255,10 +265,11 @@ if st.session_state.active_view:
     active_df = apply_filters(raw_df) if st.session_state.use_filters else raw_df
 
     if st.session_state.active_view in ["Rack Discrepancies", "Bulk Discrepancies"]:
-        st.subheader(f"📋 {st.session_state.active_view} Table")
-        display_aggrid(active_df)
+        st.subheader(f"📋 {st.session_state.active_view}")
+        display_discrepancy_cards(active_df)
     else:
         st.dataframe(active_df)
 
     export_dataframe(active_df, f"{st.session_state.active_view.replace(' ', '_')}_filtered.xlsx")
 else:
+    st.info("👆 Select a KPI card above to view details.")
