@@ -9,7 +9,7 @@ from streamlit_lottie import st_lottie  # Install with: pip install streamlit-lo
 st.set_page_config(page_title="Bin Helper", layout="wide", initial_sidebar_state="expanded")
 
 # ---------------- APP VERSION ----------------
-APP_VERSION = "v1.2.0"
+APP_VERSION = "v1.3.0"
 
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
@@ -114,24 +114,38 @@ empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locati
 damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
-def analyze_bulk_locations_grouped(df):
-    df = exclude_damage_missing(df)
-    results = []
-    for letter, max_pallets in bulk_rules.items():
-        letter_df = df[df["LocationName"].astype(str).str.startswith(letter)]
-        slot_counts = letter_df.groupby("LocationName").size()
-        for slot, count in slot_counts.items():
+# ---------------- BULK ROW LOGIC ----------------
+def analyze_bulk_rows(df):
+    df = df.copy()
+    df["Zone"] = df["LocationName"].astype(str).str[0]
+    bulk_discrepancies = []
+    empty_bulk_locations = []
+
+    for zone, max_pallets in bulk_rules.items():
+        zone_df = df[df["Zone"] == zone]
+        row_counts = zone_df.groupby("LocationName")["PalletId"].count()
+        for location, count in row_counts.items():
             if count > max_pallets:
-                results.append({
-                    "LocationName": slot,
-                    "TotalPallets": count,
+                bulk_discrepancies.append({
+                    "LocationName": location,
+                    "Zone": zone,
+                    "Pallets": count,
                     "MaxAllowed": max_pallets,
-                    "Issue": f"Too many pallets in location (Max: {max_pallets})"
+                    "Issue": f"Too many pallets in {location} (Max: {max_pallets})"
                 })
-    return pd.DataFrame(results)
+            elif count < max_pallets:
+                empty_bulk_locations.append({
+                    "LocationName": location,
+                    "Zone": zone,
+                    "Pallets": count,
+                    "MaxAllowed": max_pallets,
+                    "Issue": f"{location} has empty pallet slots (Max: {max_pallets})"
+                })
+    return pd.DataFrame(bulk_discrepancies), pd.DataFrame(empty_bulk_locations)
 
-bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
+bulk_discrepancies_df, empty_bulk_locations_df = analyze_bulk_rows(filtered_inventory_df)
 
+# ---------------- DISCREPANCY LOGIC ----------------
 def analyze_discrepancies(df):
     df = exclude_damage_missing(df)
     results = []
@@ -176,7 +190,7 @@ def apply_filters(df):
 # ---------------- SIDEBAR MENU ----------------
 menu = st.sidebar.radio("📂 Dashboard Menu", [
     "Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins",
-    "Partial Bins", "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies"
+    "Partial Bins", "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies", "Empty Bulk Locations"
 ])
 st.session_state.active_view = menu
 
@@ -203,12 +217,14 @@ if st.session_state.active_view == "Dashboard":
 
     total_bins_occupied = len(full_pallet_bins_df) + len(partial_bins_df)
     total_empty_bins = len(empty_bins_view_df) + len(empty_partial_bins_df)
-    total_discrepancies = len(discrepancy_df) + len(bulk_df)
+    total_discrepancies = len(discrepancy_df) + len(bulk_discrepancies_df)
 
     kpi_data = [
         {"title": "Total Bins Occupied", "value": total_bins_occupied, "icon": "📦"},
         {"title": "Total Empty Bins", "value": total_empty_bins, "icon": "🗑️"},
-        {"title": "Total Discrepancies", "value": total_discrepancies, "icon": "⚠️"}
+        {"title": "Total Discrepancies", "value": total_discrepancies, "icon": "⚠️"},
+        {"title": "Empty Bulk Locations", "value": len(empty_bulk_locations_df), "icon": "📭"},
+        {"title": "Bulk Discrepancies", "value": len(bulk_discrepancies_df), "icon": "📦"}
     ]
     cols = st.columns(len(kpi_data))
     for i, item in enumerate(kpi_data):
@@ -229,57 +245,11 @@ view_map = {
     "Damages": damages_df,
     "Missing": missing_df,
     "Rack Discrepancies": discrepancy_df,
-    "Bulk Discrepancies": bulk_df
+    "Bulk Discrepancies": bulk_discrepancies_df,
+    "Empty Bulk Locations": empty_bulk_locations_df
 }
 
 if st.session_state.active_view != "Dashboard":
     raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
     active_df = apply_filters(raw_df)
     st.subheader(f"{st.session_state.active_view}")
-
-    if st.session_state.active_view == "Bulk Discrepancies":
-        grouped_df = analyze_bulk_locations_grouped(filtered_inventory_df)
-        for idx, row in grouped_df.iterrows():
-            location = row["LocationName"]
-            with st.expander(f"{location} - {row['Issue']}"):
-                details = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
-                for i, drow in details.iterrows():
-                    row_id = drow.get("LocationName", "") + str(drow.get("PalletId", ""))
-                    if row_id in st.session_state.resolved_items:
-                        continue
-                    st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty", "PalletCount"]])
-                    st.markdown(f"<span style='color:red; font-weight:bold;'>⚠️ {row['Issue']}</span>", unsafe_allow_html=True)
-                    st.markdown(f"<span style='font-weight:bold;'>Qty:</span> {drow.get('Qty', 'N/A')} | "
-                                f"<span style='font-weight:bold;'>PalletCount:</span> {drow.get('PalletCount', 'N/A')}",
-                                unsafe_allow_html=True)
-                    note_key = f"note_bulk_{idx}_{i}"
-                    note = st.text_input(f"Note for Pallet {drow['PalletId']}", key=note_key)
-                    if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{idx}_{i}"):
-                        log_resolved_discrepancy_with_note(drow.to_dict(), note)
-                        st.success(f"Pallet {drow['PalletId']} logged as fixed!")
-                        st.experimental_rerun()
-
-    elif st.session_state.active_view == "Rack Discrepancies":
-        grouped_locations = active_df.groupby("LocationName")
-        for location, group in grouped_locations:
-            with st.expander(f"{location} - {len(group)} discrepancies"):
-                for idx, row in group.iterrows():
-                    row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
-                    if row_id in st.session_state.resolved_items:
-                        continue
-                    st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty", "PalletCount"]])
-                    if "Issue" in row:
-                        st.markdown(f"<span style='color:red; font-weight:bold;'>⚠️ {row['Issue']}</span>", unsafe_allow_html=True)
-                    st.markdown(f"<span style='font-weight:bold;'>Qty:</span> {row.get('Qty', 'N/A')} | "
-                                f"<span style='font-weight:bold;'>PalletCount:</span> {row.get('PalletCount', 'N/A')}",
-                                unsafe_allow_html=True)
-                    note_key = f"note_rack_{idx}"
-                    note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
-                    if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{idx}"):
-                        log_resolved_discrepancy_with_note(row.to_dict(), note)
-                        st.success(f"Pallet {row['PalletId']} logged as fixed!")
-                        st.experimental_rerun()
-    else:
-        required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
-        available_cols = [col for col in required_cols if col in active_df.columns]
-        st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
