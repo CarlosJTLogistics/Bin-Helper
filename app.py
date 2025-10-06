@@ -246,3 +246,4 @@ if st.session_state.active_view:
         available_cols = [col for col in required_cols if col in active_df.columns]
         st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
 else:
+    st.info("👆 Select a KPI card above to view details.")
