@@ -103,7 +103,7 @@ def analyze_bulk_locations_grouped(df):
                     "LocationName": slot,
                     "TotalPallets": count,
                     "MaxAllowed": max_pallets,
-                    "Issue": "Too many Pallets in Location"
+                    "Issue": f"Too many pallets in location (Max: {max_pallets})"
                 })
     return pd.DataFrame(results)
 
@@ -117,7 +117,7 @@ def analyze_discrepancies(df):
     partial_df = get_partial_bins(df)
     partial_errors = partial_df[(partial_df["Qty"] > 5) | (partial_df["PalletCount"] > 1)]
     for _, row in partial_errors.iterrows():
-        issue = "Partial needs to be moved to Partial Bin."
+        issue = "Qty over Max of 5" if row["Qty"] > 5 else "Partial needs to be moved to Partial Bin."
         results.append(row.to_dict() | {"Issue": issue})
 
     full_df = df[
@@ -126,7 +126,7 @@ def analyze_discrepancies(df):
     ]
     full_errors = full_df[~full_df["Qty"].between(6, 15)]
     for _, row in full_errors.iterrows():
-        issue = "Too many Pallets in Location"
+        issue = "Too many pallets in location" if row["Qty"] > 15 else "Move to Partial Bin" if row["Qty"] <= 5 else "Qty out of range for full pallet bin"
         results.append(row.to_dict() | {"Issue": issue})
 
     return pd.DataFrame(results)
@@ -246,4 +246,3 @@ if st.session_state.active_view:
         available_cols = [col for col in required_cols if col in active_df.columns]
         st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
 else:
-    st.info("👆 Select a KPI card above to view details.")
