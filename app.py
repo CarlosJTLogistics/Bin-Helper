@@ -128,7 +128,11 @@ def analyze_discrepancies(df):
     ]
     full_errors = full_df[~full_df["Qty"].between(6, 15)]
     for _, row in full_errors.iterrows():
-        results.append({**row.to_dict(), "Issue": "Qty out of range for full pallet bin"})
+        if row["Qty"] <= 5:
+            issue = "Partial pallet needs to be moved to Partial Loc."
+        else:
+            issue = "Qty out of range for full pallet bin"
+        results.append({**row.to_dict(), "Issue": issue})
 
     return pd.DataFrame(results)
 
