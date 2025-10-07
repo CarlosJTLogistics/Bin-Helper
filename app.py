@@ -4,7 +4,7 @@ import requests
 from streamlit_lottie import st_lottie
 from datetime import datetime
 
-# --- Welcome Animation using streamlit-lottie ---
+# --- Welcome Animation ---
 def load_lottie_url(url: str):
     r = requests.get(url)
     if r.status_code != 200:
@@ -64,22 +64,41 @@ damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().i
 missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
 # --- Discrepancy Logic ---
-partial_discrepancies = partial_bins_df[(partial_bins_df["Qty"] > 5) | (partial_bins_df["PalletCount"] > 1)]
-full_discrepancies = filtered_inventory_df[
+partial_discrepancies_df = partial_bins_df[
+    (partial_bins_df["Qty"] > 5) | (partial_bins_df["PalletCount"] > 1)
+].copy()
+partial_discrepancies_df["Issue"] = partial_discrepancies_df.apply(
+    lambda row: "Qty > 5" if row["Qty"] > 5 else "Multiple pallets" if row["PalletCount"] > 1 else "", axis=1)
+
+full_discrepancies_df = filtered_inventory_df[
     filtered_inventory_df["LocationName"].astype(str).str.startswith("111") &
     ~filtered_inventory_df["Qty"].between(6, 15)
-]
-rack_discrepancies = filtered_inventory_df[
+].copy()
+full_discrepancies_df["Issue"] = full_discrepancies_df.apply(
+    lambda row: f"Qty out of range ({row['Qty']})", axis=1)
+
+rack_discrepancies_df = filtered_inventory_df[
     filtered_inventory_df["LocationName"].astype(str).str.startswith("111") &
     (filtered_inventory_df["PalletCount"] > 1)
-]
+].copy()
+rack_discrepancies_df["Issue"] = rack_discrepancies_df.apply(
+    lambda row: f"Multiple pallets ({row['PalletCount']})", axis=1)
 
 bulk_zone_limits = {"A": 5, "B": 4, "C": 4, "D": 4, "E": 4, "F": 4, "G": 4, "H": 4, "I": 4}
-bulk_discrepancies = []
-for zone, limit in bulk_zone_limits.items():
+bulk_results = []
+for zone, max_allowed in bulk_zone_limits.items():
     zone_df = filtered_inventory_df[filtered_inventory_df["LocationName"].astype(str).str.startswith(zone)]
-    zone_pallets = zone_df.groupby("LocationName")["PalletCount"].sum()
-    bulk_discrepancies.extend(zone_pallets[zone_pallets > limit].index.tolist())
+    grouped = zone_df.groupby("LocationName").agg({"PalletCount": "sum", "Qty": "sum"}).reset_index()
+    for _, row in grouped.iterrows():
+        if row["PalletCount"] > max_allowed:
+            bulk_results.append({
+                "LocationName": row["LocationName"],
+                "Qty": int(row["Qty"]),
+                "PalletCount": int(row["PalletCount"]),
+                "MaxAllowed": max_allowed,
+                "Issue": f"Exceeds max allowed pallets ({row['PalletCount']} > {max_allowed})"
+            })
+bulk_discrepancies_df = pd.DataFrame(bulk_results)
 
 # --- Tabs ---
 tab1, tab2 = st.tabs(["Dashboard Home", "Zone Summary"])
@@ -95,8 +114,10 @@ with tab1:
         "Partial Bins": {"count": len(partial_bins_df), "icon": "🟥", "df": partial_bins_df},
         "Damages": {"count": len(damages_df), "icon": "🛠️", "df": damages_df},
         "Missing": {"count": len(missing_df), "icon": "❌", "df": missing_df},
-        "Rack Discrepancies": {"count": len(rack_discrepancies), "icon": "⚠️", "df": rack_discrepancies},
-        "Bulk Discrepancies": {"count": len(bulk_discrepancies), "icon": "📚", "df": pd.DataFrame({"LocationName": bulk_discrepancies})}
+        "Rack Discrepancies": {"count": len(rack_discrepancies_df), "icon": "⚠️", "df": rack_discrepancies_df},
+        "Bulk Discrepancies": {"count": len(bulk_discrepancies_df), "icon": "📚", "df": bulk_discrepancies_df},
+        "Partial Discrepancies": {"count": len(partial_discrepancies_df), "icon": "🔍", "df": partial_discrepancies_df},
+        "Full Discrepancies": {"count": len(full_discrepancies_df), "icon": "🔎", "df": full_discrepancies_df}
     }
 
     selected_kpi = st.selectbox("🔍 Click a KPI to view details", list(kpi_data.keys()))
@@ -104,7 +125,7 @@ with tab1:
     st.dataframe(kpi_data[selected_kpi]["df"])
 
     # --- Fix Button and Logging ---
-    if selected_kpi in ["Rack Discrepancies", "Bulk Discrepancies", "Partial Bins", "Full Pallet Bins"]:
+    if selected_kpi in ["Rack Discrepancies", "Bulk Discrepancies", "Partial Discrepancies", "Full Discrepancies"]:
         st.markdown("#### 🛠 Resolve Discrepancy")
         selected_rows = st.multiselect("Select locations to resolve", kpi_data[selected_kpi]["df"]["LocationName"].astype(str).tolist())
         note = st.text_input("Add resolution note")
@@ -136,9 +157,9 @@ with tab1:
     st.write(f"**Empty Bins:** {empty_bins_count}")
 
     discrepancy_counts = {
-        "Partial Bin Discrepancies": len(partial_discrepancies),
-        "Full Bin Discrepancies": len(full_discrepancies),
-        "Rack Discrepancies": len(rack_discrepancies)
+        "Partial Bin Discrepancies": len(partial_discrepancies_df),
+        "Full Bin Discrepancies": len(full_discrepancies_df),
+        "Rack Discrepancies": len(rack_discrepancies_df)
     }
     st.write("**Top 3 Discrepancy Types:**")
     for issue, count in sorted(discrepancy_counts.items(), key=lambda x: x[1], reverse=True)[:3]:
