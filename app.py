@@ -1,16 +1,21 @@
 import streamlit as st
 import pandas as pd
-import streamlit.components.v1 as components
+import requests
+from streamlit_lottie import st_lottie
 
-# --- Welcome Animation ---
+# --- Welcome Animation using streamlit-lottie ---
+def load_lottie_url(url: str):
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    return r.json()
+
 if "welcome_shown" not in st.session_state:
     st.session_state.welcome_shown = True
     st.markdown("<h1 style='text-align:center;'>👋 Welcome to Bin Helper</h1>", unsafe_allow_html=True)
-    components.html("""
-    https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js</script>
-    https://assets10.lottiefiles.com/packages/lf20_qp1q7mct.json
-    </lottie-player>
-    """, height=300)
+    lottie_json = load_lottie_url("https://assets10.lottiefiles.com/packages/lf20_qp1q7mct.json")
+    if lottie_json:
+        st_lottie(lottie_json, height=300)
     st.stop()
 
 # --- Page Config ---
