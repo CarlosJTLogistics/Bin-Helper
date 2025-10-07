@@ -209,8 +209,8 @@ for zone in bulk_rules.keys():
 
 heatmap_df = pd.DataFrame(list(zone_counts.items()), columns=["Zone", "Pallets"])
 fig = px.imshow([heatmap_df["Pallets"].tolist()],
-                labels=dict(x=heatmap_df["Zone"].tolist(), y=["Zone"]),
-                x=heatmap_df["Zone"].tolist(), y=["Zone"],
-                color_continuous_scale="Blues")
+                x=heatmap_df["Zone"].tolist(),
+                color_continuous_scale="Blues",
+                labels={"x": "Zone", "color": "Pallets"})
 fig.update_layout(title="Pallet Distribution by Zone", height=300)
 st.plotly_chart(fig, use_container_width=True)
