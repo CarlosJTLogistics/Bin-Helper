@@ -5,6 +5,9 @@ from streamlit_lottie import st_lottie
 from datetime import datetime
 
 # --- Welcome Animation ---
+
+# --- Page Config ---
+st.set_page_config(page_title="Bin Helper", layout="wide")
 def load_lottie_url(url: str):
     r = requests.get(url)
     if r.status_code != 200:
@@ -18,9 +21,6 @@ if "welcome_shown" not in st.session_state:
     if lottie_json:
         st_lottie(lottie_json, height=300)
     st.markdown("---")
-
-# --- Page Config ---
-st.set_page_config(page_title="Bin Helper", layout="wide")
 
 # --- Load Data ---
 inventory_url = "https://raw.githubusercontent.com/CarlosJTLogistics/Bin-Helper/main/ON_HAND_INVENTORY.xlsx"
