@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 from streamlit_lottie import st_lottie
+from datetime import datetime
 
 # --- Welcome Animation using streamlit-lottie ---
 def load_lottie_url(url: str):
@@ -16,7 +17,7 @@ if "welcome_shown" not in st.session_state:
     lottie_json = load_lottie_url("https://assets10.lottiefiles.com/packages/lf20_qp1q7mct.json")
     if lottie_json:
         st_lottie(lottie_json, height=300)
-    st.markdown("---")  # Divider after welcome
+    st.markdown("---")
 
 # --- Page Config ---
 st.set_page_config(page_title="Bin Helper", layout="wide")
@@ -86,20 +87,46 @@ tab1, tab2 = st.tabs(["Dashboard Home", "Zone Summary"])
 with tab1:
     st.markdown("<h2 style='text-align:center;'>📊 Bin-Helper Dashboard</h2>", unsafe_allow_html=True)
 
-    # KPI Cards
-    kpi_cols = st.columns(4)
-    kpi_cols[0].metric("Empty Bins", len(empty_bins_df))
-    kpi_cols[1].metric("Full Pallet Bins", len(full_pallet_bins_df))
-    kpi_cols[2].metric("Empty Partial Bins", len(empty_partial_bins_df))
-    kpi_cols[3].metric("Partial Bins", len(partial_bins_df))
+    # --- Interactive KPI Cards ---
+    kpi_data = {
+        "Empty Bins": {"count": len(empty_bins_df), "icon": "📦", "df": empty_bins_df},
+        "Full Pallet Bins": {"count": len(full_pallet_bins_df), "icon": "🟩", "df": full_pallet_bins_df},
+        "Empty Partial Bins": {"count": len(empty_partial_bins_df), "icon": "🟨", "df": empty_partial_bins_df},
+        "Partial Bins": {"count": len(partial_bins_df), "icon": "🟥", "df": partial_bins_df},
+        "Damages": {"count": len(damages_df), "icon": "🛠️", "df": damages_df},
+        "Missing": {"count": len(missing_df), "icon": "❌", "df": missing_df},
+        "Rack Discrepancies": {"count": len(rack_discrepancies), "icon": "⚠️", "df": rack_discrepancies},
+        "Bulk Discrepancies": {"count": len(bulk_discrepancies), "icon": "📚", "df": pd.DataFrame({"LocationName": bulk_discrepancies})}
+    }
 
-    kpi_cols2 = st.columns(4)
-    kpi_cols2[0].metric("Damages", len(damages_df))
-    kpi_cols2[1].metric("Missing", len(missing_df))
-    kpi_cols2[2].metric("Rack Discrepancies", len(rack_discrepancies))
-    kpi_cols2[3].metric("Bulk Discrepancies", len(bulk_discrepancies))
+    selected_kpi = st.selectbox("🔍 Click a KPI to view details", list(kpi_data.keys()))
+    st.markdown(f"### {kpi_data[selected_kpi]['icon']} {selected_kpi}: {kpi_data[selected_kpi]['count']}")
+    st.dataframe(kpi_data[selected_kpi]["df"])
 
-    # Summary Insights
+    # --- Fix Button and Logging ---
+    if selected_kpi in ["Rack Discrepancies", "Bulk Discrepancies", "Partial Bins", "Full Pallet Bins"]:
+        st.markdown("#### 🛠 Resolve Discrepancy")
+        selected_rows = st.multiselect("Select locations to resolve", kpi_data[selected_kpi]["df"]["LocationName"].astype(str).tolist())
+        note = st.text_input("Add resolution note")
+        if st.button("Fix Selected"):
+            if selected_rows and note:
+                log_df = pd.DataFrame({
+                    "Timestamp": [datetime.now().strftime("%Y-%m-%d %H:%M:%S")] * len(selected_rows),
+                    "LocationName": selected_rows,
+                    "Note": [note] * len(selected_rows),
+                    "Type": [selected_kpi] * len(selected_rows)
+                })
+                try:
+                    existing_log = pd.read_csv("resolved_discrepancies.csv")
+                    log_df = pd.concat([existing_log, log_df], ignore_index=True)
+                except FileNotFoundError:
+                    pass
+                log_df.to_csv("resolved_discrepancies.csv", index=False)
+                st.success("Discrepancy resolved and logged.")
+            else:
+                st.warning("Please select locations and enter a note.")
+
+    # --- Summary Insights ---
     st.markdown("### 📋 Summary Insights")
     total_bins = len(master_locations)
     occupied_bins_count = len(occupied_bins)
