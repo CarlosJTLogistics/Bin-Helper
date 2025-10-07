@@ -44,7 +44,19 @@ occupied_bins = set(filtered_inventory_df["LocationName"].dropna().astype(str).u
 master_locations = set(master_df.iloc[1:, 0].dropna().astype(str).unique())
 
 # --- Bin Logic ---
-empty_bins_df = pd.DataFrame({"LocationName": [loc for loc in master_locations if loc not in occupied_bins]})
+# --- Corrected Empty Bin Logic using VLOOKUP-style (#N/A) ---
+valid_master_locations = master_df.iloc[1:, 0].dropna().astype(str).unique()
+
+# Merge master with inventory to simulate VLOOKUP
+merged_df = pd.DataFrame({"LocationName": valid_master_locations}).merge(
+    inventory_df[["LocationName"]],
+    on="LocationName",
+    how="left",
+    indicator=True
+)
+
+# Empty if merge indicator shows 'left_only' (not found in inventory)
+empty_bins_df = merged_df[merged_df["_merge"] == "left_only"][["LocationName"]]
 empty_partial_bins_df = pd.DataFrame({
     "LocationName": [loc for loc in master_locations
                      if loc.endswith("01") and not loc.startswith("111") and not str(loc).upper().startswith("TUN")
