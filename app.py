@@ -42,10 +42,12 @@ except Exception as e:
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
 bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
+
 filtered_inventory_df = inventory_df[
     ~inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE", "MISSING"]) &
     ~inventory_df["LocationName"].astype(str).str.upper().str.startswith("IB")
 ]
+
 occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
 master_locations = set(master_df.iloc[1:, 0].dropna().astype(str).unique())
 
@@ -131,11 +133,13 @@ def analyze_discrepancies(df):
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
 # --- LOGGING FUNCTION ---
+log_file = r"C:\Users\carlos.pacheco.MYA-LOGISTICS\OneDrive - JT Logistics\bin-helper\resolved_discrepancies.csv"
+
 def log_resolved_discrepancy_with_note(row, note):
-    log_file = "resolved_discrepancies.csv"
     row_with_note = row.copy()
     row_with_note["Note"] = note
     file_exists = os.path.isfile(log_file)
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
     with open(log_file, mode='a', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=row_with_note.keys())
         if not file_exists:
@@ -177,7 +181,6 @@ st.session_state.filters["CustomerLotReference"] = st.sidebar.text_input("LOT", 
 
 # --- HISTORY LOG ---
 st.sidebar.markdown("### ✅ History Log")
-log_file = "resolved_discrepancies.csv"
 if os.path.exists(log_file):
     history_df = pd.read_csv(log_file)
     st.sidebar.dataframe(history_df.reset_index(drop=True), use_container_width=True, hide_index=True)
