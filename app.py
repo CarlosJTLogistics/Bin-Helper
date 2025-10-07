@@ -16,7 +16,7 @@ if "welcome_shown" not in st.session_state:
     lottie_json = load_lottie_url("https://assets10.lottiefiles.com/packages/lf20_qp1q7mct.json")
     if lottie_json:
         st_lottie(lottie_json, height=300)
-    st.stop()
+    st.markdown("---")  # Divider after welcome
 
 # --- Page Config ---
 st.set_page_config(page_title="Bin Helper", layout="wide")
