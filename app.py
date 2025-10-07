@@ -114,11 +114,13 @@ bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
 def analyze_discrepancies(df):
     df = exclude_damage_missing(df)
     results = []
+    # Partial bin errors
     partial_df = get_partial_bins(df)
     partial_errors = partial_df[(partial_df["Qty"] > 5) | (partial_df["PalletCount"] > 1)]
     for _, row in partial_errors.iterrows():
         issue = "Qty too high for partial bin" if row["Qty"] > 5 else "Multiple pallets in partial bin"
         results.append({**row.to_dict(), "Issue": issue})
+    # Full bin errors
     full_df = df[
         (~df["LocationName"].astype(str).str.endswith("01") |
          df["LocationName"].astype(str).str.startswith("111")) &
@@ -128,6 +130,14 @@ def analyze_discrepancies(df):
     for _, row in full_errors.iterrows():
         issue = "Partial pallet needs to be moved to Partial Loc." if row["Qty"] <= 5 else "Qty out of range for full pallet bin"
         results.append({**row.to_dict(), "Issue": issue})
+    # New rule: multiple pallets in rack location
+    rack_df = df[
+        df["LocationName"].astype(str).str.isnumeric() |
+        df["LocationName"].astype(str).str.startswith("111")
+    ]
+    rack_errors = rack_df[rack_df["PalletCount"] >= 2]
+    for _, row in rack_errors.iterrows():
+        results.append({**row.to_dict(), "Issue": "Multiple pallets in rack location"})
     return pd.DataFrame(results)
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
