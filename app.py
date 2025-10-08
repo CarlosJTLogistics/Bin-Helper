@@ -2,8 +2,6 @@ import pandas as pd
 import streamlit as st
 import os
 import csv
-import requests
-from streamlit_lottie import st_lottie
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
@@ -142,53 +140,55 @@ def apply_filters(df):
             df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
 
-# ---------------- LOAD HEADER ANIMATION ----------------
-def load_lottieurl(url):
-    try:
-        r = requests.get(url)
-        if r.status_code != 200:
-            return None
-        return r.json()
-    except:
-        return None
-
-header_animation = load_lottieurl("https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json")
-
 # ---------------- CUSTOM STYLES ----------------
 st.markdown("""
     <style>
-    .gradient-header {
-        background: linear-gradient(to right, #1e3c72, #2a5298);
-        padding: 1rem;
-        border-radius: 10px;
+    .hero {
+        background: linear-gradient(to right, #0f2027, #203a43, #2c5364);
+        padding: 3rem;
+        border-radius: 15px;
         text-align: center;
         color: white;
-        font-size: 2rem;
-        font-weight: bold;
         margin-bottom: 2rem;
+        animation: fadeIn 2s ease-in-out;
+    }
+    .hero h1 {
+        font-size: 3rem;
+        margin-bottom: 0.5rem;
+    }
+    .hero p {
+        font-size: 1.2rem;
+        color: #ddd;
     }
     .kpi-card {
-        background-color: #1f1f1f;
-        border-radius: 10px;
+        background: linear-gradient(135deg, #1e3c72, #2a5298);
+        border-radius: 15px;
         padding: 1rem;
         text-align: center;
-        transition: transform 0.3s ease, background-color 0.3s ease;
         color: white;
         font-size: 1rem;
-        font-weight: 600;
+        font-weight: bold;
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        box-shadow: 0 0 10px rgba(0,0,0,0.3);
     }
     .kpi-card:hover {
-        transform: scale(1.08);
-        background-color: #333333;
-        box-shadow: 0 0 15px #FFD700;
+        transform: scale(1.05);
+        box-shadow: 0 0 20px #FFD700;
+    }
+    @keyframes fadeIn {
+        from {opacity: 0;}
+        to {opacity: 1;}
     }
     </style>
 """, unsafe_allow_html=True)
 
-# ---------------- DASHBOARD HEADER ----------------
-st.markdown("<div class='gradient-header'>📦 Bin Helper Dashboard</div>", unsafe_allow_html=True)
-if header_animation:
-    st_lottie(header_animation, height=120, key="header_anim")
+# ---------------- HERO SECTION ----------------
+st.markdown("""
+    <div class='hero'>
+        <h1>🚀 Bin Helper</h1>
+        <p>Your smart dashboard for managing warehouse bins and discrepancies</p>
+    </div>
+""", unsafe_allow_html=True)
 
 # ---------------- KPI CARDS ----------------
 kpi_data = [
@@ -205,10 +205,9 @@ kpi_data = [
 cols = st.columns(len(kpi_data))
 for i, item in enumerate(kpi_data):
     with cols[i]:
-        st.markdown(f"<div class='kpi-card'>", unsafe_allow_html=True)
-        if st.button(f"{item['title']} | {item['value']}", key=f"btn_{item['title']}"):
+        st.markdown(f"<div class='kpi-card'>{item['title']}<br><span style='font-size:1.5rem;'>{item['value']}</span></div>", unsafe_allow_html=True)
+        if st.button(f"View {item['title']}", key=f"btn_{item['title']}"):
             st.session_state.active_view = item['title']
-        st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------- FILTERS ----------------
 st.sidebar.markdown("### 🔍 Filter Options")
@@ -243,39 +242,6 @@ if st.session_state.active_view:
     active_df = apply_filters(raw_df)
 
     st.subheader(f"{st.session_state.active_view}")
-
-    if st.session_state.active_view == "Bulk Discrepancies":
-        grouped_df = analyze_bulk_locations_grouped(filtered_inventory_df)
-        for idx, row in grouped_df.iterrows():
-            location = row["LocationName"]
-            with st.expander(f"{location} | {row['Issue']}"):
-                details = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
-                for i, drow in details.iterrows():
-                    row_id = drow.get("LocationName", "") + str(drow.get("PalletId", ""))
-                    if row_id in st.session_state.resolved_items:
-                        continue
-                    st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
-                    note_key = f"note_bulk_{idx}_{i}"
-                    note = st.text_input(f"Note for Pallet {drow['PalletId']}", key=note_key)
-                    if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{idx}_{i}"):
-                        log_resolved_discrepancy_with_note(drow.to_dict(), note)
-                        st.success(f"Pallet {drow['PalletId']} logged as fixed!")
-                        st.experimental_rerun()
-    elif st.session_state.active_view == "Rack Discrepancies":
-        for idx, row in active_df.iterrows():
-            row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
-            if row_id in st.session_state.resolved_items:
-                continue
-            st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
-            note_key = f"note_rack_{idx}"
-            note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
-            if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{idx}"):
-                log_resolved_discrepancy_with_note(row.to_dict(), note)
-                st.success(f"Pallet {row['PalletId']} logged as fixed!")
-                st.experimental_rerun()
-    else:
-        required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
-        available_cols = [col for col in required_cols if col in active_df.columns]
-        st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
+    st.dataframe(active_df.reset_index(drop=True), use_container_width=True, hide_index=True)
 else:
     st.info("👆 Select a KPI card above to view details.")
