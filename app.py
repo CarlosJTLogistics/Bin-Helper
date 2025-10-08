@@ -8,6 +8,62 @@ import plotly.express as px
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
+# ---------------- CUSTOM CSS ----------------
+st.markdown("""
+    <style>
+    body {
+        background-color: #0f1117;
+        color: #e0e0e0;
+        font-family: 'Segoe UI', sans-serif;
+    }
+    .kpi-card {
+        background-color: #1f2633;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 0 10px #00f2ff;
+        transition: transform 0.2s ease-in-out;
+        text-align: center;
+    }
+    .kpi-card:hover {
+        transform: scale(1.05);
+        box-shadow: 0 0 15px #00f2ff;
+    }
+    .kpi-title {
+        font-size: 18px;
+        color: #00f2ff;
+    }
+    .kpi-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #ffffff;
+    }
+    .nav-tabs {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+    }
+    .nav-tab {
+        background-color: #1f2633;
+        color: #00f2ff;
+        padding: 10px 20px;
+        margin: 5px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+    }
+    .nav-tab:hover {
+        background-color: #00f2ff;
+        color: #1f2633;
+    }
+    .nav-tab-active {
+        background-color: #00f2ff;
+        color: #1f2633;
+        font-weight: bold;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
     st.session_state.active_view = "Dashboard"
@@ -72,14 +128,12 @@ def get_empty_partial_bins(master_locs, occupied_locs):
     empty_partial = sorted(set(partial_candidates) - set(occupied_locs))
     return pd.DataFrame({"LocationName": empty_partial})
 
-# ✅ FIX: Exclude partial bins from Empty Bins
 empty_bins_view_df = pd.DataFrame({
     "LocationName": [
         loc for loc in master_locations
         if loc not in occupied_locations and not loc.endswith("01")
     ]
 })
-
 full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)
 partial_bins_df = get_partial_bins(filtered_inventory_df)
 empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locations)
@@ -175,52 +229,38 @@ def log_trend_data():
 
 log_trend_data()
 
+# ---------------- NAVIGATION ----------------
+nav_options = ["Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins", "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies"]
+selected_tab = st.selectbox("Select View", nav_options, index=nav_options.index(st.session_state.active_view))
+st.session_state.active_view = selected_tab
+
 # ---------------- DASHBOARD VIEW ----------------
 def show_dashboard():
-    st.markdown("## 📈 Trends Overview")
+    st.markdown("<h2 style='text-align:center;'>📊 Bin Helper Dashboard</h2>", unsafe_allow_html=True)
+
     if os.path.exists(trend_file):
         trend_df = pd.read_csv(trend_file)
         fig = px.line(trend_df, x="Date", y=["EmptyBins", "FullPalletBins", "PartialBins", "EmptyPartialBins", "RackDiscrepancies", "BulkDiscrepancies"],
-                      markers=True, title="Bin Trends Over Time")
+                      markers=True, title="Bin Trends Over Time", color_discrete_sequence=px.colors.qualitative.Bold)
+        fig.update_traces(mode="lines+markers", hovertemplate="%{y} on %{x}")
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("No trend data available yet.")
 
-# ---------------- KPI CARDS ----------------
-st.markdown("<h1 style='text-align: center; color: #2E86C1;'>📊 Bin-Helper Dashboard</h1>", unsafe_allow_html=True)
-
-kpi_data = [
-    {"title": "Dashboard", "value": "", "icon": "🏠"},
-    {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
-    {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
-    {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df), "icon": "🟨"},
-    {"title": "Partial Bins", "value": len(partial_bins_df), "icon": "🟥"},
-    {"title": "Damages", "value": len(damages_df), "icon": "🛠️"},
-    {"title": "Missing", "value": len(missing_df), "icon": "❓"},
-    {"title": "Rack Discrepancies", "value": len(discrepancy_df), "icon": "⚠️"},
-    {"title": "Bulk Discrepancies", "value": len(bulk_df), "icon": "📦"}
-]
-
-cols = st.columns(len(kpi_data))
-for i, item in enumerate(kpi_data):
-    with cols[i]:
-        if st.button(f"{item['icon']} {item['title']} {'| ' + str(item['value']) if item['value'] != '' else ''}", key=item['title']):
-            st.session_state.active_view = item['title']
-
-# ---------------- SIDEBAR ----------------
-with st.sidebar:
-    st.markdown("### 🔍 Filter Options")
-    st.session_state.filters["LocationName"] = st.text_input("Location", value=st.session_state.filters["LocationName"])
-    st.session_state.filters["PalletId"] = st.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
-    st.session_state.filters["WarehouseSku"] = st.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
-    st.session_state.filters["CustomerLotReference"] = st.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
-
-    st.markdown("### ✅ History Log")
-    if os.path.exists(resolved_file):
-        history_df = pd.read_csv(resolved_file)
-        st.dataframe(history_df.reset_index(drop=True), use_container_width=True, hide_index=True)
-    else:
-        st.info("No resolved discrepancies logged yet.")
+    kpi_data = [
+        {"title": "Empty Bins", "value": len(empty_bins_view_df)},
+        {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df)},
+        {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df)},
+        {"title": "Partial Bins", "value": len(partial_bins_df)},
+        {"title": "Damages", "value": len(damages_df)},
+        {"title": "Missing", "value": len(missing_df)},
+        {"title": "Rack Discrepancies", "value": len(discrepancy_df)},
+        {"title": "Bulk Discrepancies", "value": len(bulk_df)}
+    ]
+    cols = st.columns(len(kpi_data))
+    for i, item in enumerate(kpi_data):
+        with cols[i]:
+            st.markdown(f"<div class='kpi-card'><div class='kpi-title'>{item['title']}</div><div class='kpi-value'>{item['value']}</div></div>", unsafe_allow_html=True)
 
 # ---------------- DISPLAY VIEWS ----------------
 view_map = {
