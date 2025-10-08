@@ -10,16 +10,14 @@ import requests
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
-# --- SESSION STATE ---
-if "filters" not in st.session_state:
-    st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
-if "resolved_items" not in st.session_state:
-    st.session_state.resolved_items = set()
-
 # --- FILE PATHS ---
 inventory_file = "ON_HAND_INVENTORY.xlsx"
 master_file = "Empty Bin Formula.xlsx"
-resolved_file = "resolved_discrepancies.csv"
+
+# Create logs folder next to app.py
+logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(logs_dir, exist_ok=True)
+resolved_file = os.path.join(logs_dir, "resolved_discrepancies.csv")
 
 # --- LOAD DATA ---
 inventory_df = pd.read_excel(inventory_file, engine="openpyxl")
@@ -121,40 +119,20 @@ def analyze_discrepancies(df):
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
-# --- BULK LOCATIONS & EMPTY SLOTS ---
-bulk_locations = []
-empty_bulk_locations = []
-location_counts = filtered_inventory_df.groupby("LocationName").size().reset_index(name="PalletCount")
-for _, row in location_counts.iterrows():
-    location = row["LocationName"]
-    count = row["PalletCount"]
-    zone = str(location)[0].upper()
-    if zone in bulk_rules:
-        max_allowed = bulk_rules[zone]
-        empty_slots = max_allowed - count
-        bulk_locations.append({
-            "LocationName": location,
-            "Zone": zone,
-            "PalletCount": count,
-            "MaxAllowed": max_allowed,
-            "EmptySlots": max(0, empty_slots)
-        })
-        if empty_slots > 0:
-            empty_bulk_locations.append({
-                "LocationName": location,
-                "Zone": zone,
-                "EmptySlots": empty_slots
-            })
-bulk_locations_df = pd.DataFrame(bulk_locations)
-empty_bulk_locations_df = pd.DataFrame(empty_bulk_locations)
+# --- REMOVE RESOLVED LOTS ---
+if os.path.isfile(resolved_file):
+    resolved_df = pd.read_csv(resolved_file)
+    resolved_lots = resolved_df["SelectedLOT"].dropna().unique().tolist()
+    discrepancy_df = discrepancy_df[~discrepancy_df["CustomerLotReference"].isin(resolved_lots)]
+    bulk_df = bulk_df[~bulk_df["CustomerLotReference"].isin(resolved_lots)]
 
 # --- LOGGING ---
-def log_resolved_discrepancy_with_note(row, note, selected_lot, discrepancy_type):
+def log_resolved_discrepancy_with_note(row, note, selected_lot):
     file_exists = os.path.isfile(resolved_file)
     with open(resolved_file, mode="a", newline="") as file:
         writer = csv.writer(file)
         if not file_exists:
-            writer.writerow(["Timestamp", "LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty", "Note", "SelectedLOT", "DiscrepancyType"])
+            writer.writerow(["Timestamp", "LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty", "Note", "SelectedLOT"])
         writer.writerow([
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             row.get("LocationName", ""),
@@ -163,57 +141,101 @@ def log_resolved_discrepancy_with_note(row, note, selected_lot, discrepancy_type
             row.get("CustomerLotReference", ""),
             row.get("Qty", ""),
             note,
-            selected_lot,
-            discrepancy_type
+            selected_lot
         ])
 
+# --- LOTTIE ANIMATION ---
+def load_lottie_url(url):
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    return r.json()
+
+lottie_url = "https://assets2.lottiefiles.com/packages/lf20_4kx2q32n.json"
+lottie_json = load_lottie_url(lottie_url)
+
 # --- NAVIGATION ---
-nav_options = ["Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins",
-               "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies", "Bulk Locations", "Empty Bulk Locations"]
+nav_options = [
+    "Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins",
+    "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies",
+    "Bulk Locations", "Empty Bulk Locations", "Resolved Discrepancies"
+]
 selected_nav = st.radio("🔍 Navigate:", nav_options, horizontal=True)
 st.markdown("---")
 
-# --- MAIN VIEW ---
-if selected_nav == "Rack Discrepancies":
-    st.subheader("Rack Discrepancies")
-    display_cols = ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"]
-    available_cols = [col for col in display_cols if col in discrepancy_df.columns]
-    if not discrepancy_df.empty:
-        st.dataframe(discrepancy_df[available_cols].reset_index(drop=True), use_container_width=True)
-        csv_data = discrepancy_df[available_cols].to_csv(index=False).encode("utf-8")
-        st.download_button(label="Download Rack Discrepancies CSV", data=csv_data,
-                           file_name="rack_discrepancies.csv", mime="text/csv")
-    else:
-        st.info("No rack discrepancies found.")
+# --- Dashboard ---
+if selected_nav == "Dashboard":
+    st.markdown("<h2 style='text-align:center;'>📊 Bin Helper Dashboard</h2>", unsafe_allow_html=True)
+    st_lottie(lottie_json, height=150, key="warehouse_anim")
 
+    # KPI Cards
+    kpi_data = [
+        {"title": "Empty Bins", "value": len(empty_bins_view_df)},
+        {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df)},
+        {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df)},
+        {"title": "Partial Bins", "value": len(partial_bins_df)},
+        {"title": "Damages", "value": len(damages_df)},
+        {"title": "Missing", "value": len(missing_df)},
+        {"title": "Rack Discrepancies", "value": discrepancy_df["LocationName"].nunique()},
+        {"title": "Bulk Discrepancies", "value": bulk_df["LocationName"].nunique()},
+    ]
+    cols = st.columns(len(kpi_data))
+    for i, item in enumerate(kpi_data):
+        with cols[i]:
+            st.metric(label=item["title"], value=item["value"])
+
+# --- Resolved Discrepancies ---
+elif selected_nav == "Resolved Discrepancies":
+    st.subheader("✅ Resolved Discrepancies Log")
+    if os.path.isfile(resolved_file):
+        resolved_df = pd.read_csv(resolved_file)
+        st.dataframe(resolved_df, use_container_width=True)
+        csv_data = resolved_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="Download Resolved Discrepancies CSV",
+            data=csv_data,
+            file_name="resolved_discrepancies.csv",
+            mime="text/csv"
+        )
+        for lot in resolved_df["SelectedLOT"].dropna().unique():
+            if st.button(f"Undo {lot}"):
+                updated_df = resolved_df[resolved_df["SelectedLOT"] != lot]
+                updated_df.to_csv(resolved_file, index=False)
+                st.success(f"LOT {lot} has been restored to discrepancies.")
+                st.rerun()
+    else:
+        st.info("No resolved discrepancies have been logged yet.")
+
+# --- Rack Discrepancies ---
+elif selected_nav == "Rack Discrepancies":
+    st.subheader("Rack Discrepancies")
+    for location, group in discrepancy_df.groupby("LocationName"):
+        with st.expander(f"📍 {location}"):
+            st.dataframe(group)
+            lot_list = group["CustomerLotReference"].dropna().unique().tolist()
+            if lot_list:
+                selected_lot = st.selectbox("Select LOT to fix:", lot_list, key=f"rack_lot_{location}")
+                note = st.text_input("Add note:", key=f"rack_note_{location}")
+                if st.button("Mark LOT as Fixed", key=f"rack_fix_{location}"):
+                    rows_to_fix = group[group["CustomerLotReference"] == selected_lot]
+                    for _, row in rows_to_fix.iterrows():
+                        log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot)
+                    st.success(f"LOT {selected_lot} marked as fixed.")
+                    st.rerun()
+
+# --- Bulk Discrepancies ---
 elif selected_nav == "Bulk Discrepancies":
     st.subheader("Bulk Discrepancies")
-    display_cols = ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"]
-    if not bulk_df.empty:
-        for location, group in bulk_df.groupby("LocationName"):
-            with st.expander(f"📍 {location}"):
-                for _, row in group.iterrows():
-                    st.write(f"**Location:** {row.get('LocationName', 'N/A')}")
-                    st.write(f"**Pallet ID:** {row.get('PalletId', 'N/A')}")
-                    st.write(f"**WarehouseSku:** {row.get('WarehouseSku', 'N/A')}")
-                    st.write(f"**Customer LOT:** {row.get('CustomerLotReference', 'N/A')}")
-                    st.write(f"**Qty:** {row.get('Qty', 'N/A')}")
-                    st.markdown("---")
-        csv_data = bulk_df[display_cols].to_csv(index=False).encode("utf-8")
-        st.download_button(label="Download Bulk Discrepancies CSV", data=csv_data,
-                           file_name="bulk_discrepancies.csv", mime="text/csv")
-        # LOT Fix Section
-        st.subheader("✅ Fix Discrepancy by LOT")
-        lot_list = bulk_df["CustomerLotReference"].dropna().unique().tolist()
-        if lot_list:
-            selected_lot = st.selectbox("Select LOT to fix:", lot_list, key="bulk_global_lot_select")
-            note = st.text_input(f"Add note for LOT {selected_lot}:", key="bulk_global_note")
-            if st.button("Fix Selected LOT", key="bulk_global_fix"):
-                rows_to_fix = bulk_df[bulk_df["CustomerLotReference"] == selected_lot]
-                for _, row in rows_to_fix.iterrows():
-                    log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot, "Bulk")
-                st.success(f"All discrepancies for LOT {selected_lot} marked as fixed ({len(rows_to_fix)} pallets).")
-        else:
-            st.info("No LOT options available for bulk discrepancies.")
-    else:
-        st.info("No bulk discrepancies found.")
+    for location, group in bulk_df.groupby("LocationName"):
+        with st.expander(f"📍 {location}"):
+            st.dataframe(group)
+            lot_list = group["CustomerLotReference"].dropna().unique().tolist()
+            if lot_list:
+                selected_lot = st.selectbox("Select LOT to fix:", lot_list, key=f"bulk_lot_{location}")
+                note = st.text_input("Add note:", key=f"bulk_note_{location}")
+                if st.button("Mark LOT as Fixed", key=f"bulk_fix_{location}"):
+                    rows_to_fix = group[group["CustomerLotReference"] == selected_lot]
+                    for _, row in rows_to_fix.iterrows():
+                        log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot)
+                    st.success(f"LOT {selected_lot} marked as fixed.")
+                    st.rerun()
