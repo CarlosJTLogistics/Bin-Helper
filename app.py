@@ -145,12 +145,6 @@ def apply_filters(df):
 # ---------------- CUSTOM STYLES ----------------
 st.markdown("""
 <style>
-.kpi-container {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1rem;
-  margin-top: 0.5rem;
-}
 .kpi-card {
   background: rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(10px);
@@ -160,9 +154,9 @@ st.markdown("""
   color: white;
   font-size: 1rem;
   font-weight: bold;
+  margin-bottom: 1rem;
   transition: transform 0.3s ease, box-shadow 0.3s ease;
   box-shadow: 0 0 10px rgba(0,0,0,0.3);
-  cursor: pointer;
 }
 .kpi-card:hover {
   transform: scale(1.05);
@@ -177,37 +171,18 @@ st.markdown("""
   font-weight: bold;
   margin-bottom: 0.5rem;
 }
-.welcome-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  margin-top: 0.5rem;
-}
 .welcome-text {
   font-size: 2rem;
   font-weight: bold;
   color: #FFD700;
   text-align: center;
-  margin-top: 0.5rem;
+  margin: 1rem 0;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # ---------------- WELCOME SCREEN ----------------
-def load_lottieurl(url: str):
-    r = requests.get(url)
-    if r.status_code != 200:
-        return None
-    return r.json()
-
-lottie_url = "https://assets10.lottiefiles.com/packages/lf20_5ngs2ksb.json"
-lottie_json = load_lottieurl(lottie_url)
-
-st.markdown("<div class='welcome-container'>", unsafe_allow_html=True)
-st_lottie(lottie_json, height=150)  # Smaller animation
 st.markdown("<div class='welcome-text'>👋 Welcome to Bin Helper</div>", unsafe_allow_html=True)
-st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------- KPI CARDS ----------------
 kpi_data = [
@@ -221,7 +196,6 @@ kpi_data = [
     {"title": "Bulk Discrepancies", "value": len(bulk_df), "icon": "📦"}
 ]
 
-st.markdown("<div class='kpi-container'>", unsafe_allow_html=True)
 for item in kpi_data:
     st.markdown(f"<div class='kpi-card'>", unsafe_allow_html=True)
     st.markdown(f"<div class='kpi-icon'>{item['icon']}</div>", unsafe_allow_html=True)
@@ -234,4 +208,3 @@ for item in kpi_data:
     if st.button(f"View {item['title']}", key=f"btn_{item['title']}"):
         st.session_state.active_view = item['title']
     st.markdown("</div>", unsafe_allow_html=True)
-st.markdown("</div>", unsafe_allow_html=True)
