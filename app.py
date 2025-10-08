@@ -141,6 +141,7 @@ if selected_nav == "Dashboard":
     st.title("📊 Bin Helper Dashboard")
     st_lottie(lottie_json, height=150, key="warehouse_anim")
 
+    # KPI Cards
     kpi_data = [
         {"title": "Rack Discrepancies", "value": discrepancy_df["LocationName"].nunique()},
         {"title": "Bulk Discrepancies", "value": bulk_df["LocationName"].nunique()},
@@ -149,6 +150,29 @@ if selected_nav == "Dashboard":
     for i, item in enumerate(kpi_data):
         with cols[i]:
             st.metric(label=item["title"], value=item["value"])
+
+    # Charts
+    chart_df = filtered_inventory_df.copy()
+    location_usage = chart_df["LocationName"].value_counts().nlargest(10).reset_index()
+    location_usage.columns = ["LocationName", "Count"]
+    fig1 = px.pie(location_usage, names="LocationName", values="Count", title="Top 10 Location Usage")
+    st.plotly_chart(fig1, use_container_width=True)
+
+    inventory_movement = chart_df.groupby("WarehouseSku")["Qty"].sum().nlargest(10).reset_index()
+    fig2 = px.bar(inventory_movement, x="WarehouseSku", y="Qty", title="Top 10 Inventory Movement", color="WarehouseSku")
+    fig2.update_xaxes(type="category")
+    st.plotly_chart(fig2, use_container_width=True)
+
+    zone_summary = bulk_df.copy()
+    if not zone_summary.empty:
+        zone_summary["Zone"] = zone_summary["LocationName"].astype(str).str[0].str.upper()
+        zone_summary = zone_summary.groupby("Zone").size().reset_index(name="PalletCount")
+        zone_summary["EmptySlots"] = zone_summary["Zone"].map(bulk_rules) - zone_summary["PalletCount"]
+        fig_bulk = px.bar(zone_summary, x="Zone", y=["PalletCount", "EmptySlots"], barmode="group",
+                          title="Bulk Zone Utilization (Pallets vs Empty Slots)",
+                          labels={"value": "Count", "variable": "Metric"})
+        fig_bulk.update_xaxes(type="category")
+        st.plotly_chart(fig_bulk, use_container_width=True)
 
 # --- Rack Discrepancies ---
 elif selected_nav == "Rack Discrepancies":
