@@ -211,7 +211,6 @@ def show_dashboard():
         with cols[i]:
             if st.button(f"{item['icon']} {item['title']} ({item['value']})", key=item['title']):
                 st.session_state.active_view = item['title']
-                st.experimental_rerun()
 
     st.markdown("---")
 
@@ -332,4 +331,3 @@ else:
     else:
         required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
         available_cols = [col for col in required_cols if col in active_df.columns]
-        st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
