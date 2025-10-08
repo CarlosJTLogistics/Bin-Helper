@@ -157,10 +157,13 @@ def apply_filters(df):
 
 # ---------------- LOAD LOTTIE ANIMATIONS ----------------
 def load_lottieurl(url):
-    r = requests.get(url)
-    if r.status_code != 200:
+    try:
+        r = requests.get(url)
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except:
         return None
-    return r.json()
 
 lottie_urls = {
     "Empty Bins": "https://assets10.lottiefiles.com/packages/lf20_4kx2q32n.json",
