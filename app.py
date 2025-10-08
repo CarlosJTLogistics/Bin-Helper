@@ -149,11 +149,11 @@ def apply_filters(df):
 def show_discrepancy_cards(df, discrepancy_type):
     grouped_df = df.groupby("LocationName")
     for location, group in grouped_df:
-        issue_summary = ", ".join(group["Issue"].unique()) if "Issue" in group.columns else group.iloc[0]["Issue"]
+        issue_summary = ", ".join(group["Issue"].unique()) if "Issue" in group.columns else ""
         pallet_count = len(group)
         status = "✅ Fixed" if all(
-            (location + str(row["PalletId"])) in st.session_state.resolved_items
-            for _, row in group.iterrows()
+            (location + str(row.get("PalletId", idx))) in st.session_state.resolved_items
+            for idx, row in group.iterrows()
         ) else "❌ Unresolved"
 
         st.markdown(f"""
@@ -166,15 +166,16 @@ def show_discrepancy_cards(df, discrepancy_type):
         """, unsafe_allow_html=True)
 
         for idx, row in group.iterrows():
-            row_id = location + str(row.get("PalletId", ""))
+            row_id = location + str(row.get("PalletId", idx))
             if row_id in st.session_state.resolved_items:
                 continue
-            st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
+            display_cols = [c for c in ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"] if c in row.index]
+            st.write(row[display_cols])
             note_key = f"note_{discrepancy_type}_{location}_{idx}"
-            note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
-            if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"{discrepancy_type}_fix_{location}_{idx}"):
+            note = st.text_input(f"Note for {row.get('PalletId', 'this item')}", key=note_key)
+            if st.button(f"✅ Mark {row.get('PalletId', 'Item')} Fixed", key=f"{discrepancy_type}_fix_{location}_{idx}"):
                 log_resolved_discrepancy_with_note(row.to_dict(), note)
-                st.success(f"Pallet {row['PalletId']} logged as fixed!")
+                st.success(f"{row.get('PalletId', 'Item')} logged as fixed!")
                 st.experimental_rerun()
 
 # ---------------- MAIN VIEW LOGIC ----------------
