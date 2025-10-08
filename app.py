@@ -2,9 +2,30 @@ import pandas as pd
 import streamlit as st
 import os
 import csv
+import requests
+from streamlit_lottie import st_lottie
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
+
+# ---------------- WELCOME ANIMATION ----------------
+def load_lottieurl(url):
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    return r.json()
+
+lottie_url = "https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json"
+lottie_json = load_lottieurl(lottie_url)
+
+st.markdown("""
+    <h1 style='text-align: center; color: #FFFFFF;'>
+    👋 Welcome to <span style='color:#FFD700;'>Bin Helper</span>
+    </h1>
+""", unsafe_allow_html=True)
+
+if lottie_json:
+    st_lottie(lottie_json, height=300, key="welcome")
 
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
@@ -90,7 +111,7 @@ empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locati
 damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
-# ---------------- BULK DISCREPANCY LOGIC (Grouped) ----------------
+# ---------------- BULK DISCREPANCY LOGIC ----------------
 def analyze_bulk_locations_grouped(df):
     df = exclude_damage_missing(df)
     results = []
