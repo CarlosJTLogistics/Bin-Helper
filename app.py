@@ -2,19 +2,24 @@ import pandas as pd
 import streamlit as st
 import os
 import csv
+import plotly.express as px
+from datetime import datetime
+import random
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
-    st.session_state.active_view = None
+    st.session_state.active_view = "Dashboard"
 if "filters" not in st.session_state:
     st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
 if "resolved_items" not in st.session_state:
     st.session_state.resolved_items = set()
 if "auto_refresh" not in st.session_state:
     st.session_state.auto_refresh = False
+if "theme" not in st.session_state:
+    st.session_state.theme = "light"
 
 # ---------------- AUTO REFRESH ----------------
 if st.session_state.auto_refresh:
@@ -140,19 +145,6 @@ def analyze_discrepancies(df):
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
-# ---------------- LOGGING FUNCTION ----------------
-def log_resolved_discrepancy_with_note(row, note):
-    log_file = "resolved_discrepancies.csv"
-    row_with_note = row.copy()
-    row_with_note["Note"] = note
-    file_exists = os.path.isfile(log_file)
-    with open(log_file, mode='a', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=row_with_note.keys())
-        if not file_exists:
-            writer.writeheader()
-        writer.writerow(row_with_note)
-    st.session_state.resolved_items.add(row.get("LocationName", "") + str(row.get("PalletId", "")))
-
 # ---------------- FILTER FUNCTION ----------------
 def apply_filters(df):
     for key, value in st.session_state.filters.items():
@@ -160,10 +152,39 @@ def apply_filters(df):
             df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
 
+# ---------------- DASHBOARD VIEW ----------------
+def show_dashboard():
+    st.markdown("## 📈 Trends Overview")
+
+    # Simulate historical data for demo purposes
+    dates = pd.date_range(end=datetime.today(), periods=10).to_pydatetime().tolist()
+    trend_data = pd.DataFrame({
+        "Date": [d.strftime("%Y-%m-%d") for d in dates],
+        "EmptyBins": [random.randint(100, 150) for _ in dates],
+        "FullPalletBins": [random.randint(80, 120) for _ in dates],
+        "PartialBins": [random.randint(30, 60) for _ in dates],
+        "Discrepancies": [random.randint(10, 25) for _ in dates]
+    })
+
+    fig = px.line(trend_data, x="Date", y=["EmptyBins", "FullPalletBins", "PartialBins", "Discrepancies"],
+                  markers=True, title="Bin Trends Over Time")
+    st.plotly_chart(fig, use_container_width=True)
+
 # ---------------- KPI CARDS ----------------
-st.markdown("<h1 style='text-align: center; color: #2E86C1;'>📊 Bin-Helper Dashboard</h1>", unsafe_allow_html=True)
+st.markdown("""
+    <style>
+    div[data-testid="column"] > div > button {
+        transition: transform 0.2s ease;
+    }
+    div[data-testid="column"] > div > button:hover {
+        transform: scale(1.05);
+        background-color: #e0f7fa !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 kpi_data = [
+    {"title": "Dashboard", "value": "", "icon": "🏠"},
     {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
     {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
     {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df), "icon": "🟨"},
@@ -177,24 +198,27 @@ kpi_data = [
 cols = st.columns(len(kpi_data))
 for i, item in enumerate(kpi_data):
     with cols[i]:
-        if st.button(f"{item['icon']} {item['title']} | {item['value']}", key=item['title']):
+        if st.button(f"{item['icon']} {item['title']} {'| ' + str(item['value']) if item['value'] != '' else ''}", key=item['title']):
             st.session_state.active_view = item['title']
 
-# ---------------- FILTERS ----------------
-st.sidebar.markdown("### 🔍 Filter Options")
-st.session_state.filters["LocationName"] = st.sidebar.text_input("Location", value=st.session_state.filters["LocationName"])
-st.session_state.filters["PalletId"] = st.sidebar.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
-st.session_state.filters["WarehouseSku"] = st.sidebar.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
-st.session_state.filters["CustomerLotReference"] = st.sidebar.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
+# ---------------- SIDEBAR ----------------
+with st.sidebar:
+    st.markdown("### 🎛️ Controls")
+    st.session_state.filters["LocationName"] = st.text_input("Location", value=st.session_state.filters["LocationName"])
+    st.session_state.filters["PalletId"] = st.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
+    st.session_state.filters["WarehouseSku"] = st.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
+    st.session_state.filters["CustomerLotReference"] = st.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
 
-# ---------------- HISTORY LOG ----------------
-st.sidebar.markdown("### ✅ History Log")
-log_file = "resolved_discrepancies.csv"
-if os.path.exists(log_file):
-    history_df = pd.read_csv(log_file)
-    st.sidebar.dataframe(history_df.reset_index(drop=True), use_container_width=True, hide_index=True)
-else:
-    st.sidebar.info("No resolved discrepancies logged yet.")
+    theme = st.radio("Theme", ["light", "dark"], index=0 if st.session_state.theme == "light" else 1)
+    st.session_state.theme = theme
+
+    st.markdown("### ✅ History Log")
+    log_file = "resolved_discrepancies.csv"
+    if os.path.exists(log_file):
+        history_df = pd.read_csv(log_file)
+        st.dataframe(history_df.reset_index(drop=True), use_container_width=True, hide_index=True)
+    else:
+        st.info("No resolved discrepancies logged yet.")
 
 # ---------------- DISPLAY VIEWS ----------------
 view_map = {
@@ -208,44 +232,13 @@ view_map = {
     "Missing": missing_df
 }
 
-if st.session_state.active_view:
+if st.session_state.active_view == "Dashboard":
+    show_dashboard()
+else:
     raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
     active_df = apply_filters(raw_df)
 
     st.subheader(f"{st.session_state.active_view}")
-
-    if st.session_state.active_view == "Bulk Discrepancies":
-        grouped_df = analyze_bulk_locations_grouped(filtered_inventory_df)
-        for idx, row in grouped_df.iterrows():
-            location = row["LocationName"]
-            with st.expander(f"{location} | {row['Issue']}"):
-                details = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
-                for i, drow in details.iterrows():
-                    row_id = drow.get("LocationName", "") + str(drow.get("PalletId", ""))
-                    if row_id in st.session_state.resolved_items:
-                        continue
-                    st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
-                    note_key = f"note_bulk_{idx}_{i}"
-                    note = st.text_input(f"Note for Pallet {drow['PalletId']}", key=note_key)
-                    if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{idx}_{i}"):
-                        log_resolved_discrepancy_with_note(drow.to_dict(), note)
-                        st.success(f"Pallet {drow['PalletId']} logged as fixed!")
-                        st.experimental_rerun()
-    elif st.session_state.active_view == "Rack Discrepancies":
-        for idx, row in active_df.iterrows():
-            row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
-            if row_id in st.session_state.resolved_items:
-                continue
-            st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
-            note_key = f"note_rack_{idx}"
-            note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
-            if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{idx}"):
-                log_resolved_discrepancy_with_note(row.to_dict(), note)
-                st.success(f"Pallet {row['PalletId']} logged as fixed!")
-                st.experimental_rerun()
-    else:
-        required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
-        available_cols = [col for col in required_cols if col in active_df.columns]
-        st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
-else:
-    st.info("👆 Select a KPI card above to view details.")
+    required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
+    available_cols = [col for col in required_cols if col in active_df.columns]
+    st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
