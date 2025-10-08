@@ -8,25 +8,6 @@ from streamlit_lottie import st_lottie
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
-# ---------------- WELCOME ANIMATION ----------------
-def load_lottieurl(url):
-    r = requests.get(url)
-    if r.status_code != 200:
-        return None
-    return r.json()
-
-lottie_url = "https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json"
-lottie_json = load_lottieurl(lottie_url)
-
-st.markdown("""
-    <h1 style='text-align: center; color: #FFFFFF;'>
-    👋 Welcome to <span style='color:#FFD700;'>Bin Helper</span>
-    </h1>
-""", unsafe_allow_html=True)
-
-if lottie_json:
-    st_lottie(lottie_json, height=300, key="welcome")
-
 # ---------------- SESSION STATE ----------------
 if "active_view" not in st.session_state:
     st.session_state.active_view = None
@@ -174,25 +155,60 @@ def apply_filters(df):
             df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
 
+# ---------------- LOAD LOTTIE ANIMATIONS ----------------
+def load_lottieurl(url):
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    return r.json()
+
+lottie_urls = {
+    "Empty Bins": "https://assets10.lottiefiles.com/packages/lf20_4kx2q32n.json",
+    "Full Pallet Bins": "https://assets10.lottiefiles.com/packages/lf20_2ksjmy.json",
+    "Empty Partial Bins": "https://assets10.lottiefiles.com/packages/lf20_4kx2q32n.json",
+    "Partial Bins": "https://assets10.lottiefiles.com/packages/lf20_4kx2q32n.json",
+    "Damages": "https://assets10.lottiefiles.com/packages/lf20_2ksjmy.json",
+    "Missing": "https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json",
+    "Rack Discrepancies": "https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json",
+    "Bulk Discrepancies": "https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json"
+}
+
+lottie_animations = {key: load_lottieurl(url) for key, url in lottie_urls.items()}
+
 # ---------------- KPI CARDS ----------------
-st.markdown("<h1 style='text-align: center; color: #2E86C1;'>📊 Bin-Helper Dashboard</h1>", unsafe_allow_html=True)
+st.markdown("""
+    <style>
+    .kpi-card:hover {
+        transform: scale(1.05);
+        transition: transform 0.3s ease;
+        background-color: #333333;
+        border-radius: 10px;
+        padding: 10px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown("<h1 style='text-align: center; color: #FFD700;'>📊 Bin-Helper Dashboard</h1>", unsafe_allow_html=True)
 
 kpi_data = [
-    {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
-    {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
-    {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df), "icon": "🟨"},
-    {"title": "Partial Bins", "value": len(partial_bins_df), "icon": "🟥"},
-    {"title": "Damages", "value": len(damages_df), "icon": "🛠️"},
-    {"title": "Missing", "value": len(missing_df), "icon": "❓"},
-    {"title": "Rack Discrepancies", "value": len(discrepancy_df), "icon": "⚠️"},
-    {"title": "Bulk Discrepancies", "value": len(bulk_df), "icon": "📦"}
+    {"title": "Empty Bins", "value": len(empty_bins_view_df)},
+    {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df)},
+    {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df)},
+    {"title": "Partial Bins", "value": len(partial_bins_df)},
+    {"title": "Damages", "value": len(damages_df)},
+    {"title": "Missing", "value": len(missing_df)},
+    {"title": "Rack Discrepancies", "value": len(discrepancy_df)},
+    {"title": "Bulk Discrepancies", "value": len(bulk_df)}
 ]
 
 cols = st.columns(len(kpi_data))
 for i, item in enumerate(kpi_data):
     with cols[i]:
-        if st.button(f"{item['icon']} {item['title']} | {item['value']}", key=item['title']):
+        st.markdown(f"<div class='kpi-card'>", unsafe_allow_html=True)
+        st_lottie(lottie_animations[item["title"]], height=60, width=60, key=item["title"])
+        if st.button(f"{item['title']} | {item['value']}", key=item['title']):
             st.session_state.active_view = item['title']
+        st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------- FILTERS ----------------
 st.sidebar.markdown("### 🔍 Filter Options")
