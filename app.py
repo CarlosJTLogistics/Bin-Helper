@@ -2,6 +2,8 @@ import pandas as pd
 import streamlit as st
 import os
 import time
+import requests
+from streamlit_lottie import st_lottie  # Install: pip install streamlit-lottie
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
@@ -199,11 +201,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- HOME SCREEN ----------------
+# ---------------- WELCOME SCREEN ----------------
+def load_lottieurl(url: str):
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    return r.json()
+
+lottie_url = "https://assets10.lottiefiles.com/packages/lf20_5ngs2ksb.json"
+lottie_json = load_lottieurl(lottie_url)
+
 if st.session_state.active_view is None:
     st.markdown("<div class='welcome-container'>", unsafe_allow_html=True)
+    st_lottie(lottie_json, height=300)
     st.markdown("<div class='welcome-text'>👋 Welcome to Bin Helper</div>", unsafe_allow_html=True)
-    st.image("image.png", use_column_width="auto")  # Replace with your uploaded image path
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------- KPI CARDS ----------------
