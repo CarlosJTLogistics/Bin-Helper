@@ -205,8 +205,8 @@ cols = st.columns(len(kpi_data))
 for i, item in enumerate(kpi_data):
     with cols[i]:
         st.markdown(f"<div class='kpi-card'>", unsafe_allow_html=True)
-        st_lottie(lottie_animations[item["title"]], height=60, width=60, key=item["title"])
-        if st.button(f"{item['title']} | {item['value']}", key=item['title']):
+        st_lottie(lottie_animations[item["title"]], height=60, width=60, key=f"lottie_{item['title']}")
+        if st.button(f"{item['title']} | {item['value']}", key=f"btn_{item['title']}"):
             st.session_state.active_view = item['title']
         st.markdown("</div>", unsafe_allow_html=True)
 
