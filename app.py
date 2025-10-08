@@ -35,19 +35,15 @@ inventory_df = inventory_df[
 ]
 
 bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
-
 filtered_inventory_df = inventory_df[
     ~inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE", "MISSING"])
 ]
-
 occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
 master_locations = set(master_df.iloc[1:, 0].dropna().astype(str).unique())
 
 # --- BUSINESS RULES ---
 def exclude_damage_missing(df):
-    return df[
-        ~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"])
-    ]
+    return df[~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"])]
 
 def get_partial_bins(df):
     df = exclude_damage_missing(df)
@@ -98,9 +94,7 @@ def analyze_bulk_locations_grouped(df):
             if count > max_pallets:
                 slot_df = letter_df[letter_df["LocationName"] == slot]
                 for _, row in slot_df.iterrows():
-                    results.append(row.to_dict() | {
-                        "Issue": f"Exceeds max allowed: {count} > {max_pallets}"
-                    })
+                    results.append(row.to_dict() | {"Issue": f"Exceeds max allowed: {count} > {max_pallets}"})
     return pd.DataFrame(results)
 
 bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
@@ -130,9 +124,7 @@ discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 # --- BULK LOCATIONS & EMPTY SLOTS ---
 bulk_locations = []
 empty_bulk_locations = []
-
 location_counts = filtered_inventory_df.groupby("LocationName").size().reset_index(name="PalletCount")
-
 for _, row in location_counts.iterrows():
     location = row["LocationName"]
     count = row["PalletCount"]
@@ -153,7 +145,6 @@ for _, row in location_counts.iterrows():
                 "Zone": zone,
                 "EmptySlots": empty_slots
             })
-
 bulk_locations_df = pd.DataFrame(bulk_locations)
 empty_bulk_locations_df = pd.DataFrame(empty_bulk_locations)
 
@@ -204,8 +195,8 @@ if selected_nav == "Dashboard":
         {"title": "Partial Bins", "value": len(partial_bins_df)},
         {"title": "Damages", "value": len(damages_df)},
         {"title": "Missing", "value": len(missing_df)},
-        {"title": "Rack Discrepancies", "value": len(discrepancy_df)},
-        {"title": "Bulk Discrepancies", "value": len(bulk_df)},
+        {"title": "Rack Discrepancies", "value": discrepancy_df["LocationName"].nunique()},
+        {"title": "Bulk Discrepancies", "value": bulk_df["LocationName"].nunique()},
         {"title": "Empty Bulk Locations", "value": len(empty_bulk_locations_df)}
     ]
     cols = st.columns(len(kpi_data))
@@ -213,7 +204,7 @@ if selected_nav == "Dashboard":
         with cols[i]:
             st.metric(label=item["title"], value=item["value"])
 
-    # Charts
+    # Existing Charts
     chart_df = filtered_inventory_df.copy()
     location_usage = chart_df["LocationName"].value_counts().nlargest(10).reset_index()
     location_usage.columns = ["LocationName", "Count"]
@@ -225,35 +216,46 @@ if selected_nav == "Dashboard":
     fig2.update_xaxes(type="category")
     st.plotly_chart(fig2, use_container_width=True)
 
-    zone_summary = bulk_locations_df.groupby("Zone").agg({
-        "PalletCount": "sum",
-        "EmptySlots": "sum"
-    }).reset_index()
+    # --- Additional 3D-style Charts ---
+    fig_full_empty_pie = px.pie(
+        names=["Full Pallet Bins", "Empty Bins"],
+        values=[len(full_pallet_bins_df), len(empty_bins_view_df)],
+        title="Full vs Empty Rack Bins (3D Style)",
+        hole=0.3
+    )
+    fig_full_empty_pie.update_traces(textinfo="label+percent", pull=[0.05, 0.05])
+    st.plotly_chart(fig_full_empty_pie, use_container_width=True)
 
-    fig_bulk = px.bar(zone_summary, x="Zone", y=["PalletCount", "EmptySlots"], barmode="group",
-                      title="Bulk Zone Utilization (Pallets vs Empty Slots)",
-                      labels={"value": "Count", "variable": "Metric"})
-    fig_bulk.update_xaxes(type="category")
-    st.plotly_chart(fig_bulk, use_container_width=True)
+    bulk_summary = bulk_locations_df.groupby("Zone").agg({"PalletCount": "sum", "EmptySlots": "sum"}).reset_index()
+    bulk_pie_data = []
+    for _, row in bulk_summary.iterrows():
+        bulk_pie_data.append({"Status": f"{row['Zone']} Occupied", "Count": row["PalletCount"]})
+        bulk_pie_data.append({"Status": f"{row['Zone']} Empty", "Count": row["EmptySlots"]})
+    bulk_pie_df = pd.DataFrame(bulk_pie_data)
 
-elif selected_nav == "Rack Discrepancies":
-    st.subheader("Rack Discrepancies")
-    for location, group in discrepancy_df.groupby("LocationName"):
-        with st.expander(f"📍 {location}"):
-            for idx, row in group.iterrows():
-                st.write(f"**Location:** {row.get('LocationName', 'N/A')} | **Issue:** {row.get('Issue', 'N/A')}")
-                st.write(f"**Pallet ID:** {row.get('PalletId', 'N/A')} | **Qty:** {row.get('Qty', 'N/A')} | **Customer LOT:** {row.get('CustomerLotReference', 'N/A')}")
-                lot_list = group.get("CustomerLotReference", pd.Series()).dropna().unique().tolist()
-                if lot_list:
-                    selected_lot = st.selectbox(f"Select LOT to fix for {row.get('LocationName', '')}:", lot_list, key=f"lot_select_{location}_{idx}")
-                else:
-                    selected_lot = "No LOT options available"
-                    st.write("No LOT options available for this discrepancy.")
-                note = st.text_input(f"Add note for {row.get('PalletId', 'Unknown')}:", key=f"note_{location}_{idx}")
-                if st.button(f"Mark {row.get('PalletId', 'Unknown')} as Fixed", key=f"fix_{location}_{idx}"):
-                    log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot)
-                    st.success(f"{row.get('PalletId', 'Unknown')} logged as fixed for LOT: {selected_lot}")
+    fig_bulk_pie = px.pie(
+        bulk_pie_df,
+        names="Status",
+        values="Count",
+        title="Bulk Locations: Occupied vs Empty Slots (3D Style)",
+        hole=0.3
+    )
+    fig_bulk_pie.update_traces(textinfo="label+percent", pull=[0.05]*len(bulk_pie_df))
+    st.plotly_chart(fig_bulk_pie, use_container_width=True)
 
+# --- Damages Tab ---
+elif selected_nav == "Damages":
+    st.subheader("Damages (Includes DAMAGE and IBDAMAGE)")
+    if not damages_df.empty:
+        st.dataframe(damages_df[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]],
+                     use_container_width=True)
+        csv_data = damages_df.to_csv(index=False).encode("utf-8")
+        st.download_button(label="Download Damages CSV", data=csv_data,
+                           file_name="damages.csv", mime="text/csv")
+    else:
+        st.info("No damages found.")
+
+# --- Bulk Discrepancies (Preserve Original Layout) ---
 elif selected_nav == "Bulk Discrepancies":
     st.subheader("Bulk Discrepancies")
     for location, group in bulk_df.groupby("LocationName"):
@@ -261,45 +263,40 @@ elif selected_nav == "Bulk Discrepancies":
             for idx, row in group.iterrows():
                 st.write(f"**Location:** {row.get('LocationName', 'N/A')} | **Issue:** {row.get('Issue', 'N/A')}")
                 st.write(f"**Pallet ID:** {row.get('PalletId', 'N/A')} | **Qty:** {row.get('Qty', 'N/A')} | **Customer LOT:** {row.get('CustomerLotReference', 'N/A')}")
+            st.markdown("---")
 
-    st.markdown("---")
+    # Global LOT Fix Section
     st.subheader("✅ Fix Discrepancy by LOT")
     lot_list = bulk_df["CustomerLotReference"].dropna().unique().tolist()
     if lot_list:
-        selected_lot = st.selectbox("Select LOT to fix:", lot_list)
-        if st.button("Fix Selected LOT"):
+        selected_lot = st.selectbox("Select LOT to fix:", lot_list, key="bulk_global_lot_select")
+        note = st.text_input(f"Add note for LOT {selected_lot}:", key="bulk_global_note")
+        if st.button("Fix Selected LOT", key="bulk_global_fix"):
             rows_to_fix = bulk_df[bulk_df["CustomerLotReference"] == selected_lot]
             for _, row in rows_to_fix.iterrows():
-                log_resolved_discrepancy_with_note(row.to_dict(), "Bulk LOT fix", selected_lot)
+                log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot)
             st.success(f"All discrepancies for LOT {selected_lot} marked as fixed ({len(rows_to_fix)} pallets).")
     else:
         st.info("No LOT options available for bulk discrepancies.")
 
-elif selected_nav == "Bulk Locations":
-    st.subheader("📦 Bulk Locations")
-    for _, row in bulk_locations_df.iterrows():
-        with st.expander(f"📍 {row['LocationName']} | Zone: {row['Zone']} | Pallets: {row['PalletCount']} | Empty Slots: {row['EmptySlots']}"):
-            location_pallets = filtered_inventory_df[filtered_inventory_df["LocationName"] == row["LocationName"]]
-            if not location_pallets.empty:
-                st.dataframe(location_pallets[["PalletId", "WarehouseSku", "CustomerLotReference", "Qty"]],
-                             use_container_width=True)
-            else:
-                st.info("No pallets found for this location.")
-
-elif selected_nav == "Empty Bulk Locations":
-    st.subheader("📦 Empty Bulk Locations")
-    st.dataframe(empty_bulk_locations_df, use_container_width=True)
-
+# --- Other Tabs ---
 else:
     view_map = {
         "Empty Bins": empty_bins_view_df,
         "Full Pallet Bins": full_pallet_bins_df,
         "Empty Partial Bins": empty_partial_bins_df,
         "Partial Bins": partial_bins_df,
-        "Damages": damages_df,
         "Missing": missing_df
     }
     active_df = view_map.get(selected_nav, pd.DataFrame())
-    required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
+    required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]
     available_cols = [col for col in required_cols if col in active_df.columns]
-    st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
+
+    st.subheader(f"{selected_nav}")
+    if not active_df.empty:
+        st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True)
+        csv_data = active_df[available_cols].to_csv(index=False).encode("utf-8")
+        st.download_button(label=f"Download {selected_nav} CSV", data=csv_data,
+                           file_name=f"{selected_nav.replace(' ', '_').lower()}.csv", mime="text/csv")
+    else:
+        st.info("No data available for this category.")
