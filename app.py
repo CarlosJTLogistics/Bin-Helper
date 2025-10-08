@@ -2,9 +2,8 @@ import pandas as pd
 import streamlit as st
 import os
 import csv
-import plotly.express as px
 from datetime import datetime
-import random
+import plotly.express as px
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
@@ -16,31 +15,16 @@ if "filters" not in st.session_state:
     st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
 if "resolved_items" not in st.session_state:
     st.session_state.resolved_items = set()
-if "auto_refresh" not in st.session_state:
-    st.session_state.auto_refresh = False
-if "theme" not in st.session_state:
-    st.session_state.theme = "light"
 
-# ---------------- AUTO REFRESH ----------------
-if st.session_state.auto_refresh:
-    st.rerun()
-
-# ---------------- GITHUB FILE URLS ----------------
-inventory_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/ON_HAND_INVENTORY.xlsx"
-master_url = "https://github.com/CarlosJTLogistics/Bin-Helper/raw/refs/heads/main/Empty%20Bin%20Formula.xlsx"
+# ---------------- FILE PATHS ----------------
+inventory_file = "ON_HAND_INVENTORY.xlsx"
+master_file = "Empty Bin Formula.xlsx"
+trend_file = "trend_history.csv"
+resolved_file = "resolved_discrepancies.csv"
 
 # ---------------- LOAD DATA ----------------
-@st.cache_data
-def load_data(inventory_url, master_url):
-    inventory_df = pd.read_excel(inventory_url, engine="openpyxl")
-    master_df = pd.read_excel(master_url, sheet_name="Master Locations", engine="openpyxl")
-    return inventory_df, master_df
-
-try:
-    inventory_df, master_df = load_data(inventory_url, master_url)
-except Exception as e:
-    st.error(f"❌ Failed to load data from GitHub: {e}")
-    st.stop()
+inventory_df = pd.read_excel(inventory_file, engine="openpyxl")
+master_df = pd.read_excel(master_file, sheet_name="Master Locations", engine="openpyxl")
 
 # ---------------- DATA PREP ----------------
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
@@ -145,6 +129,18 @@ def analyze_discrepancies(df):
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
+# ---------------- LOGGING FUNCTION ----------------
+def log_resolved_discrepancy_with_note(row, note):
+    row_with_note = row.copy()
+    row_with_note["Note"] = note
+    file_exists = os.path.isfile(resolved_file)
+    with open(resolved_file, mode='a', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=row_with_note.keys())
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(row_with_note)
+    st.session_state.resolved_items.add(row.get("LocationName", "") + str(row.get("PalletId", "")))
+
 # ---------------- FILTER FUNCTION ----------------
 def apply_filters(df):
     for key, value in st.session_state.filters.items():
@@ -152,36 +148,46 @@ def apply_filters(df):
             df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
 
+# ---------------- TREND TRACKING ----------------
+def log_trend_data():
+    today = datetime.today().strftime("%Y-%m-%d")
+    trend_row = {
+        "Date": today,
+        "EmptyBins": len(empty_bins_view_df),
+        "FullPalletBins": len(full_pallet_bins_df),
+        "PartialBins": len(partial_bins_df),
+        "EmptyPartialBins": len(empty_partial_bins_df),
+        "Damages": len(damages_df),
+        "Missing": len(missing_df),
+        "RackDiscrepancies": len(discrepancy_df),
+        "BulkDiscrepancies": len(bulk_df)
+    }
+
+    if os.path.exists(trend_file):
+        existing = pd.read_csv(trend_file)
+        if today in existing["Date"].values:
+            return
+    with open(trend_file, mode='a', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=trend_row.keys())
+        if os.stat(trend_file).st_size == 0:
+            writer.writeheader()
+        writer.writerow(trend_row)
+
+log_trend_data()
+
 # ---------------- DASHBOARD VIEW ----------------
 def show_dashboard():
     st.markdown("## 📈 Trends Overview")
-
-    # Simulate historical data for demo purposes
-    dates = pd.date_range(end=datetime.today(), periods=10).to_pydatetime().tolist()
-    trend_data = pd.DataFrame({
-        "Date": [d.strftime("%Y-%m-%d") for d in dates],
-        "EmptyBins": [random.randint(100, 150) for _ in dates],
-        "FullPalletBins": [random.randint(80, 120) for _ in dates],
-        "PartialBins": [random.randint(30, 60) for _ in dates],
-        "Discrepancies": [random.randint(10, 25) for _ in dates]
-    })
-
-    fig = px.line(trend_data, x="Date", y=["EmptyBins", "FullPalletBins", "PartialBins", "Discrepancies"],
-                  markers=True, title="Bin Trends Over Time")
-    st.plotly_chart(fig, use_container_width=True)
+    if os.path.exists(trend_file):
+        trend_df = pd.read_csv(trend_file)
+        fig = px.line(trend_df, x="Date", y=["EmptyBins", "FullPalletBins", "PartialBins", "EmptyPartialBins", "RackDiscrepancies", "BulkDiscrepancies"],
+                      markers=True, title="Bin Trends Over Time")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No trend data available yet.")
 
 # ---------------- KPI CARDS ----------------
-st.markdown("""
-    <style>
-    div[data-testid="column"] > div > button {
-        transition: transform 0.2s ease;
-    }
-    div[data-testid="column"] > div > button:hover {
-        transform: scale(1.05);
-        background-color: #e0f7fa !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #2E86C1;'>📊 Bin-Helper Dashboard</h1>", unsafe_allow_html=True)
 
 kpi_data = [
     {"title": "Dashboard", "value": "", "icon": "🏠"},
@@ -203,19 +209,15 @@ for i, item in enumerate(kpi_data):
 
 # ---------------- SIDEBAR ----------------
 with st.sidebar:
-    st.markdown("### 🎛️ Controls")
+    st.markdown("### 🔍 Filter Options")
     st.session_state.filters["LocationName"] = st.text_input("Location", value=st.session_state.filters["LocationName"])
     st.session_state.filters["PalletId"] = st.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
     st.session_state.filters["WarehouseSku"] = st.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
     st.session_state.filters["CustomerLotReference"] = st.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
 
-    theme = st.radio("Theme", ["light", "dark"], index=0 if st.session_state.theme == "light" else 1)
-    st.session_state.theme = theme
-
     st.markdown("### ✅ History Log")
-    log_file = "resolved_discrepancies.csv"
-    if os.path.exists(log_file):
-        history_df = pd.read_csv(log_file)
+    if os.path.exists(resolved_file):
+        history_df = pd.read_csv(resolved_file)
         st.dataframe(history_df.reset_index(drop=True), use_container_width=True, hide_index=True)
     else:
         st.info("No resolved discrepancies logged yet.")
@@ -239,6 +241,35 @@ else:
     active_df = apply_filters(raw_df)
 
     st.subheader(f"{st.session_state.active_view}")
-    required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
-    available_cols = [col for col in required_cols if col in active_df.columns]
-    st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
+    if st.session_state.active_view == "Bulk Discrepancies":
+        for idx, row in active_df.iterrows():
+            location = row["LocationName"]
+            with st.expander(f"{location} | {row['Issue']}"):
+                details = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
+                for i, drow in details.iterrows():
+                    row_id = drow.get("LocationName", "") + str(drow.get("PalletId", ""))
+                    if row_id in st.session_state.resolved_items:
+                        continue
+                    st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
+                    note_key = f"note_bulk_{idx}_{i}"
+                    note = st.text_input(f"Note for Pallet {drow['PalletId']}", key=note_key)
+                    if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{idx}_{i}"):
+                        log_resolved_discrepancy_with_note(drow.to_dict(), note)
+                        st.success(f"Pallet {drow['PalletId']} logged as fixed!")
+                        st.experimental_rerun()
+    elif st.session_state.active_view == "Rack Discrepancies":
+        for idx, row in active_df.iterrows():
+            row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
+            if row_id in st.session_state.resolved_items:
+                continue
+            st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
+            note_key = f"note_rack_{idx}"
+            note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
+            if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{idx}"):
+                log_resolved_discrepancy_with_note(row.to_dict(), note)
+                st.success(f"Pallet {row['PalletId']} logged as fixed!")
+                st.experimental_rerun()
+    else:
+        required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
+        available_cols = [col for col in required_cols if col in active_df.columns]
+        st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
