@@ -122,7 +122,7 @@ def analyze_discrepancies(df):
     ]
     full_errors = full_df[~full_df["Qty"].between(6, 15)]
     for _, row in full_errors.iterrows():
-        issue = "Qty out of range for full pallet bin"
+        issue = "Partial Pallet needs to be moved to Partial Location"
         results.append(row.to_dict() | {"Issue": issue})
 
     return pd.DataFrame(results)
@@ -260,7 +260,8 @@ else:
     elif st.session_state.active_view == "Rack Discrepancies":
         grouped_df = active_df.groupby("LocationName")
         for location, group in grouped_df:
-            with st.expander(f"{location} | {len(group)} issue(s)"):
+            issue_summary = ", ".join(group["Issue"].unique())
+            with st.expander(f"{location} | {len(group)} issue(s): {issue_summary}"):
                 for idx, row in group.iterrows():
                     row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
                     if row_id in st.session_state.resolved_items:
