@@ -135,6 +135,13 @@ view_map = {
     "Missing": missing_df
 }
 
+# ---------------- FILTER FUNCTION ----------------
+def apply_filters(df):
+    for key, value in st.session_state.filters.items():
+        if value and key in df.columns:
+            df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
+    return df
+
 # ---------------- LOGGING FUNCTION ----------------
 def log_resolved_discrepancy_with_note(row, note, selected_issue):
     row_with_note = row.copy()
