@@ -4,3 +4,4 @@ openpyxl
 streamlit-lottie
 streamlit-aggrid
 plotly
+requests
