@@ -10,12 +10,6 @@ import requests
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
-# --- SESSION STATE ---
-if "filters" not in st.session_state:
-    st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
-if "resolved_items" not in st.session_state:
-    st.session_state.resolved_items = set()
-
 # --- FILE PATHS ---
 inventory_file = "ON_HAND_INVENTORY.xlsx"
 master_file = "Empty Bin Formula.xlsx"
@@ -208,7 +202,7 @@ elif selected_nav == "Resolved Discrepancies":
                 updated_df = resolved_df[resolved_df["SelectedLOT"] != lot]
                 updated_df.to_csv(resolved_file, index=False)
                 st.success(f"LOT {lot} has been restored to discrepancies.")
-                st.experimental_rerun()
+                st.rerun()
     else:
         st.info("No resolved discrepancies have been logged yet.")
 
@@ -227,7 +221,7 @@ elif selected_nav == "Rack Discrepancies":
                     for _, row in rows_to_fix.iterrows():
                         log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot)
                     st.success(f"LOT {selected_lot} marked as fixed.")
-                    st.experimental_rerun()
+                    st.rerun()
 
 # --- Bulk Discrepancies ---
 elif selected_nav == "Bulk Discrepancies":
@@ -244,4 +238,4 @@ elif selected_nav == "Bulk Discrepancies":
                     for _, row in rows_to_fix.iterrows():
                         log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot)
                     st.success(f"LOT {selected_lot} marked as fixed.")
-                    st.experimental_rerun()
+                    st.rerun()
