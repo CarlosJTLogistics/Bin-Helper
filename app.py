@@ -250,7 +250,7 @@ else:
                     row_id = drow.get("LocationName", "") + str(drow.get("PalletId", ""))
                     if row_id in st.session_state.resolved_items:
                         continue
-                    st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
+                    st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
                     note_key = f"note_bulk_{location}_{i}"
                     note = st.text_input(f"Note for Pallet {drow['PalletId']}", key=note_key)
                     if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{location}_{i}"):
@@ -265,7 +265,7 @@ else:
                     row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
                     if row_id in st.session_state.resolved_items:
                         continue
-                    st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
+                    st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
                     note_key = f"note_rack_{location}_{idx}"
                     note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
                     if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{location}_{idx}"):
