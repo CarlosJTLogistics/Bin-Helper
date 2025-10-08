@@ -152,27 +152,6 @@ def load_lottie_url(url):
 lottie_url = "https://assets2.lottiefiles.com/packages/lf20_4kx2q32n.json"
 lottie_json = load_lottie_url(lottie_url)
 
-# --- STYLING ---
-st.markdown("""
-    <style>
-    .metric-card {
-        background-color: #0f0f0f;
-        color: #39ff14;
-        padding: 10px;
-        border-radius: 10px;
-        text-align: center;
-        transition: transform 0.2s;
-    }
-    .metric-card:hover {
-        transform: scale(1.05);
-        background-color: #1f1f1f;
-    }
-    .stRadio > div {
-        flex-direction: row;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
 # --- NAVIGATION ---
 nav_options = ["Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins",
                "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies"]
@@ -198,7 +177,7 @@ if selected_nav == "Dashboard":
     cols = st.columns(len(kpi_data))
     for i, item in enumerate(kpi_data):
         with cols[i]:
-            st.markdown(f"<div class='metric-card'><h4>{item['title']}</h4><h2>{item['value']}</h2></div>", unsafe_allow_html=True)
+            st.metric(label=item["title"], value=item["value"])
 
     # Charts
     location_usage = filtered_inventory_df["LocationName"].value_counts().nlargest(10).reset_index()
@@ -206,10 +185,14 @@ if selected_nav == "Dashboard":
     fig1 = px.pie(location_usage, names="LocationName", values="Count", title="Top 10 Location Usage")
     st.plotly_chart(fig1, use_container_width=True)
 
+    inventory_movement = filtered_inventory_df.groupby("WarehouseSku")["Qty"].sum().nlargest(10).reset_index()
+    fig2 = px.bar(inventory_movement, x="WarehouseSku", y="Qty", title="Top 10 Inventory Movement", color="WarehouseSku")
+    st.plotly_chart(fig2, use_container_width=True)
+
     zone_usage = filtered_inventory_df["LocationName"].dropna().astype(str).str[0].value_counts().reset_index()
     zone_usage.columns = ["Zone", "Count"]
-    fig2 = px.bar(zone_usage, x="Zone", y="Count", title="Bulk Zone Utilization", color="Zone")
-    st.plotly_chart(fig2, use_container_width=True)
+    fig3 = px.bar(zone_usage, x="Zone", y="Count", title="Bulk Zone Utilization", color="Zone")
+    st.plotly_chart(fig3, use_container_width=True)
 
 elif selected_nav in ["Rack Discrepancies", "Bulk Discrepancies"]:
     st.subheader(f"{selected_nav}")
@@ -219,7 +202,7 @@ elif selected_nav in ["Rack Discrepancies", "Bulk Discrepancies"]:
         with st.expander(f"📍 {location}"):
             for idx, row in group.iterrows():
                 pallet_id = row.get("PalletId", "Unknown")
-                lot_list = group["CustomerLotReference"].dropna().unique().tolist()
+                lot_list = group.get("CustomerLotReference", pd.Series()).dropna().unique().tolist()
                 selected_lot = st.selectbox(f"Select LOT to fix for {location}:", lot_list, key=f"lot_select_{location}_{idx}")
                 note = st.text_input(f"Add note for {pallet_id}:", key=f"note_{location}_{idx}")
                 if st.button(f"Mark {pallet_id} as Fixed", key=f"fix_{location}_{idx}"):
