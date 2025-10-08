@@ -145,140 +145,37 @@ def apply_filters(df):
             df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
 
-# ---------------- TREND TRACKING ----------------
-def log_trend_data():
-    today = datetime.today().strftime("%Y-%m-%d")
-    trend_row = {
-        "Date": today,
-        "EmptyBins": len(empty_bins_view_df),
-        "FullPalletBins": len(full_pallet_bins_df),
-        "PartialBins": len(partial_bins_df),
-        "EmptyPartialBins": len(empty_partial_bins_df),
-        "Damages": len(damages_df),
-        "Missing": len(missing_df),
-        "RackDiscrepancies": len(discrepancy_df),
-        "BulkDiscrepancies": len(bulk_df)
-    }
-    if os.path.exists(trend_file):
-        existing = pd.read_csv(trend_file)
-        if today in existing["Date"].values:
-            return
-    with open(trend_file, mode='a', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=trend_row.keys())
-        if os.stat(trend_file).st_size == 0:
-            writer.writeheader()
-        writer.writerow(trend_row)
+# ---------------- CARD VIEW FUNCTION ----------------
+def show_discrepancy_cards(df, discrepancy_type):
+    grouped_df = df.groupby("LocationName")
+    for location, group in grouped_df:
+        issue_summary = ", ".join(group["Issue"].unique()) if "Issue" in group.columns else group.iloc[0]["Issue"]
+        pallet_count = len(group)
+        status = "✅ Fixed" if all(
+            (location + str(row["PalletId"])) in st.session_state.resolved_items
+            for _, row in group.iterrows()
+        ) else "❌ Unresolved"
 
-log_trend_data()
-
-# ---------------- DASHBOARD VIEW ----------------
-def load_lottie_url(url):
-    r = requests.get(url)
-    if r.status_code == 200:
-        return r.json()
-    return None
-
-lottie_animation = load_lottie_url("https://assets10.lottiefiles.com/packages/lf20_49rdyysj.json")
-
-def show_dashboard():
-    st.markdown(
-        """
-        <div style='text-align: center; padding: 20px 0;'>
-            <h1 style='color: #2E86C1;'>👋 Welcome to Bin Helper Dashboard</h1>
-            <h3 style='color: #566573;'>Your smart assistant for warehouse bin insights</h3>
+        st.markdown(f"""
+        <div style="border:1px solid #ccc; border-radius:10px; padding:15px; margin-bottom:10px;">
+            <h4>{location}</h4>
+            <p><strong>Issue:</strong> {issue_summary}</p>
+            <p><strong>Pallets:</strong> {pallet_count}</p>
+            <p><strong>Status:</strong> <span style="color:{'green' if '✅' in status else 'red'};">{status}</span></p>
         </div>
-        """,
-        unsafe_allow_html=True
-    )
+        """, unsafe_allow_html=True)
 
-    if lottie_animation:
-        st_lottie(lottie_animation, speed=1, reverse=False, loop=True, quality="high", height=200)
-
-    # KPI Cards
-    kpi_data = [
-        {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
-        {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
-        {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df), "icon": "🟨"},
-        {"title": "Partial Bins", "value": len(partial_bins_df), "icon": "🟥"},
-        {"title": "Damages", "value": len(damages_df), "icon": "🛠️"},
-        {"title": "Missing", "value": len(missing_df), "icon": "❓"},
-        {"title": "Rack Discrepancies", "value": len(discrepancy_df), "icon": "⚠️"},
-        {"title": "Bulk Discrepancies", "value": len(bulk_df), "icon": "📦"}
-    ]
-    cols = st.columns(len(kpi_data))
-    for i, item in enumerate(kpi_data):
-        with cols[i]:
-            if st.button(f"{item['icon']} {item['title']} ({item['value']})", key=item['title']):
-                st.session_state.active_view = item['title']
-
-    st.markdown("---")
-
-    # Charts
-    col1, col2 = st.columns([2, 1])
-
-    with col2:
-        total_locations = len(master_locations)
-        occupied_count = len(occupied_locations)
-        empty_count = total_locations - occupied_count
-        usage_percent = round((occupied_count / total_locations) * 100, 2)
-        st.subheader("📍 Location Usage")
-        fig_usage = px.pie(names=["Occupied", "Empty"], values=[occupied_count, empty_count], hole=0.6,
-                           color_discrete_sequence=["#2E86C1", "#AED6F1"])
-        fig_usage.update_traces(textinfo="percent+label")
-        st.plotly_chart(fig_usage, use_container_width=True)
-        st.caption(f"Total Locations: {total_locations} | Usage: {usage_percent}%")
-
-    with col1:
-        st.subheader("📦 Inventory Movement")
-        movement_data = {
-            "Full Pallet Bins": len(full_pallet_bins_df),
-            "Partial Bins": len(partial_bins_df),
-            "Damages": len(damages_df),
-            "Missing": len(missing_df)
-        }
-        fig_movement = px.bar(x=list(movement_data.keys()), y=list(movement_data.values()), color=list(movement_data.keys()),
-                              title="Inventory Distribution", text=list(movement_data.values()))
-        fig_movement.update_traces(textposition="outside")
-        st.plotly_chart(fig_movement, use_container_width=True)
-
-    st.markdown("---")
-
-    st.subheader("📈 Bin Trends Over Time")
-    if os.path.exists(trend_file):
-        trend_df = pd.read_csv(trend_file)
-        fig_trend = px.line(trend_df, x="Date",
-                            y=["EmptyBins", "FullPalletBins", "PartialBins", "EmptyPartialBins", "RackDiscrepancies", "BulkDiscrepancies"],
-                            markers=True, title="Bin Trends Over Time")
-        st.plotly_chart(fig_trend, use_container_width=True)
-    else:
-        st.info("No trend data available yet.")
-
-    st.markdown("---")
-
-    st.subheader("🏆 Top 10 SKUs by Quantity")
-    sku_qty = filtered_inventory_df.groupby("WarehouseSku")["Qty"].sum().sort_values(ascending=False).head(10)
-    fig_top_skus = px.bar(x=sku_qty.values, y=sku_qty.index, orientation="h", title="Top SKUs by Quantity",
-                          color=sku_qty.values, color_continuous_scale="Blues")
-    st.plotly_chart(fig_top_skus, use_container_width=True)
-
-    # ✅ Updated Bulk Zone Utilization
-    st.subheader("📦 Bulk Zone Utilization")
-    bulk_utilization = []
-    for zone in bulk_rules.keys():
-        zone_df = filtered_inventory_df[filtered_inventory_df["LocationName"].astype(str).str.startswith(zone)]
-        pallet_count = len(zone_df)
-        total_qty = zone_df["Qty"].sum()
-        bulk_utilization.append({"Zone": zone, "Pallet Count": pallet_count, "Qty": total_qty})
-    bulk_df_chart = pd.DataFrame(bulk_utilization)
-    fig_bulk = px.bar(bulk_df_chart, x="Zone", y=["Pallet Count", "Qty"], barmode="group", title="Bulk Zone Utilization: Pallet Count vs Qty")
-    st.plotly_chart(fig_bulk, use_container_width=True)
-
-# ---------------- GLOBAL NAVIGATION ----------------
-nav_options = ["Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins",
-               "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies"]
-selected_nav = st.radio("🔍 Navigate:", nav_options, index=nav_options.index(st.session_state.active_view), horizontal=True)
-st.session_state.active_view = selected_nav
-st.markdown("---")
+        for idx, row in group.iterrows():
+            row_id = location + str(row.get("PalletId", ""))
+            if row_id in st.session_state.resolved_items:
+                continue
+            st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
+            note_key = f"note_{discrepancy_type}_{location}_{idx}"
+            note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
+            if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"{discrepancy_type}_fix_{location}_{idx}"):
+                log_resolved_discrepancy_with_note(row.to_dict(), note)
+                st.success(f"Pallet {row['PalletId']} logged as fixed!")
+                st.experimental_rerun()
 
 # ---------------- MAIN VIEW LOGIC ----------------
 view_map = {
@@ -292,46 +189,20 @@ view_map = {
     "Missing": missing_df
 }
 
-if st.session_state.active_view == "Dashboard":
-    show_dashboard()
-else:
+nav_options = ["Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins",
+               "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies"]
+selected_nav = st.radio("🔍 Navigate:", nav_options, index=nav_options.index(st.session_state.active_view), horizontal=True)
+st.session_state.active_view = selected_nav
+st.markdown("---")
+
+if st.session_state.active_view in ["Rack Discrepancies", "Bulk Discrepancies"]:
+    st.subheader(f"{st.session_state.active_view}")
     raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
     active_df = apply_filters(raw_df)
-
-    st.subheader(f"{st.session_state.active_view}")
-    if st.session_state.active_view == "Bulk Discrepancies":
-        grouped_df = bulk_df.groupby("LocationName")
-        for location, group in grouped_df:
-            with st.expander(f"{location} | {group.iloc[0]['Issue']}"):
-                details = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
-                for i, drow in details.iterrows():
-                    row_id = drow.get("LocationName", "") + str(drow.get("PalletId", ""))
-                    if row_id in st.session_state.resolved_items:
-                        continue
-                    st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
-                    note_key = f"note_bulk_{location}_{i}"
-                    note = st.text_input(f"Note for Pallet {drow['PalletId']}", key=note_key)
-                    if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{location}_{i}"):
-                        log_resolved_discrepancy_with_note(drow.to_dict(), note)
-                        st.success(f"Pallet {drow['PalletId']} logged as fixed!")
-                        st.experimental_rerun()
-    elif st.session_state.active_view == "Rack Discrepancies":
-        grouped_df = active_df.groupby("LocationName")
-        for location, group in grouped_df:
-            issue_summary = ", ".join(group["Issue"].unique())
-            with st.expander(f"{location} | {len(group)} issue(s): {issue_summary}"):
-                for idx, row in group.iterrows():
-                    row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
-                    if row_id in st.session_state.resolved_items:
-                        continue
-                    st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
-                    note_key = f"note_rack_{location}_{idx}"
-                    note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
-                    if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{location}_{idx}"):
-                        log_resolved_discrepancy_with_note(row.to_dict(), note)
-                        st.success(f"Pallet {row['PalletId']} logged as fixed!")
-                        st.experimental_rerun()
-    else:
-        required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
-        available_cols = [col for col in required_cols if col in active_df.columns]
-        st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
+    discrepancy_type = "rack" if st.session_state.active_view == "Rack Discrepancies" else "bulk"
+    show_discrepancy_cards(active_df, discrepancy_type)
+else:
+    required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
+    active_df = apply_filters(view_map.get(st.session_state.active_view, pd.DataFrame()))
+    available_cols = [col for col in required_cols if col in active_df.columns]
+    st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
