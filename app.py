@@ -270,6 +270,13 @@ def show_dashboard():
     fig_bulk = px.bar(bulk_df_chart, x="Zone", y=["Current", "MaxAllowed"], barmode="group", title="Bulk Zone Utilization")
     st.plotly_chart(fig_bulk, use_container_width=True)
 
+# ---------------- GLOBAL NAVIGATION ----------------
+nav_options = ["Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins",
+               "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies"]
+selected_nav = st.radio("🔍 Navigate:", nav_options, index=nav_options.index(st.session_state.active_view), horizontal=True)
+st.session_state.active_view = selected_nav
+st.markdown("---")
+
 # ---------------- MAIN VIEW LOGIC ----------------
 view_map = {
     "Rack Discrepancies": discrepancy_df,
