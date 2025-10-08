@@ -149,12 +149,12 @@ bulk_locations_df = pd.DataFrame(bulk_locations)
 empty_bulk_locations_df = pd.DataFrame(empty_bulk_locations)
 
 # --- LOGGING ---
-def log_resolved_discrepancy_with_note(row, note, selected_lot, discrepancy_type):
+def log_resolved_discrepancy_with_note(row, note, selected_lot):
     file_exists = os.path.isfile(resolved_file)
     with open(resolved_file, mode="a", newline="") as file:
         writer = csv.writer(file)
         if not file_exists:
-            writer.writerow(["Timestamp", "LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty", "Note", "SelectedLOT", "DiscrepancyType"])
+            writer.writerow(["Timestamp", "LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty", "Note", "SelectedLOT"])
         writer.writerow([
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             row.get("LocationName", ""),
@@ -163,9 +163,30 @@ def log_resolved_discrepancy_with_note(row, note, selected_lot, discrepancy_type
             row.get("CustomerLotReference", ""),
             row.get("Qty", ""),
             note,
-            selected_lot,
-            discrepancy_type
+            selected_lot
         ])
+
+# --- LOTTIE ANIMATION ---
+def load_lottie_url(url):
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    return r.json()
+
+lottie_url = "https://assets2.lottiefiles.com/packages/lf20_4kx2q32n.json"
+lottie_json = load_lottie_url(lottie_url)
+
+# --- Styling Function for Discrepancy Tables ---
+def style_discrepancy_table(df):
+    return df.style.set_table_styles([
+        {'selector': 'thead th', 'props': [('font-weight', 'bold'), ('background-color', '#f0f0f0'), ('color', '#333')]},
+        {'selector': 'tbody tr:nth-child(even)', 'props': [('background-color', '#f9f9f9')]},
+        {'selector': 'tbody tr:hover', 'props': [('background-color', '#ffe6e6')]},
+        {'selector': 'td', 'props': [('font-family', 'Arial'), ('font-size', '14px')]}
+    ]).applymap(
+        lambda val: 'background-color: #FF4C4C; color: white;' if isinstance(val, str) else '',
+        subset=["Issue"]
+    )
 
 # --- NAVIGATION ---
 nav_options = ["Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins",
@@ -174,46 +195,136 @@ selected_nav = st.radio("🔍 Navigate:", nav_options, horizontal=True)
 st.markdown("---")
 
 # --- MAIN VIEW ---
-if selected_nav == "Rack Discrepancies":
-    st.subheader("Rack Discrepancies")
-    display_cols = ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"]
-    available_cols = [col for col in display_cols if col in discrepancy_df.columns]
-    if not discrepancy_df.empty:
-        st.dataframe(discrepancy_df[available_cols].reset_index(drop=True), use_container_width=True)
-        csv_data = discrepancy_df[available_cols].to_csv(index=False).encode("utf-8")
-        st.download_button(label="Download Rack Discrepancies CSV", data=csv_data,
-                           file_name="rack_discrepancies.csv", mime="text/csv")
-    else:
-        st.info("No rack discrepancies found.")
+if selected_nav == "Dashboard":
+    st.markdown("<h2 style='text-align:center;'>📊 Bin Helper Dashboard</h2>", unsafe_allow_html=True)
+    st_lottie(lottie_json, height=150, key="warehouse_anim")
+    # KPI Cards
+    kpi_data = [
+        {"title": "Empty Bins", "value": len(empty_bins_view_df)},
+        {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df)},
+        {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df)},
+        {"title": "Partial Bins", "value": len(partial_bins_df)},
+        {"title": "Damages", "value": len(damages_df)},
+        {"title": "Missing", "value": len(missing_df)},
+        {"title": "Rack Discrepancies", "value": discrepancy_df["LocationName"].nunique()},
+        {"title": "Bulk Discrepancies", "value": bulk_df["LocationName"].nunique()},
+        {"title": "Empty Bulk Locations", "value": len(empty_bulk_locations_df)}
+    ]
+    cols = st.columns(len(kpi_data))
+    for i, item in enumerate(kpi_data):
+        with cols[i]:
+            st.metric(label=item["title"], value=item["value"])
+    # Charts
+    chart_df = filtered_inventory_df.copy()
+    location_usage = chart_df["LocationName"].value_counts().nlargest(10).reset_index()
+    location_usage.columns = ["LocationName", "Count"]
+    fig1 = px.pie(location_usage, names="LocationName", values="Count", title="Top 10 Location Usage")
+    st.plotly_chart(fig1, use_container_width=True)
+    inventory_movement = chart_df.groupby("WarehouseSku")["Qty"].sum().nlargest(10).reset_index()
+    fig2 = px.bar(inventory_movement, x="WarehouseSku", y="Qty", title="Top 10 Inventory Movement", color="WarehouseSku")
+    fig2.update_xaxes(type="category")
+    st.plotly_chart(fig2, use_container_width=True)
+    zone_summary = bulk_locations_df.groupby("Zone").agg({
+        "PalletCount": "sum",
+        "EmptySlots": "sum"
+    }).reset_index()
+    fig_bulk = px.bar(zone_summary, x="Zone", y=["PalletCount", "EmptySlots"], barmode="group",
+                      title="Bulk Zone Utilization (Pallets vs Empty Slots)",
+                      labels={"value": "Count", "variable": "Metric"})
+    fig_bulk.update_xaxes(type="category")
+    st.plotly_chart(fig_bulk, use_container_width=True)
 
+# --- Rack Discrepancies ---
+elif selected_nav == "Rack Discrepancies":
+    st.subheader("Rack Discrepancies")
+    for location, group in discrepancy_df.groupby("LocationName"):
+        with st.expander(f"📍 {location}"):
+            display_df = group[["PalletId", "Qty", "CustomerLotReference", "Issue"]].copy()
+            styled_df = style_discrepancy_table(display_df)
+            st.dataframe(styled_df, use_container_width=True)
+
+            # Download CSV
+            csv_data = display_df.to_csv(index=False).encode("utf-8")
+            st.download_button(label=f"Download CSV for {location}", data=csv_data,
+                               file_name=f"rack_discrepancies_{location}.csv", mime="text/csv")
+
+            # LOT Fix Controls
+            lot_list = group["CustomerLotReference"].dropna().unique().tolist()
+            if lot_list:
+                selected_lot = st.selectbox(f"Select LOT to fix for {location}:", lot_list, key=f"lot_select_{location}")
+                note = st.text_input(f"Add note for LOT {selected_lot}:", key=f"note_{location}")
+                if st.button(f"Mark LOT {selected_lot} as Fixed", key=f"fix_{location}"):
+                    rows_to_fix = group[group["CustomerLotReference"] == selected_lot]
+                    for _, row in rows_to_fix.iterrows():
+                        log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot)
+                    st.success(f"LOT {selected_lot} marked as fixed ({len(rows_to_fix)} pallets).")
+            else:
+                st.info("No LOT options available for this discrepancy.")
+
+# --- Bulk Discrepancies ---
 elif selected_nav == "Bulk Discrepancies":
     st.subheader("Bulk Discrepancies")
-    display_cols = ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"]
-    if not bulk_df.empty:
-        for location, group in bulk_df.groupby("LocationName"):
-            with st.expander(f"📍 {location}"):
-                for _, row in group.iterrows():
-                    st.write(f"**Location:** {row.get('LocationName', 'N/A')}")
-                    st.write(f"**Pallet ID:** {row.get('PalletId', 'N/A')}")
-                    st.write(f"**WarehouseSku:** {row.get('WarehouseSku', 'N/A')}")
-                    st.write(f"**Customer LOT:** {row.get('CustomerLotReference', 'N/A')}")
-                    st.write(f"**Qty:** {row.get('Qty', 'N/A')}")
-                    st.markdown("---")
-        csv_data = bulk_df[display_cols].to_csv(index=False).encode("utf-8")
-        st.download_button(label="Download Bulk Discrepancies CSV", data=csv_data,
-                           file_name="bulk_discrepancies.csv", mime="text/csv")
-        # LOT Fix Section
-        st.subheader("✅ Fix Discrepancy by LOT")
-        lot_list = bulk_df["CustomerLotReference"].dropna().unique().tolist()
-        if lot_list:
-            selected_lot = st.selectbox("Select LOT to fix:", lot_list, key="bulk_global_lot_select")
-            note = st.text_input(f"Add note for LOT {selected_lot}:", key="bulk_global_note")
-            if st.button("Fix Selected LOT", key="bulk_global_fix"):
-                rows_to_fix = bulk_df[bulk_df["CustomerLotReference"] == selected_lot]
-                for _, row in rows_to_fix.iterrows():
-                    log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot, "Bulk")
-                st.success(f"All discrepancies for LOT {selected_lot} marked as fixed ({len(rows_to_fix)} pallets).")
-        else:
-            st.info("No LOT options available for bulk discrepancies.")
+    for location, group in bulk_df.groupby("LocationName"):
+        with st.expander(f"📍 {location}"):
+            display_df = group[["PalletId", "Qty", "CustomerLotReference", "Issue"]].copy()
+            styled_df = style_discrepancy_table(display_df)
+            st.dataframe(styled_df, use_container_width=True)
+
+            # Download CSV
+            csv_data = display_df.to_csv(index=False).encode("utf-8")
+            st.download_button(label=f"Download CSV for {location}", data=csv_data,
+                               file_name=f"bulk_discrepancies_{location}.csv", mime="text/csv")
+
+    # Global LOT Fix Section
+    st.markdown("---")
+    st.subheader("✅ Fix Discrepancy by LOT")
+    lot_list = bulk_df["CustomerLotReference"].dropna().unique().tolist()
+    if lot_list:
+        selected_lot = st.selectbox("Select LOT to fix:", lot_list, key="bulk_global_lot_select")
+        note = st.text_input(f"Add note for LOT {selected_lot}:", key="bulk_global_note")
+        if st.button("Fix Selected LOT", key="bulk_global_fix"):
+            rows_to_fix = bulk_df[bulk_df["CustomerLotReference"] == selected_lot]
+            for _, row in rows_to_fix.iterrows():
+                log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot)
+            st.success(f"All discrepancies for LOT {selected_lot} marked as fixed ({len(rows_to_fix)} pallets).")
     else:
-        st.info("No bulk discrepancies found.")
+        st.info("No LOT options available for bulk discrepancies.")
+
+# --- Bulk Locations ---
+elif selected_nav == "Bulk Locations":
+    st.subheader("📦 Bulk Locations")
+    for _, row in bulk_locations_df.iterrows():
+        with st.expander(f"📍 {row['LocationName']} | Zone: {row['Zone']} | Pallets: {row['PalletCount']} | Empty Slots: {row['EmptySlots']}"):
+            location_pallets = filtered_inventory_df[filtered_inventory_df["LocationName"] == row["LocationName"]]
+            if not location_pallets.empty:
+                st.dataframe(location_pallets[["PalletId", "WarehouseSku", "CustomerLotReference", "Qty"]],
+                             use_container_width=True)
+            else:
+                st.info("No pallets found for this location.")
+
+# --- Empty Bulk Locations ---
+elif selected_nav == "Empty Bulk Locations":
+    st.subheader("📦 Empty Bulk Locations")
+    st.dataframe(empty_bulk_locations_df, use_container_width=True)
+
+else:
+    view_map = {
+        "Empty Bins": empty_bins_view_df,
+        "Full Pallet Bins": full_pallet_bins_df,
+        "Empty Partial Bins": empty_partial_bins_df,
+        "Partial Bins": partial_bins_df,
+        "Damages": damages_df,
+        "Missing": missing_df
+    }
+    active_df = view_map.get(selected_nav, pd.DataFrame())
+    required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]
+    available_cols = [col for col in required_cols if col in active_df.columns]
+
+    st.subheader(f"{selected_nav}")
+    if not active_df.empty:
+        st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True)
+        csv_data = active_df[available_cols].to_csv(index=False).encode("utf-8")
+        st.download_button(label=f"Download {selected_nav} CSV", data=csv_data,
+                           file_name=f"{selected_nav.replace(' ', '_').lower()}.csv", mime="text/csv")
+    else:
+        st.info("No data available for this category.")
