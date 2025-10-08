@@ -258,7 +258,14 @@ elif selected_nav in ["Rack Discrepancies", "Bulk Discrepancies"]:
 
 elif selected_nav == "Bulk Locations":
     st.subheader("📦 Bulk Locations")
-    st.dataframe(bulk_locations_df, use_container_width=True)
+    for _, row in bulk_locations_df.iterrows():
+        with st.expander(f"📍 {row['LocationName']} | Zone: {row['Zone']} | Pallets: {row['PalletCount']} | Empty Slots: {row['EmptySlots']}"):
+            location_pallets = filtered_inventory_df[filtered_inventory_df["LocationName"] == row["LocationName"]]
+            if not location_pallets.empty:
+                st.dataframe(location_pallets[["PalletId", "WarehouseSku", "CustomerLotReference", "Qty"]],
+                             use_container_width=True)
+            else:
+                st.info("No pallets found for this location.")
 
 elif selected_nav == "Empty Bulk Locations":
     st.subheader("📦 Empty Bulk Locations")
