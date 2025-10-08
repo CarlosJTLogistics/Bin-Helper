@@ -127,6 +127,36 @@ def analyze_discrepancies(df):
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
+# --- BULK LOCATIONS & EMPTY SLOTS ---
+bulk_locations = []
+empty_bulk_locations = []
+
+location_counts = filtered_inventory_df.groupby("LocationName").size().reset_index(name="PalletCount")
+
+for _, row in location_counts.iterrows():
+    location = row["LocationName"]
+    count = row["PalletCount"]
+    zone = str(location)[0].upper()
+    if zone in bulk_rules:
+        max_allowed = bulk_rules[zone]
+        empty_slots = max_allowed - count
+        bulk_locations.append({
+            "LocationName": location,
+            "Zone": zone,
+            "PalletCount": count,
+            "MaxAllowed": max_allowed,
+            "EmptySlots": max(0, empty_slots)
+        })
+        if empty_slots > 0:
+            empty_bulk_locations.append({
+                "LocationName": location,
+                "Zone": zone,
+                "EmptySlots": empty_slots
+            })
+
+bulk_locations_df = pd.DataFrame(bulk_locations)
+empty_bulk_locations_df = pd.DataFrame(empty_bulk_locations)
+
 # --- LOGGING ---
 def log_resolved_discrepancy_with_note(row, note, selected_lot):
     file_exists = os.path.isfile(resolved_file)
@@ -157,7 +187,7 @@ lottie_json = load_lottie_url(lottie_url)
 
 # --- NAVIGATION ---
 nav_options = ["Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins",
-               "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies"]
+               "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies", "Bulk Locations", "Empty Bulk Locations"]
 selected_nav = st.radio("🔍 Navigate:", nav_options, horizontal=True)
 st.markdown("---")
 
@@ -175,7 +205,8 @@ if selected_nav == "Dashboard":
         {"title": "Damages", "value": len(damages_df)},
         {"title": "Missing", "value": len(missing_df)},
         {"title": "Rack Discrepancies", "value": len(discrepancy_df)},
-        {"title": "Bulk Discrepancies", "value": len(bulk_df)}
+        {"title": "Bulk Discrepancies", "value": len(bulk_df)},
+        {"title": "Empty Bulk Locations", "value": len(empty_bulk_locations_df)}
     ]
     cols = st.columns(len(kpi_data))
     for i, item in enumerate(kpi_data):
@@ -191,16 +222,18 @@ if selected_nav == "Dashboard":
 
     inventory_movement = chart_df.groupby("WarehouseSku")["Qty"].sum().nlargest(10).reset_index()
     fig2 = px.bar(inventory_movement, x="WarehouseSku", y="Qty", title="Top 10 Inventory Movement", color="WarehouseSku")
+    fig2.update_xaxes(type="category")
     st.plotly_chart(fig2, use_container_width=True)
 
-    bulk_utilization = []
-    for zone in bulk_rules.keys():
-        zone_df = chart_df[chart_df["LocationName"].astype(str).str.startswith(zone)]
-        pallet_count = len(zone_df)
-        total_qty = zone_df["Qty"].sum()
-        bulk_utilization.append({"Zone": zone, "Pallet Count": pallet_count, "Qty": total_qty})
-    bulk_df_chart = pd.DataFrame(bulk_utilization)
-    fig_bulk = px.bar(bulk_df_chart, x="Zone", y=["Pallet Count", "Qty"], barmode="group", title="Bulk Zone Utilization")
+    zone_summary = bulk_locations_df.groupby("Zone").agg({
+        "PalletCount": "sum",
+        "EmptySlots": "sum"
+    }).reset_index()
+
+    fig_bulk = px.bar(zone_summary, x="Zone", y=["PalletCount", "EmptySlots"], barmode="group",
+                      title="Bulk Zone Utilization (Pallets vs Empty Slots)",
+                      labels={"value": "Count", "variable": "Metric"})
+    fig_bulk.update_xaxes(type="category")
     st.plotly_chart(fig_bulk, use_container_width=True)
 
 elif selected_nav in ["Rack Discrepancies", "Bulk Discrepancies"]:
@@ -222,6 +255,14 @@ elif selected_nav in ["Rack Discrepancies", "Bulk Discrepancies"]:
                 if st.button(f"Mark {row.get('PalletId', 'Unknown')} as Fixed", key=f"fix_{location}_{idx}"):
                     log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot)
                     st.success(f"{row.get('PalletId', 'Unknown')} logged as fixed for LOT: {selected_lot}")
+
+elif selected_nav == "Bulk Locations":
+    st.subheader("📦 Bulk Locations")
+    st.dataframe(bulk_locations_df, use_container_width=True)
+
+elif selected_nav == "Empty Bulk Locations":
+    st.subheader("📦 Empty Bulk Locations")
+    st.dataframe(empty_bulk_locations_df, use_container_width=True)
 
 else:
     view_map = {
