@@ -169,11 +169,20 @@ def show_discrepancy_cards(df, discrepancy_type):
         <div style="border:1px solid #ccc; border-radius:10px; padding:15px; margin-bottom:10px;">
             <h4>{location}</h4>
             <p><strong>Issue:</strong> {issue_summary}</p>
-            <p><strong>Pallets:</strong> {pallet_count}</p>
+            <p><strong>Pallets in discrepancy group:</strong> {pallet_count}</p>
             <p><strong>Status:</strong> <span style="color:{'green' if '✅' in status else 'red'};">{status}</span></p>
         </div>
         """, unsafe_allow_html=True)
 
+        # ✅ Show ALL pallets in this location from full inventory
+        st.write("### All pallets in this location:")
+        location_pallets = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
+        if not location_pallets.empty:
+            st.dataframe(location_pallets[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]], use_container_width=True)
+        else:
+            st.info("No additional pallets found for this location.")
+
+        # ✅ Show discrepancy rows with fix option
         for idx, row in group.iterrows():
             row_id = location + str(row.get("PalletId", idx))
             if row_id in st.session_state.resolved_items:
