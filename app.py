@@ -1,10 +1,7 @@
 import pandas as pd
 import streamlit as st
 import os
-import csv
 import time
-import requests
-from streamlit_lottie import st_lottie  # Make sure to install: pip install streamlit-lottie
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
@@ -147,19 +144,16 @@ def apply_filters(df):
 st.markdown("""
 <style>
 .kpi-container {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
   margin-top: 2rem;
 }
 .kpi-card {
-  flex: 1 1 250px;
-  max-width: 300px;
   background: rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(10px);
   border-radius: 15px;
-  padding: 1rem;
+  padding: 1.5rem;
   text-align: center;
   color: white;
   font-size: 1rem;
@@ -177,7 +171,7 @@ st.markdown("""
   margin-bottom: 0.5rem;
 }
 .kpi-value {
-  font-size: 1.8rem;
+  font-size: 2rem;
   font-weight: bold;
   margin-bottom: 0.5rem;
 }
@@ -205,8 +199,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- DASHBOARD HEADER ----------------
-st.markdown("<h1 style='text-align: center; color: #FFD700;'>📦 Bin Helper Dashboard</h1>", unsafe_allow_html=True)
+# ---------------- HOME SCREEN ----------------
+if st.session_state.active_view is None:
+    st.markdown("<div class='welcome-container'>", unsafe_allow_html=True)
+    st.markdown("<div class='welcome-text'>👋 Welcome to Bin Helper</div>", unsafe_allow_html=True)
+    st.image("image.png", use_column_width="auto")  # Replace with your uploaded image path
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------- KPI CARDS ----------------
 kpi_data = [
@@ -222,18 +220,17 @@ kpi_data = [
 
 st.markdown("<div class='kpi-container'>", unsafe_allow_html=True)
 for item in kpi_data:
-    with st.container():
-        st.markdown(f"<div class='kpi-card'>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-icon'>{item['icon']}</div>", unsafe_allow_html=True)
-        placeholder = st.empty()
-        for i in range(0, item['value'] + 1, max(1, item['value'] // 20 or 1)):
-            placeholder.markdown(f"<div class='kpi-value'>{i}</div>", unsafe_allow_html=True)
-            time.sleep(0.02)
-        placeholder.markdown(f"<div class='kpi-value'>{item['value']}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div>{item['title']}</div>", unsafe_allow_html=True)
-        if st.button(f"View {item['title']}", key=f"btn_{item['title']}"):
-            st.session_state.active_view = item['title']
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='kpi-card'>", unsafe_allow_html=True)
+    st.markdown(f"<div class='kpi-icon'>{item['icon']}</div>", unsafe_allow_html=True)
+    placeholder = st.empty()
+    for i in range(0, item['value'] + 1, max(1, item['value'] // 20 or 1)):
+        placeholder.markdown(f"<div class='kpi-value'>{i}</div>", unsafe_allow_html=True)
+        time.sleep(0.02)
+    placeholder.markdown(f"<div class='kpi-value'>{item['value']}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div>{item['title']}</div>", unsafe_allow_html=True)
+    if st.button(f"View {item['title']}", key=f"btn_{item['title']}"):
+        st.session_state.active_view = item['title']
+    st.markdown("</div>", unsafe_allow_html=True)
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------- FILTERS ----------------
@@ -269,18 +266,3 @@ if st.session_state.active_view:
     active_df = apply_filters(raw_df)
     st.subheader(f"{st.session_state.active_view}")
     st.dataframe(active_df.reset_index(drop=True), use_container_width=True, hide_index=True)
-else:
-    # ---------------- WELCOME SCREEN ----------------
-    def load_lottieurl(url: str):
-        r = requests.get(url)
-        if r.status_code != 200:
-            return None
-        return r.json()
-
-    lottie_url = "https://assets10.lottiefiles.com/packages/lf20_5ngs2ksb.json"
-    lottie_json = load_lottieurl(lottie_url)
-
-    st.markdown("<div class='welcome-container'>", unsafe_allow_html=True)
-    st_lottie(lottie_json, height=300)
-    st.markdown("<div class='welcome-text'>Welcome to Bin Helper Dashboard</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
