@@ -92,12 +92,11 @@ def analyze_bulk_locations_grouped(df):
         slot_counts = letter_df.groupby("LocationName").size()
         for slot, count in slot_counts.items():
             if count > max_pallets:
-                results.append({
-                    "LocationName": slot,
-                    "TotalPallets": count,
-                    "MaxAllowed": max_pallets,
-                    "Issue": f"Exceeds max allowed: {count} > {max_pallets}"
-                })
+                slot_df = letter_df[letter_df["LocationName"] == slot]
+                for _, row in slot_df.iterrows():
+                    results.append(row.to_dict() | {
+                        "Issue": f"Exceeds max allowed: {count} > {max_pallets}"
+                    })
     return pd.DataFrame(results)
 
 bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
@@ -189,10 +188,15 @@ if selected_nav == "Dashboard":
     fig2 = px.bar(inventory_movement, x="WarehouseSku", y="Qty", title="Top 10 Inventory Movement", color="WarehouseSku")
     st.plotly_chart(fig2, use_container_width=True)
 
-    zone_usage = filtered_inventory_df["LocationName"].dropna().astype(str).str[0].value_counts().reset_index()
-    zone_usage.columns = ["Zone", "Count"]
-    fig3 = px.bar(zone_usage, x="Zone", y="Count", title="Bulk Zone Utilization", color="Zone")
-    st.plotly_chart(fig3, use_container_width=True)
+    bulk_utilization = []
+    for zone in bulk_rules.keys():
+        zone_df = filtered_inventory_df[filtered_inventory_df["LocationName"].astype(str).str.startswith(zone)]
+        pallet_count = len(zone_df)
+        total_qty = zone_df["Qty"].sum()
+        bulk_utilization.append({"Zone": zone, "Pallet Count": pallet_count, "Qty": total_qty})
+    bulk_df_chart = pd.DataFrame(bulk_utilization)
+    fig_bulk = px.bar(bulk_df_chart, x="Zone", y=["Pallet Count", "Qty"], barmode="group", title="Bulk Zone Utilization")
+    st.plotly_chart(fig_bulk, use_container_width=True)
 
 elif selected_nav in ["Rack Discrepancies", "Bulk Discrepancies"]:
     st.subheader(f"{selected_nav}")
@@ -201,13 +205,18 @@ elif selected_nav in ["Rack Discrepancies", "Bulk Discrepancies"]:
     for location, group in raw_df.groupby("LocationName"):
         with st.expander(f"📍 {location}"):
             for idx, row in group.iterrows():
-                pallet_id = row.get("PalletId", "Unknown")
+                st.write(f"**Location:** {row.get('LocationName', 'N/A')} | **Issue:** {row.get('Issue', 'N/A')}")
+                st.write(f"**Pallet ID:** {row.get('PalletId', 'N/A')} | **Qty:** {row.get('Qty', 'N/A')} | **Customer LOT:** {row.get('CustomerLotReference', 'N/A')}")
                 lot_list = group.get("CustomerLotReference", pd.Series()).dropna().unique().tolist()
-                selected_lot = st.selectbox(f"Select LOT to fix for {location}:", lot_list, key=f"lot_select_{location}_{idx}")
-                note = st.text_input(f"Add note for {pallet_id}:", key=f"note_{location}_{idx}")
-                if st.button(f"Mark {pallet_id} as Fixed", key=f"fix_{location}_{idx}"):
+                if lot_list:
+                    selected_lot = st.selectbox(f"Select LOT to fix for {row.get('LocationName', '')}:", lot_list, key=f"lot_select_{location}_{idx}")
+                else:
+                    selected_lot = "No LOT options available"
+                    st.write("No LOT options available for this discrepancy.")
+                note = st.text_input(f"Add note for {row.get('PalletId', 'Unknown')}:", key=f"note_{location}_{idx}")
+                if st.button(f"Mark {row.get('PalletId', 'Unknown')} as Fixed", key=f"fix_{location}_{idx}"):
                     log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot)
-                    st.success(f"{pallet_id} logged as fixed for LOT: {selected_lot}")
+                    st.success(f"{row.get('PalletId', 'Unknown')} logged as fixed for LOT: {selected_lot}")
 
 else:
     view_map = {
@@ -221,4 +230,3 @@ else:
     active_df = view_map.get(selected_nav, pd.DataFrame())
     required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
     available_cols = [col for col in required_cols if col in active_df.columns]
-    st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
