@@ -149,12 +149,12 @@ bulk_locations_df = pd.DataFrame(bulk_locations)
 empty_bulk_locations_df = pd.DataFrame(empty_bulk_locations)
 
 # --- LOGGING ---
-def log_resolved_discrepancy_with_note(row, note, selected_lot):
+def log_resolved_discrepancy_with_note(row, note, selected_lot, discrepancy_type):
     file_exists = os.path.isfile(resolved_file)
     with open(resolved_file, mode="a", newline="") as file:
         writer = csv.writer(file)
         if not file_exists:
-            writer.writerow(["Timestamp", "LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty", "Note", "SelectedLOT"])
+            writer.writerow(["Timestamp", "LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty", "Note", "SelectedLOT", "DiscrepancyType"])
         writer.writerow([
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             row.get("LocationName", ""),
@@ -163,7 +163,8 @@ def log_resolved_discrepancy_with_note(row, note, selected_lot):
             row.get("CustomerLotReference", ""),
             row.get("Qty", ""),
             note,
-            selected_lot
+            selected_lot,
+            discrepancy_type
         ])
 
 # --- LOTTIE ANIMATION ---
@@ -186,7 +187,6 @@ st.markdown("---")
 if selected_nav == "Dashboard":
     st.markdown("<h2 style='text-align:center;'>📊 Bin Helper Dashboard</h2>", unsafe_allow_html=True)
     st_lottie(lottie_json, height=150, key="warehouse_anim")
-
     # KPI Cards
     kpi_data = [
         {"title": "Empty Bins", "value": len(empty_bins_view_df)},
@@ -203,47 +203,17 @@ if selected_nav == "Dashboard":
     for i, item in enumerate(kpi_data):
         with cols[i]:
             st.metric(label=item["title"], value=item["value"])
-
-    # Existing Charts
+    # Charts
     chart_df = filtered_inventory_df.copy()
     location_usage = chart_df["LocationName"].value_counts().nlargest(10).reset_index()
     location_usage.columns = ["LocationName", "Count"]
     fig1 = px.pie(location_usage, names="LocationName", values="Count", title="Top 10 Location Usage")
     st.plotly_chart(fig1, use_container_width=True)
-
     inventory_movement = chart_df.groupby("WarehouseSku")["Qty"].sum().nlargest(10).reset_index()
     fig2 = px.bar(inventory_movement, x="WarehouseSku", y="Qty", title="Top 10 Inventory Movement", color="WarehouseSku")
     fig2.update_xaxes(type="category")
     st.plotly_chart(fig2, use_container_width=True)
 
-    # --- Additional 3D-style Charts ---
-    fig_full_empty_pie = px.pie(
-        names=["Full Pallet Bins", "Empty Bins"],
-        values=[len(full_pallet_bins_df), len(empty_bins_view_df)],
-        title="Full vs Empty Rack Bins (3D Style)",
-        hole=0.3
-    )
-    fig_full_empty_pie.update_traces(textinfo="label+percent", pull=[0.05, 0.05])
-    st.plotly_chart(fig_full_empty_pie, use_container_width=True)
-
-    bulk_summary = bulk_locations_df.groupby("Zone").agg({"PalletCount": "sum", "EmptySlots": "sum"}).reset_index()
-    bulk_pie_data = []
-    for _, row in bulk_summary.iterrows():
-        bulk_pie_data.append({"Status": f"{row['Zone']} Occupied", "Count": row["PalletCount"]})
-        bulk_pie_data.append({"Status": f"{row['Zone']} Empty", "Count": row["EmptySlots"]})
-    bulk_pie_df = pd.DataFrame(bulk_pie_data)
-
-    fig_bulk_pie = px.pie(
-        bulk_pie_df,
-        names="Status",
-        values="Count",
-        title="Bulk Locations: Occupied vs Empty Slots (3D Style)",
-        hole=0.3
-    )
-    fig_bulk_pie.update_traces(textinfo="label+percent", pull=[0.05]*len(bulk_pie_df))
-    st.plotly_chart(fig_bulk_pie, use_container_width=True)
-
-# --- Damages Tab ---
 elif selected_nav == "Damages":
     st.subheader("Damages (Includes DAMAGE and IBDAMAGE)")
     if not damages_df.empty:
@@ -255,29 +225,62 @@ elif selected_nav == "Damages":
     else:
         st.info("No damages found.")
 
-# --- Bulk Discrepancies (Preserve Original Layout) ---
+# --- Rack Discrepancies Tab ---
+elif selected_nav == "Rack Discrepancies":
+    st.subheader("Rack Discrepancies")
+    if not discrepancy_df.empty:
+        st.dataframe(discrepancy_df.reset_index(drop=True), use_container_width=True)
+        csv_data = discrepancy_df.to_csv(index=False).encode("utf-8")
+        st.download_button(label="Download Rack Discrepancies CSV", data=csv_data,
+                           file_name="rack_discrepancies.csv", mime="text/csv")
+    else:
+        st.info("No rack discrepancies found.")
+
+# --- Bulk Discrepancies Tab ---
 elif selected_nav == "Bulk Discrepancies":
     st.subheader("Bulk Discrepancies")
-    for location, group in bulk_df.groupby("LocationName"):
-        with st.expander(f"📍 {location}"):
-            for idx, row in group.iterrows():
-                st.write(f"**Location:** {row.get('LocationName', 'N/A')} | **Issue:** {row.get('Issue', 'N/A')}")
-                st.write(f"**Pallet ID:** {row.get('PalletId', 'N/A')} | **Qty:** {row.get('Qty', 'N/A')} | **Customer LOT:** {row.get('CustomerLotReference', 'N/A')}")
-            st.markdown("---")
-
-    # Global LOT Fix Section
-    st.subheader("✅ Fix Discrepancy by LOT")
-    lot_list = bulk_df["CustomerLotReference"].dropna().unique().tolist()
-    if lot_list:
-        selected_lot = st.selectbox("Select LOT to fix:", lot_list, key="bulk_global_lot_select")
-        note = st.text_input(f"Add note for LOT {selected_lot}:", key="bulk_global_note")
-        if st.button("Fix Selected LOT", key="bulk_global_fix"):
-            rows_to_fix = bulk_df[bulk_df["CustomerLotReference"] == selected_lot]
-            for _, row in rows_to_fix.iterrows():
-                log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot)
-            st.success(f"All discrepancies for LOT {selected_lot} marked as fixed ({len(rows_to_fix)} pallets).")
+    if not bulk_df.empty:
+        st.dataframe(bulk_df.reset_index(drop=True), use_container_width=True)
+        csv_data = bulk_df.to_csv(index=False).encode("utf-8")
+        st.download_button(label="Download Bulk Discrepancies CSV", data=csv_data,
+                           file_name="bulk_discrepancies.csv", mime="text/csv")
+        # LOT Fix Section
+        st.subheader("✅ Fix Discrepancy by LOT")
+        lot_list = bulk_df["CustomerLotReference"].dropna().unique().tolist()
+        if lot_list:
+            selected_lot = st.selectbox("Select LOT to fix:", lot_list, key="bulk_global_lot_select")
+            note = st.text_input(f"Add note for LOT {selected_lot}:", key="bulk_global_note")
+            if st.button("Fix Selected LOT", key="bulk_global_fix"):
+                rows_to_fix = bulk_df[bulk_df["CustomerLotReference"] == selected_lot]
+                for _, row in rows_to_fix.iterrows():
+                    log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot, "Bulk")
+                st.success(f"All discrepancies for LOT {selected_lot} marked as fixed ({len(rows_to_fix)} pallets).")
+        else:
+            st.info("No LOT options available for bulk discrepancies.")
     else:
-        st.info("No LOT options available for bulk discrepancies.")
+        st.info("No bulk discrepancies found.")
+
+# --- Bulk Locations Tab ---
+elif selected_nav == "Bulk Locations":
+    st.subheader("Bulk Locations")
+    if not bulk_locations_df.empty:
+        st.dataframe(bulk_locations_df.reset_index(drop=True), use_container_width=True)
+        csv_data = bulk_locations_df.to_csv(index=False).encode("utf-8")
+        st.download_button(label="Download Bulk Locations CSV", data=csv_data,
+                           file_name="bulk_locations.csv", mime="text/csv")
+    else:
+        st.info("No bulk locations found.")
+
+# --- Empty Bulk Locations Tab ---
+elif selected_nav == "Empty Bulk Locations":
+    st.subheader("Empty Bulk Locations")
+    if not empty_bulk_locations_df.empty:
+        st.dataframe(empty_bulk_locations_df.reset_index(drop=True), use_container_width=True)
+        csv_data = empty_bulk_locations_df.to_csv(index=False).encode("utf-8")
+        st.download_button(label="Download Empty Bulk Locations CSV", data=csv_data,
+                           file_name="empty_bulk_locations.csv", mime="text/csv")
+    else:
+        st.info("No empty bulk locations found.")
 
 # --- Other Tabs ---
 else:
@@ -291,7 +294,6 @@ else:
     active_df = view_map.get(selected_nav, pd.DataFrame())
     required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]
     available_cols = [col for col in required_cols if col in active_df.columns]
-
     st.subheader(f"{selected_nav}")
     if not active_df.empty:
         st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True)
