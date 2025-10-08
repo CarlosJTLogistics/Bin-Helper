@@ -126,6 +126,18 @@ def analyze_discrepancies(df):
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
+# ---------------- VIEW MAP ----------------
+view_map = {
+    "Rack Discrepancies": discrepancy_df,
+    "Bulk Discrepancies": bulk_df,
+    "Empty Bins": empty_bins_view_df,
+    "Full Pallet Bins": full_pallet_bins_df,
+    "Empty Partial Bins": empty_partial_bins_df,
+    "Partial Bins": partial_bins_df,
+    "Damages": damages_df,
+    "Missing": missing_df
+}
+
 # ---------------- LOGGING FUNCTION ----------------
 def log_resolved_discrepancy_with_note(row, note):
     row_with_note = row.copy()
@@ -236,6 +248,19 @@ def show_dashboard():
         fig_movement.update_traces(textposition="outside")
         st.plotly_chart(fig_movement, use_container_width=True)
 
+    # Bulk Zone Utilization
+    st.subheader("📦 Bulk Zone Utilization")
+    bulk_utilization = []
+    for zone in bulk_rules.keys():
+        zone_df = filtered_inventory_df[filtered_inventory_df["LocationName"].astype(str).str.startswith(zone)]
+        pallet_count = len(zone_df)
+        total_qty = zone_df["Qty"].sum()
+        bulk_utilization.append({"Zone": zone, "Pallet Count": pallet_count, "Qty": total_qty})
+    bulk_df_chart = pd.DataFrame(bulk_utilization)
+    fig_bulk = px.bar(bulk_df_chart, x="Zone", y=["Pallet Count", "Qty"], barmode="group",
+                      title="Bulk Zone Utilization: Pallet Count vs Qty")
+    st.plotly_chart(fig_bulk, use_container_width=True)
+
 # ---------------- NAVIGATION ----------------
 nav_options = ["Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins",
                "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies"]
@@ -257,15 +282,3 @@ else:
     active_df = apply_filters(view_map.get(st.session_state.active_view, pd.DataFrame()))
     available_cols = [col for col in required_cols if col in active_df.columns]
     st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
-
-# ---------------- VIEW MAP ----------------
-view_map = {
-    "Rack Discrepancies": discrepancy_df,
-    "Bulk Discrepancies": bulk_df,
-    "Empty Bins": empty_bins_view_df,
-    "Full Pallet Bins": full_pallet_bins_df,
-    "Empty Partial Bins": empty_partial_bins_df,
-    "Partial Bins": partial_bins_df,
-    "Damages": damages_df,
-    "Missing": missing_df
-}
