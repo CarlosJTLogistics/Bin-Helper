@@ -178,25 +178,75 @@ def show_discrepancy_cards(df, discrepancy_type):
                 st.success(f"{row.get('PalletId', 'Item')} logged as fixed!")
                 st.experimental_rerun()
 
-# ---------------- MAIN VIEW LOGIC ----------------
-view_map = {
-    "Rack Discrepancies": discrepancy_df,
-    "Bulk Discrepancies": bulk_df,
-    "Empty Bins": empty_bins_view_df,
-    "Full Pallet Bins": full_pallet_bins_df,
-    "Empty Partial Bins": empty_partial_bins_df,
-    "Partial Bins": partial_bins_df,
-    "Damages": damages_df,
-    "Missing": missing_df
-}
+# ---------------- DASHBOARD VIEW ----------------
+def load_lottie_url(url):
+    r = requests.get(url)
+    if r.status_code == 200:
+        return r.json()
+    return None
 
+lottie_animation = load_lottie_url("https://assets10.lottiefiles.com/packages/lf20_49rdyysj.json")
+
+def show_dashboard():
+    st.markdown("<h2 style='text-align:center;'>📊 Bin Helper Dashboard</h2>", unsafe_allow_html=True)
+    if lottie_animation:
+        st_lottie(lottie_animation, speed=1, loop=True, height=200)
+
+    # KPI Cards
+    kpi_data = [
+        {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
+        {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
+        {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df), "icon": "🟨"},
+        {"title": "Partial Bins", "value": len(partial_bins_df), "icon": "🟥"},
+        {"title": "Damages", "value": len(damages_df), "icon": "🛠️"},
+        {"title": "Missing", "value": len(missing_df), "icon": "❓"},
+        {"title": "Rack Discrepancies", "value": len(discrepancy_df), "icon": "⚠️"},
+        {"title": "Bulk Discrepancies", "value": len(bulk_df), "icon": "📦"}
+    ]
+    cols = st.columns(len(kpi_data))
+    for i, item in enumerate(kpi_data):
+        with cols[i]:
+            if st.button(f"{item['icon']} {item['title']} ({item['value']})", key=item['title']):
+                st.session_state.active_view = item['title']
+
+    st.markdown("---")
+    # Charts
+    col1, col2 = st.columns([2, 1])
+    with col2:
+        total_locations = len(master_locations)
+        occupied_count = len(occupied_locations)
+        empty_count = total_locations - occupied_count
+        usage_percent = round((occupied_count / total_locations) * 100, 2)
+        st.subheader("📍 Location Usage")
+        fig_usage = px.pie(names=["Occupied", "Empty"], values=[occupied_count, empty_count], hole=0.6,
+                           color_discrete_sequence=["#2E86C1", "#AED6F1"])
+        fig_usage.update_traces(textinfo="percent+label")
+        st.plotly_chart(fig_usage, use_container_width=True)
+        st.caption(f"Total Locations: {total_locations} | Usage: {usage_percent}%")
+    with col1:
+        st.subheader("📦 Inventory Movement")
+        movement_data = {
+            "Full Pallet Bins": len(full_pallet_bins_df),
+            "Partial Bins": len(partial_bins_df),
+            "Damages": len(damages_df),
+            "Missing": len(missing_df)
+        }
+        fig_movement = px.bar(x=list(movement_data.keys()), y=list(movement_data.values()), color=list(movement_data.keys()),
+                              title="Inventory Distribution", text=list(movement_data.values()))
+        fig_movement.update_traces(textposition="outside")
+        st.plotly_chart(fig_movement, use_container_width=True)
+
+# ---------------- NAVIGATION ----------------
 nav_options = ["Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins",
                "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies"]
 selected_nav = st.radio("🔍 Navigate:", nav_options, index=nav_options.index(st.session_state.active_view), horizontal=True)
 st.session_state.active_view = selected_nav
 st.markdown("---")
 
-if st.session_state.active_view in ["Rack Discrepancies", "Bulk Discrepancies"]:
+# ---------------- MAIN VIEW ----------------
+if st.session_state.active_view == "Dashboard":
+    show_dashboard()
+elif st.session_state.active_view in ["Rack Discrepancies", "Bulk Discrepancies"]:
     st.subheader(f"{st.session_state.active_view}")
     raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
     active_df = apply_filters(raw_df)
@@ -207,3 +257,15 @@ else:
     active_df = apply_filters(view_map.get(st.session_state.active_view, pd.DataFrame()))
     available_cols = [col for col in required_cols if col in active_df.columns]
     st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
+
+# ---------------- VIEW MAP ----------------
+view_map = {
+    "Rack Discrepancies": discrepancy_df,
+    "Bulk Discrepancies": bulk_df,
+    "Empty Bins": empty_bins_view_df,
+    "Full Pallet Bins": full_pallet_bins_df,
+    "Empty Partial Bins": empty_partial_bins_df,
+    "Partial Bins": partial_bins_df,
+    "Damages": damages_df,
+    "Missing": missing_df
+}
