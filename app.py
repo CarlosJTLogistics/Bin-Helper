@@ -149,7 +149,7 @@ st.markdown("""
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 1rem;
-  margin-top: 1rem;
+  margin-top: 0.5rem;
 }
 .kpi-card {
   background: rgba(255, 255, 255, 0.1);
@@ -177,24 +177,17 @@ st.markdown("""
   font-weight: bold;
   margin-bottom: 0.5rem;
 }
-@keyframes fadeIn {
-  from {opacity: 0;}
-  to {opacity: 1;}
-}
 .welcome-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  animation: fadeIn 2s ease-in;
-  margin-top: 1rem;
+  margin-top: 0.5rem;
 }
 .welcome-text {
-  font-size: 2.5rem;
+  font-size: 2rem;
   font-weight: bold;
-  background: linear-gradient(90deg, #FFD700, #FF8C00);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: #FFD700;
   text-align: center;
   margin-top: 0.5rem;
 }
@@ -212,7 +205,7 @@ lottie_url = "https://assets10.lottiefiles.com/packages/lf20_5ngs2ksb.json"
 lottie_json = load_lottieurl(lottie_url)
 
 st.markdown("<div class='welcome-container'>", unsafe_allow_html=True)
-st_lottie(lottie_json, height=200)
+st_lottie(lottie_json, height=150)  # Smaller animation
 st.markdown("<div class='welcome-text'>👋 Welcome to Bin Helper</div>", unsafe_allow_html=True)
 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -242,37 +235,3 @@ for item in kpi_data:
         st.session_state.active_view = item['title']
     st.markdown("</div>", unsafe_allow_html=True)
 st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------------- FILTERS ----------------
-st.sidebar.markdown("### 🔍 Filter Options")
-st.session_state.filters["LocationName"] = st.sidebar.text_input("Location", value=st.session_state.filters["LocationName"])
-st.session_state.filters["PalletId"] = st.sidebar.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
-st.session_state.filters["WarehouseSku"] = st.sidebar.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
-st.session_state.filters["CustomerLotReference"] = st.sidebar.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
-
-# ---------------- HISTORY LOG ----------------
-st.sidebar.markdown("### ✅ History Log")
-log_file = "resolved_discrepancies.csv"
-if os.path.exists(log_file):
-    history_df = pd.read_csv(log_file)
-    st.sidebar.dataframe(history_df.reset_index(drop=True), use_container_width=True, hide_index=True)
-else:
-    st.sidebar.info("No resolved discrepancies logged yet.")
-
-# ---------------- DISPLAY VIEWS ----------------
-view_map = {
-    "Rack Discrepancies": discrepancy_df,
-    "Bulk Discrepancies": bulk_df,
-    "Empty Bins": empty_bins_view_df,
-    "Full Pallet Bins": full_pallet_bins_df,
-    "Empty Partial Bins": empty_partial_bins_df,
-    "Partial Bins": partial_bins_df,
-    "Damages": damages_df,
-    "Missing": missing_df
-}
-
-if st.session_state.active_view:
-    raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
-    active_df = apply_filters(raw_df)
-    st.subheader(f"{st.session_state.active_view}")
-    st.dataframe(active_df.reset_index(drop=True), use_container_width=True, hide_index=True)
