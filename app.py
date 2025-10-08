@@ -236,11 +236,9 @@ if selected_nav == "Dashboard":
     fig_bulk.update_xaxes(type="category")
     st.plotly_chart(fig_bulk, use_container_width=True)
 
-elif selected_nav in ["Rack Discrepancies", "Bulk Discrepancies"]:
-    st.subheader(f"{selected_nav}")
-    raw_df = discrepancy_df if selected_nav == "Rack Discrepancies" else bulk_df
-
-    for location, group in raw_df.groupby("LocationName"):
+elif selected_nav == "Rack Discrepancies":
+    st.subheader("Rack Discrepancies")
+    for location, group in discrepancy_df.groupby("LocationName"):
         with st.expander(f"📍 {location}"):
             for idx, row in group.iterrows():
                 st.write(f"**Location:** {row.get('LocationName', 'N/A')} | **Issue:** {row.get('Issue', 'N/A')}")
@@ -255,6 +253,27 @@ elif selected_nav in ["Rack Discrepancies", "Bulk Discrepancies"]:
                 if st.button(f"Mark {row.get('PalletId', 'Unknown')} as Fixed", key=f"fix_{location}_{idx}"):
                     log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot)
                     st.success(f"{row.get('PalletId', 'Unknown')} logged as fixed for LOT: {selected_lot}")
+
+elif selected_nav == "Bulk Discrepancies":
+    st.subheader("Bulk Discrepancies")
+    for location, group in bulk_df.groupby("LocationName"):
+        with st.expander(f"📍 {location}"):
+            for idx, row in group.iterrows():
+                st.write(f"**Location:** {row.get('LocationName', 'N/A')} | **Issue:** {row.get('Issue', 'N/A')}")
+                st.write(f"**Pallet ID:** {row.get('PalletId', 'N/A')} | **Qty:** {row.get('Qty', 'N/A')} | **Customer LOT:** {row.get('CustomerLotReference', 'N/A')}")
+
+    st.markdown("---")
+    st.subheader("✅ Fix Discrepancy by LOT")
+    lot_list = bulk_df["CustomerLotReference"].dropna().unique().tolist()
+    if lot_list:
+        selected_lot = st.selectbox("Select LOT to fix:", lot_list)
+        if st.button("Fix Selected LOT"):
+            rows_to_fix = bulk_df[bulk_df["CustomerLotReference"] == selected_lot]
+            for _, row in rows_to_fix.iterrows():
+                log_resolved_discrepancy_with_note(row.to_dict(), "Bulk LOT fix", selected_lot)
+            st.success(f"All discrepancies for LOT {selected_lot} marked as fixed ({len(rows_to_fix)} pallets).")
+    else:
+        st.info("No LOT options available for bulk discrepancies.")
 
 elif selected_nav == "Bulk Locations":
     st.subheader("📦 Bulk Locations")
