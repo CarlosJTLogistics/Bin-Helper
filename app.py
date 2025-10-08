@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 import os
 import csv
+import time
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
@@ -143,24 +144,15 @@ def apply_filters(df):
 # ---------------- CUSTOM STYLES ----------------
 st.markdown("""
     <style>
-    .hero {
-        background: linear-gradient(to right, #0f2027, #203a43, #2c5364);
-        padding: 3rem;
-        border-radius: 15px;
-        text-align: center;
-        color: white;
-        margin-bottom: 2rem;
-        animation: fadeIn 2s ease-in-out;
-    }
-    .hero h1 {
-        font-size: 3rem;
-        margin-bottom: 0.5rem;
-    }
-    .hero p {
-        font-size: 1.2rem;
-        color: #ddd;
+    .kpi-container {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-around;
+        margin-top: 2rem;
+        gap: 1rem;
     }
     .kpi-card {
+        flex: 1 1 200px;
         background: linear-gradient(135deg, #1e3c72, #2a5298);
         border-radius: 15px;
         padding: 1rem;
@@ -170,44 +162,54 @@ st.markdown("""
         font-weight: bold;
         transition: transform 0.3s ease, box-shadow 0.3s ease;
         box-shadow: 0 0 10px rgba(0,0,0,0.3);
+        cursor: pointer;
     }
     .kpi-card:hover {
         transform: scale(1.05);
         box-shadow: 0 0 20px #FFD700;
     }
-    @keyframes fadeIn {
-        from {opacity: 0;}
-        to {opacity: 1;}
+    .kpi-icon {
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+    }
+    .kpi-value {
+        font-size: 1.8rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# ---------------- HERO SECTION ----------------
-st.markdown("""
-    <div class='hero'>
-        <h1>🚀 Bin Helper</h1>
-        <p>Your smart dashboard for managing warehouse bins and discrepancies</p>
-    </div>
-""", unsafe_allow_html=True)
+# ---------------- DASHBOARD HEADER ----------------
+st.markdown("<h1 style='text-align: center; color: #FFD700;'>📦 Bin Helper Dashboard</h1>", unsafe_allow_html=True)
 
 # ---------------- KPI CARDS ----------------
 kpi_data = [
-    {"title": "Empty Bins", "value": len(empty_bins_view_df)},
-    {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df)},
-    {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df)},
-    {"title": "Partial Bins", "value": len(partial_bins_df)},
-    {"title": "Damages", "value": len(damages_df)},
-    {"title": "Missing", "value": len(missing_df)},
-    {"title": "Rack Discrepancies", "value": len(discrepancy_df)},
-    {"title": "Bulk Discrepancies", "value": len(bulk_df)}
+    {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
+    {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
+    {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df), "icon": "🟨"},
+    {"title": "Partial Bins", "value": len(partial_bins_df), "icon": "🟥"},
+    {"title": "Damages", "value": len(damages_df), "icon": "🛠️"},
+    {"title": "Missing", "value": len(missing_df), "icon": "❓"},
+    {"title": "Rack Discrepancies", "value": len(discrepancy_df), "icon": "⚠️"},
+    {"title": "Bulk Discrepancies", "value": len(bulk_df), "icon": "📦"}
 ]
 
-cols = st.columns(len(kpi_data))
-for i, item in enumerate(kpi_data):
-    with cols[i]:
-        st.markdown(f"<div class='kpi-card'>{item['title']}<br><span style='font-size:1.5rem;'>{item['value']}</span></div>", unsafe_allow_html=True)
+st.markdown("<div class='kpi-container'>", unsafe_allow_html=True)
+for item in kpi_data:
+    with st.container():
+        st.markdown(f"<div class='kpi-card'>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-icon'>{item['icon']}</div>", unsafe_allow_html=True)
+        placeholder = st.empty()
+        for i in range(0, item['value'] + 1, max(1, item['value'] // 20 or 1)):
+            placeholder.markdown(f"<div class='kpi-value'>{i}</div>", unsafe_allow_html=True)
+            time.sleep(0.02)
+        placeholder.markdown(f"<div class='kpi-value'>{item['value']}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div>{item['title']}</div>", unsafe_allow_html=True)
         if st.button(f"View {item['title']}", key=f"btn_{item['title']}"):
             st.session_state.active_view = item['title']
+        st.markdown("</div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------- FILTERS ----------------
 st.sidebar.markdown("### 🔍 Filter Options")
