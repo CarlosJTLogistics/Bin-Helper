@@ -147,15 +147,15 @@ st.markdown("""
 <style>
 .kpi-container {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1.5rem;
-  margin-top: 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
 }
 .kpi-card {
   background: rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(10px);
   border-radius: 15px;
-  padding: 1.5rem;
+  padding: 1rem;
   text-align: center;
   color: white;
   font-size: 1rem;
@@ -187,7 +187,7 @@ st.markdown("""
   align-items: center;
   justify-content: center;
   animation: fadeIn 2s ease-in;
-  margin-top: 3rem;
+  margin-top: 2rem;
 }
 .welcome-text {
   font-size: 2.5rem;
@@ -213,7 +213,7 @@ lottie_json = load_lottieurl(lottie_url)
 
 if st.session_state.active_view is None:
     st.markdown("<div class='welcome-container'>", unsafe_allow_html=True)
-    st_lottie(lottie_json, height=300)
+    st_lottie(lottie_json, height=250)
     st.markdown("<div class='welcome-text'>👋 Welcome to Bin Helper</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
