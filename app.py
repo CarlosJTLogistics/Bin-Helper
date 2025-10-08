@@ -187,7 +187,7 @@ st.markdown("""
   align-items: center;
   justify-content: center;
   animation: fadeIn 2s ease-in;
-  margin-top: 2rem;
+  margin-top: 1rem;
 }
 .welcome-text {
   font-size: 2.5rem;
@@ -196,7 +196,7 @@ st.markdown("""
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   text-align: center;
-  margin-top: 1rem;
+  margin-top: 0.5rem;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -211,11 +211,10 @@ def load_lottieurl(url: str):
 lottie_url = "https://assets10.lottiefiles.com/packages/lf20_5ngs2ksb.json"
 lottie_json = load_lottieurl(lottie_url)
 
-if st.session_state.active_view is None:
-    st.markdown("<div class='welcome-container'>", unsafe_allow_html=True)
-    st_lottie(lottie_json, height=250)
-    st.markdown("<div class='welcome-text'>👋 Welcome to Bin Helper</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+st.markdown("<div class='welcome-container'>", unsafe_allow_html=True)
+st_lottie(lottie_json, height=200)
+st.markdown("<div class='welcome-text'>👋 Welcome to Bin Helper</div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------- KPI CARDS ----------------
 kpi_data = [
