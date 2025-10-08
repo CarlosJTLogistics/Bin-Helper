@@ -181,7 +181,6 @@ def load_lottie_url(url):
 lottie_animation = load_lottie_url("https://assets10.lottiefiles.com/packages/lf20_49rdyysj.json")
 
 def show_dashboard():
-    # Animated Welcome Section
     st.markdown(
         """
         <div style='text-align: center; padding: 20px 0;'>
@@ -195,7 +194,7 @@ def show_dashboard():
     if lottie_animation:
         st_lottie(lottie_animation, speed=1, reverse=False, loop=True, quality="high", height=200)
 
-    # KPI Cards with clickable buttons
+    # KPI Cards
     kpi_data = [
         {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
         {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
@@ -217,13 +216,11 @@ def show_dashboard():
     # Charts
     col1, col2 = st.columns([2, 1])
 
-    # Donut Chart
     with col2:
         total_locations = len(master_locations)
         occupied_count = len(occupied_locations)
         empty_count = total_locations - occupied_count
         usage_percent = round((occupied_count / total_locations) * 100, 2)
-
         st.subheader("📍 Location Usage")
         fig_usage = px.pie(names=["Occupied", "Empty"], values=[occupied_count, empty_count], hole=0.6,
                            color_discrete_sequence=["#2E86C1", "#AED6F1"])
@@ -231,7 +228,6 @@ def show_dashboard():
         st.plotly_chart(fig_usage, use_container_width=True)
         st.caption(f"Total Locations: {total_locations} | Usage: {usage_percent}%")
 
-    # Inventory Movement
     with col1:
         st.subheader("📦 Inventory Movement")
         movement_data = {
@@ -247,7 +243,6 @@ def show_dashboard():
 
     st.markdown("---")
 
-    # Trend Chart
     st.subheader("📈 Bin Trends Over Time")
     if os.path.exists(trend_file):
         trend_df = pd.read_csv(trend_file)
@@ -260,14 +255,12 @@ def show_dashboard():
 
     st.markdown("---")
 
-    # Top SKUs
     st.subheader("🏆 Top 10 SKUs by Quantity")
     sku_qty = filtered_inventory_df.groupby("WarehouseSku")["Qty"].sum().sort_values(ascending=False).head(10)
     fig_top_skus = px.bar(x=sku_qty.values, y=sku_qty.index, orientation="h", title="Top SKUs by Quantity",
                           color=sku_qty.values, color_continuous_scale="Blues")
     st.plotly_chart(fig_top_skus, use_container_width=True)
 
-    # Bulk Zone Utilization
     st.subheader("📦 Bulk Zone Utilization")
     bulk_utilization = []
     for zone, max_pallets in bulk_rules.items():
@@ -331,3 +324,4 @@ else:
     else:
         required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
         available_cols = [col for col in required_cols if col in active_df.columns]
+        st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
