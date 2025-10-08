@@ -195,7 +195,7 @@ def show_dashboard():
     if lottie_animation:
         st_lottie(lottie_animation, speed=1, reverse=False, loop=True, quality="high", height=200)
 
-    # --- KPI Cards ---
+    # KPI Cards
     kpi_data = [
         {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
         {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
@@ -213,5 +213,85 @@ def show_dashboard():
 
     st.markdown("---")
 
-    # Charts and analytics (donut, bar, trend, top SKUs, bulk utilization)
-    # [Same as previous version]
+    # Charts
+    col1, col2 = st.columns([2, 1])
+
+    # Donut Chart
+    with col2:
+        total_locations = len(master_locations)
+        occupied_count = len(occupied_locations)
+        empty_count = total_locations - occupied_count
+        usage_percent = round((occupied_count / total_locations) * 100, 2)
+
+        st.subheader("📍 Location Usage")
+        fig_usage = px.pie(names=["Occupied", "Empty"], values=[occupied_count, empty_count], hole=0.6,
+                           color_discrete_sequence=["#2E86C1", "#AED6F1"])
+        fig_usage.update_traces(textinfo="percent+label")
+        st.plotly_chart(fig_usage, use_container_width=True)
+        st.caption(f"Total Locations: {total_locations} | Usage: {usage_percent}%")
+
+    # Inventory Movement
+    with col1:
+        st.subheader("📦 Inventory Movement")
+        movement_data = {
+            "Full Pallet Bins": len(full_pallet_bins_df),
+            "Partial Bins": len(partial_bins_df),
+            "Damages": len(damages_df),
+            "Missing": len(missing_df)
+        }
+        fig_movement = px.bar(x=list(movement_data.keys()), y=list(movement_data.values()), color=list(movement_data.keys()),
+                              title="Inventory Distribution", text=list(movement_data.values()))
+        fig_movement.update_traces(textposition="outside")
+        st.plotly_chart(fig_movement, use_container_width=True)
+
+    st.markdown("---")
+
+    # Trend Chart
+    st.subheader("📈 Bin Trends Over Time")
+    if os.path.exists(trend_file):
+        trend_df = pd.read_csv(trend_file)
+        fig_trend = px.line(trend_df, x="Date",
+                            y=["EmptyBins", "FullPalletBins", "PartialBins", "EmptyPartialBins", "RackDiscrepancies", "BulkDiscrepancies"],
+                            markers=True, title="Bin Trends Over Time")
+        st.plotly_chart(fig_trend, use_container_width=True)
+    else:
+        st.info("No trend data available yet.")
+
+    st.markdown("---")
+
+    # Top SKUs
+    st.subheader("🏆 Top 10 SKUs by Quantity")
+    sku_qty = filtered_inventory_df.groupby("WarehouseSku")["Qty"].sum().sort_values(ascending=False).head(10)
+    fig_top_skus = px.bar(x=sku_qty.values, y=sku_qty.index, orientation="h", title="Top SKUs by Quantity",
+                          color=sku_qty.values, color_continuous_scale="Blues")
+    st.plotly_chart(fig_top_skus, use_container_width=True)
+
+    # Bulk Zone Utilization
+    st.subheader("📦 Bulk Zone Utilization")
+    bulk_utilization = []
+    for zone, max_pallets in bulk_rules.items():
+        zone_count = len(filtered_inventory_df[filtered_inventory_df["LocationName"].astype(str).str.startswith(zone)])
+        bulk_utilization.append({"Zone": zone, "Current": zone_count, "MaxAllowed": max_pallets})
+    bulk_df_chart = pd.DataFrame(bulk_utilization)
+    fig_bulk = px.bar(bulk_df_chart, x="Zone", y=["Current", "MaxAllowed"], barmode="group", title="Bulk Zone Utilization")
+    st.plotly_chart(fig_bulk, use_container_width=True)
+
+# ---------------- MAIN VIEW LOGIC ----------------
+view_map = {
+    "Rack Discrepancies": discrepancy_df,
+    "Bulk Discrepancies": bulk_df,
+    "Empty Bins": empty_bins_view_df,
+    "Full Pallet Bins": full_pallet_bins_df,
+    "Empty Partial Bins": empty_partial_bins_df,
+    "Partial Bins": partial_bins_df,
+    "Damages": damages_df,
+    "Missing": missing_df
+}
+
+if st.session_state.active_view == "Dashboard":
+    show_dashboard()
+else:
+    raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
+    active_df = apply_filters(raw_df)
+    st.subheader(f"{st.session_state.active_view}")
+    st.dataframe(active_df.reset_index(drop=True), use_container_width=True, hide_index=True)
