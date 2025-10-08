@@ -124,60 +124,118 @@ def analyze_discrepancies(df):
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
-# --- LOT LOOKUP FEATURE ---
-lot_numbers = sorted(inventory_df["CustomerLotReference"].dropna().unique())
+# --- LOGGING ---
+def log_resolved_discrepancy_with_note(row, note, selected_lot):
+    file_exists = os.path.isfile(resolved_file)
+    with open(resolved_file, mode="a", newline="") as file:
+        writer = csv.writer(file)
+        if not file_exists:
+            writer.writerow(["Timestamp", "LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty", "Note", "SelectedLOT"])
+        writer.writerow([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            row.get("LocationName", ""),
+            row.get("PalletId", ""),
+            row.get("WarehouseSku", ""),
+            row.get("CustomerLotReference", ""),
+            row.get("Qty", ""),
+            note,
+            selected_lot
+        ])
 
-# --- VIEW MAP ---
-view_map = {
-    "Rack Discrepancies": discrepancy_df,
-    "Bulk Discrepancies": bulk_df,
-    "Empty Bins": empty_bins_view_df,
-    "Full Pallet Bins": full_pallet_bins_df,
-    "Empty Partial Bins": empty_partial_bins_df,
-    "Partial Bins": partial_bins_df,
-    "Damages": damages_df,
-    "Missing": missing_df
-}
+# --- LOTTIE ANIMATION ---
+def load_lottie_url(url):
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    return r.json()
+
+lottie_url = "https://assets2.lottiefiles.com/packages/lf20_4kx2q32n.json"
+lottie_json = load_lottie_url(lottie_url)
+
+# --- STYLING ---
+st.markdown("""
+    <style>
+    .metric-card {
+        background-color: #0f0f0f;
+        color: #39ff14;
+        padding: 10px;
+        border-radius: 10px;
+        text-align: center;
+        transition: transform 0.2s;
+    }
+    .metric-card:hover {
+        transform: scale(1.05);
+        background-color: #1f1f1f;
+    }
+    .stRadio > div {
+        flex-direction: row;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- NAVIGATION ---
 nav_options = ["Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins",
-               "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies", "LOT Lookup"]
+               "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies"]
 selected_nav = st.radio("🔍 Navigate:", nav_options, horizontal=True)
 st.markdown("---")
 
 # --- MAIN VIEW ---
 if selected_nav == "Dashboard":
     st.markdown("<h2 style='text-align:center;'>📊 Bin Helper Dashboard</h2>", unsafe_allow_html=True)
+    st_lottie(lottie_json, height=150, key="warehouse_anim")
+
     # KPI Cards
     kpi_data = [
-        {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
-        {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
-        {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df), "icon": "🟨"},
-        {"title": "Partial Bins", "value": len(partial_bins_df), "icon": "🟥"},
-        {"title": "Damages", "value": len(damages_df), "icon": "🛠️"},
-        {"title": "Missing", "value": len(missing_df), "icon": "❓"},
-        {"title": "Rack Discrepancies", "value": len(discrepancy_df), "icon": "⚠️"},
-        {"title": "Bulk Discrepancies", "value": len(bulk_df), "icon": "📦"}
+        {"title": "Empty Bins", "value": len(empty_bins_view_df)},
+        {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df)},
+        {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df)},
+        {"title": "Partial Bins", "value": len(partial_bins_df)},
+        {"title": "Damages", "value": len(damages_df)},
+        {"title": "Missing", "value": len(missing_df)},
+        {"title": "Rack Discrepancies", "value": len(discrepancy_df)},
+        {"title": "Bulk Discrepancies", "value": len(bulk_df)}
     ]
     cols = st.columns(len(kpi_data))
     for i, item in enumerate(kpi_data):
         with cols[i]:
-            st.metric(label=item["title"], value=item["value"])
+            st.markdown(f"<div class='metric-card'><h4>{item['title']}</h4><h2>{item['value']}</h2></div>", unsafe_allow_html=True)
 
-elif selected_nav == "LOT Lookup":
-    st.subheader("🔍 LOT Lookup")
-    selected_lot = st.selectbox("Select LOT Number:", lot_numbers)
-    filtered_by_lot = inventory_df[inventory_df["CustomerLotReference"] == selected_lot]
-    st.dataframe(filtered_by_lot[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]],
-                 use_container_width=True, hide_index=True)
+    # Charts
+    location_usage = filtered_inventory_df["LocationName"].value_counts().nlargest(10).reset_index()
+    location_usage.columns = ["LocationName", "Count"]
+    fig1 = px.pie(location_usage, names="LocationName", values="Count", title="Top 10 Location Usage")
+    st.plotly_chart(fig1, use_container_width=True)
+
+    zone_usage = filtered_inventory_df["LocationName"].dropna().astype(str).str[0].value_counts().reset_index()
+    zone_usage.columns = ["Zone", "Count"]
+    fig2 = px.bar(zone_usage, x="Zone", y="Count", title="Bulk Zone Utilization", color="Zone")
+    st.plotly_chart(fig2, use_container_width=True)
 
 elif selected_nav in ["Rack Discrepancies", "Bulk Discrepancies"]:
     st.subheader(f"{selected_nav}")
-    raw_df = view_map.get(selected_nav, pd.DataFrame())
-    st.dataframe(raw_df, use_container_width=True)
+    raw_df = discrepancy_df if selected_nav == "Rack Discrepancies" else bulk_df
+
+    for location, group in raw_df.groupby("LocationName"):
+        with st.expander(f"📍 {location}"):
+            for idx, row in group.iterrows():
+                pallet_id = row.get("PalletId", "Unknown")
+                lot_list = group["CustomerLotReference"].dropna().unique().tolist()
+                selected_lot = st.selectbox(f"Select LOT to fix for {location}:", lot_list, key=f"lot_select_{location}_{idx}")
+                note = st.text_input(f"Add note for {pallet_id}:", key=f"note_{location}_{idx}")
+                if st.button(f"Mark {pallet_id} as Fixed", key=f"fix_{location}_{idx}"):
+                    log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot)
+                    st.success(f"{pallet_id} logged as fixed for LOT: {selected_lot}")
 
 else:
-    required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
+    view_map = {
+        "Empty Bins": empty_bins_view_df,
+        "Full Pallet Bins": full_pallet_bins_df,
+        "Empty Partial Bins": empty_partial_bins_df,
+        "Partial Bins": partial_bins_df,
+        "Damages": damages_df,
+        "Missing": missing_df
+    }
     active_df = view_map.get(selected_nav, pd.DataFrame())
+    required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
     available_cols = [col for col in required_cols if col in active_df.columns]
     st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
