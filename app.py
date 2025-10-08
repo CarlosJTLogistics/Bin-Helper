@@ -11,8 +11,6 @@ import requests
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
 # ---------------- SESSION STATE ----------------
-if "active_view" not in st.session_state:
-    st.session_state.active_view = "Dashboard"
 if "filters" not in st.session_state:
     st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
 if "resolved_items" not in st.session_state:
@@ -21,7 +19,6 @@ if "resolved_items" not in st.session_state:
 # ---------------- FILE PATHS ----------------
 inventory_file = "ON_HAND_INVENTORY.xlsx"
 master_file = "Empty Bin Formula.xlsx"
-trend_file = "trend_history.csv"
 resolved_file = "resolved_discrepancies.csv"
 
 # ---------------- LOAD DATA ----------------
@@ -190,7 +187,7 @@ def show_discrepancy_cards(df, discrepancy_type):
                 st.success(f"{row.get('PalletId', 'Item')} logged as fixed!")
                 st.experimental_rerun()
 
-# ---------------- DASHBOARD VIEW ----------------
+# ---------------- WELCOME ANIMATION ----------------
 def load_lottie_url(url):
     r = requests.get(url)
     if r.status_code == 200:
@@ -198,11 +195,12 @@ def load_lottie_url(url):
     return None
 
 lottie_animation = load_lottie_url("https://assets10.lottiefiles.com/packages/lf20_49rdyysj.json")
+if lottie_animation:
+    st_lottie(lottie_animation, speed=1, loop=True, height=150)
 
+# ---------------- DASHBOARD VIEW ----------------
 def show_dashboard():
     st.markdown("<h2 style='text-align:center;'>📊 Bin Helper Dashboard</h2>", unsafe_allow_html=True)
-    if lottie_animation:
-        st_lottie(lottie_animation, speed=1, loop=True, height=200)
 
     # KPI Cards
     kpi_data = [
@@ -218,8 +216,7 @@ def show_dashboard():
     cols = st.columns(len(kpi_data))
     for i, item in enumerate(kpi_data):
         with cols[i]:
-            if st.button(f"{item['icon']} {item['title']} ({item['value']})", key=item['title']):
-                st.session_state.active_view = item['title']
+            st.metric(label=item["title"], value=item["value"])
 
     st.markdown("---")
     # Charts
@@ -264,21 +261,20 @@ def show_dashboard():
 # ---------------- NAVIGATION ----------------
 nav_options = ["Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins",
                "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies"]
-selected_nav = st.radio("🔍 Navigate:", nav_options, index=nav_options.index(st.session_state.active_view), horizontal=True)
-st.session_state.active_view = selected_nav
+selected_nav = st.radio("🔍 Navigate:", nav_options, horizontal=True)
 st.markdown("---")
 
 # ---------------- MAIN VIEW ----------------
-if st.session_state.active_view == "Dashboard":
+if selected_nav == "Dashboard":
     show_dashboard()
-elif st.session_state.active_view in ["Rack Discrepancies", "Bulk Discrepancies"]:
-    st.subheader(f"{st.session_state.active_view}")
-    raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
+elif selected_nav in ["Rack Discrepancies", "Bulk Discrepancies"]:
+    st.subheader(f"{selected_nav}")
+    raw_df = view_map.get(selected_nav, pd.DataFrame())
     active_df = apply_filters(raw_df)
-    discrepancy_type = "rack" if st.session_state.active_view == "Rack Discrepancies" else "bulk"
+    discrepancy_type = "rack" if selected_nav == "Rack Discrepancies" else "bulk"
     show_discrepancy_cards(active_df, discrepancy_type)
 else:
     required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
-    active_df = apply_filters(view_map.get(st.session_state.active_view, pd.DataFrame()))
+    active_df = apply_filters(view_map.get(selected_nav, pd.DataFrame()))
     available_cols = [col for col in required_cols if col in active_df.columns]
     st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
