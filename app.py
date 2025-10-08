@@ -261,13 +261,16 @@ def show_dashboard():
                           color=sku_qty.values, color_continuous_scale="Blues")
     st.plotly_chart(fig_top_skus, use_container_width=True)
 
+    # ✅ Updated Bulk Zone Utilization
     st.subheader("📦 Bulk Zone Utilization")
     bulk_utilization = []
-    for zone, max_pallets in bulk_rules.items():
-        zone_count = len(filtered_inventory_df[filtered_inventory_df["LocationName"].astype(str).str.startswith(zone)])
-        bulk_utilization.append({"Zone": zone, "Current": zone_count, "MaxAllowed": max_pallets})
+    for zone in bulk_rules.keys():
+        zone_df = filtered_inventory_df[filtered_inventory_df["LocationName"].astype(str).str.startswith(zone)]
+        pallet_count = len(zone_df)
+        total_qty = zone_df["Qty"].sum()
+        bulk_utilization.append({"Zone": zone, "Pallet Count": pallet_count, "Qty": total_qty})
     bulk_df_chart = pd.DataFrame(bulk_utilization)
-    fig_bulk = px.bar(bulk_df_chart, x="Zone", y=["Current", "MaxAllowed"], barmode="group", title="Bulk Zone Utilization")
+    fig_bulk = px.bar(bulk_df_chart, x="Zone", y=["Pallet Count", "Qty"], barmode="group", title="Bulk Zone Utilization: Pallet Count vs Qty")
     st.plotly_chart(fig_bulk, use_container_width=True)
 
 # ---------------- GLOBAL NAVIGATION ----------------
