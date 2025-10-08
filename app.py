@@ -136,9 +136,10 @@ view_map = {
 }
 
 # ---------------- LOGGING FUNCTION ----------------
-def log_resolved_discrepancy_with_note(row, note):
+def log_resolved_discrepancy_with_note(row, note, selected_issue):
     row_with_note = row.copy()
     row_with_note["Note"] = note
+    row_with_note["ResolvedIssue"] = selected_issue
     file_exists = os.path.isfile(resolved_file)
     with open(resolved_file, mode='a', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=row_with_note.keys())
@@ -146,13 +147,6 @@ def log_resolved_discrepancy_with_note(row, note):
             writer.writeheader()
         writer.writerow(row_with_note)
     st.session_state.resolved_items.add(row.get("LocationName", "") + str(row.get("PalletId", "")))
-
-# ---------------- FILTER FUNCTION ----------------
-def apply_filters(df):
-    for key, value in st.session_state.filters.items():
-        if value and key in df.columns:
-            df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
-    return df
 
 # ---------------- CARD VIEW FUNCTION ----------------
 def show_discrepancy_cards(df, discrepancy_type):
@@ -168,13 +162,13 @@ def show_discrepancy_cards(df, discrepancy_type):
         st.markdown(f"""
         <div style="border:1px solid #ccc; border-radius:10px; padding:15px; margin-bottom:10px;">
             <h4>{location}</h4>
-            <p><strong>Issue:</strong> {issue_summary}</p>
+            <p><strong>Issue(s):</strong> {issue_summary}</p>
             <p><strong>Pallets in discrepancy group:</strong> {pallet_count}</p>
             <p><strong>Status:</strong> <span style="color:{'green' if '✅' in status else 'red'};">{status}</span></p>
         </div>
         """, unsafe_allow_html=True)
 
-        # ✅ Show ALL pallets in this location from full inventory
+        # Show all pallets in this location
         st.write("### All pallets in this location:")
         location_pallets = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
         if not location_pallets.empty:
@@ -182,7 +176,11 @@ def show_discrepancy_cards(df, discrepancy_type):
         else:
             st.info("No additional pallets found for this location.")
 
-        # ✅ Show discrepancy rows with fix option
+        # Dropdown to select which issue to fix
+        issues_list = group["Issue"].unique().tolist()
+        selected_issue = st.selectbox(f"Select issue to fix for {location}:", issues_list, key=f"issue_select_{location}")
+
+        # Show discrepancy rows with fix option
         for idx, row in group.iterrows():
             row_id = location + str(row.get("PalletId", idx))
             if row_id in st.session_state.resolved_items:
@@ -192,8 +190,8 @@ def show_discrepancy_cards(df, discrepancy_type):
             note_key = f"note_{discrepancy_type}_{location}_{idx}"
             note = st.text_input(f"Note for {row.get('PalletId', 'this item')}", key=note_key)
             if st.button(f"✅ Mark {row.get('PalletId', 'Item')} Fixed", key=f"{discrepancy_type}_fix_{location}_{idx}"):
-                log_resolved_discrepancy_with_note(row.to_dict(), note)
-                st.success(f"{row.get('PalletId', 'Item')} logged as fixed!")
+                log_resolved_discrepancy_with_note(row.to_dict(), note, selected_issue)
+                st.success(f"{row.get('PalletId', 'Item')} logged as fixed for issue: {selected_issue}")
                 st.experimental_rerun()
 
 # ---------------- WELCOME ANIMATION ----------------
