@@ -135,19 +135,6 @@ def analyze_discrepancies(df):
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
-# ---------------- LOGGING FUNCTION ----------------
-def log_resolved_discrepancy_with_note(row, note):
-    log_file = "resolved_discrepancies.csv"
-    row_with_note = row.copy()
-    row_with_note["Note"] = note
-    file_exists = os.path.isfile(log_file)
-    with open(log_file, mode='a', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=row_with_note.keys())
-        if not file_exists:
-            writer.writeheader()
-        writer.writerow(row_with_note)
-    st.session_state.resolved_items.add(row.get("LocationName", "") + str(row.get("PalletId", "")))
-
 # ---------------- FILTER FUNCTION ----------------
 def apply_filters(df):
     for key, value in st.session_state.filters.items():
@@ -155,7 +142,7 @@ def apply_filters(df):
             df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
 
-# ---------------- LOAD LOTTIE ANIMATIONS ----------------
+# ---------------- LOAD HEADER ANIMATION ----------------
 def load_lottieurl(url):
     try:
         r = requests.get(url)
@@ -165,34 +152,45 @@ def load_lottieurl(url):
     except:
         return None
 
-lottie_urls = {
-    "Empty Bins": "https://assets10.lottiefiles.com/packages/lf20_4kx2q32n.json",
-    "Full Pallet Bins": "https://assets10.lottiefiles.com/packages/lf20_2ksjmy.json",
-    "Empty Partial Bins": "https://assets10.lottiefiles.com/packages/lf20_4kx2q32n.json",
-    "Partial Bins": "https://assets10.lottiefiles.com/packages/lf20_4kx2q32n.json",
-    "Damages": "https://assets10.lottiefiles.com/packages/lf20_2ksjmy.json",
-    "Missing": "https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json",
-    "Rack Discrepancies": "https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json",
-    "Bulk Discrepancies": "https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json"
-}
+header_animation = load_lottieurl("https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json")
 
-lottie_animations = {key: load_lottieurl(url) for key, url in lottie_urls.items()}
-
-# ---------------- KPI CARDS ----------------
+# ---------------- CUSTOM STYLES ----------------
 st.markdown("""
     <style>
-    .kpi-card:hover {
-        transform: scale(1.05);
-        transition: transform 0.3s ease;
-        background-color: #333333;
+    .gradient-header {
+        background: linear-gradient(to right, #1e3c72, #2a5298);
+        padding: 1rem;
         border-radius: 10px;
-        padding: 10px;
+        text-align: center;
+        color: white;
+        font-size: 2rem;
+        font-weight: bold;
+        margin-bottom: 2rem;
+    }
+    .kpi-card {
+        background-color: #1f1f1f;
+        border-radius: 10px;
+        padding: 1rem;
+        text-align: center;
+        transition: transform 0.3s ease, background-color 0.3s ease;
+        color: white;
+        font-size: 1rem;
+        font-weight: 600;
+    }
+    .kpi-card:hover {
+        transform: scale(1.08);
+        background-color: #333333;
+        box-shadow: 0 0 15px #FFD700;
     }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1 style='text-align: center; color: #FFD700;'>📊 Bin-Helper Dashboard</h1>", unsafe_allow_html=True)
+# ---------------- DASHBOARD HEADER ----------------
+st.markdown("<div class='gradient-header'>📦 Bin Helper Dashboard</div>", unsafe_allow_html=True)
+if header_animation:
+    st_lottie(header_animation, height=120, key="header_anim")
 
+# ---------------- KPI CARDS ----------------
 kpi_data = [
     {"title": "Empty Bins", "value": len(empty_bins_view_df)},
     {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df)},
@@ -208,11 +206,6 @@ cols = st.columns(len(kpi_data))
 for i, item in enumerate(kpi_data):
     with cols[i]:
         st.markdown(f"<div class='kpi-card'>", unsafe_allow_html=True)
-        animation = lottie_animations[item["title"]]
-        if animation:
-            st_lottie(animation, height=60, width=60, key=f"lottie_{item['title']}")
-        else:
-            st.write("🔄")  # Fallback icon
         if st.button(f"{item['title']} | {item['value']}", key=f"btn_{item['title']}"):
             st.session_state.active_view = item['title']
         st.markdown("</div>", unsafe_allow_html=True)
