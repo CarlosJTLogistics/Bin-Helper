@@ -3,6 +3,8 @@ import streamlit as st
 import os
 import csv
 import time
+import requests
+from streamlit_lottie import st_lottie  # Make sure to install: pip install streamlit-lottie
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Bin Helper", layout="wide")
@@ -143,41 +145,64 @@ def apply_filters(df):
 
 # ---------------- CUSTOM STYLES ----------------
 st.markdown("""
-    <style>
-    .kpi-container {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: space-around;
-        margin-top: 2rem;
-        gap: 1rem;
-    }
-    .kpi-card {
-        flex: 1 1 200px;
-        background: linear-gradient(135deg, #1e3c72, #2a5298);
-        border-radius: 15px;
-        padding: 1rem;
-        text-align: center;
-        color: white;
-        font-size: 1rem;
-        font-weight: bold;
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-        box-shadow: 0 0 10px rgba(0,0,0,0.3);
-        cursor: pointer;
-    }
-    .kpi-card:hover {
-        transform: scale(1.05);
-        box-shadow: 0 0 20px #FFD700;
-    }
-    .kpi-icon {
-        font-size: 2rem;
-        margin-bottom: 0.5rem;
-    }
-    .kpi-value {
-        font-size: 1.8rem;
-        font-weight: bold;
-        margin-bottom: 0.5rem;
-    }
-    </style>
+<style>
+.kpi-container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+.kpi-card {
+  flex: 1 1 250px;
+  max-width: 300px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-radius: 15px;
+  padding: 1rem;
+  text-align: center;
+  color: white;
+  font-size: 1rem;
+  font-weight: bold;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  box-shadow: 0 0 10px rgba(0,0,0,0.3);
+  cursor: pointer;
+}
+.kpi-card:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 20px #FFD700;
+}
+.kpi-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+}
+.kpi-value {
+  font-size: 1.8rem;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+@keyframes fadeIn {
+  from {opacity: 0;}
+  to {opacity: 1;}
+}
+.welcome-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 2s ease-in;
+  margin-top: 3rem;
+}
+.welcome-text {
+  font-size: 2.5rem;
+  font-weight: bold;
+  background: linear-gradient(90deg, #FFD700, #FF8C00);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-align: center;
+  margin-top: 1rem;
+}
+</style>
 """, unsafe_allow_html=True)
 
 # ---------------- DASHBOARD HEADER ----------------
@@ -242,8 +267,20 @@ view_map = {
 if st.session_state.active_view:
     raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
     active_df = apply_filters(raw_df)
-
     st.subheader(f"{st.session_state.active_view}")
     st.dataframe(active_df.reset_index(drop=True), use_container_width=True, hide_index=True)
 else:
-    st.info("👆 Select a KPI card above to view details.")
+    # ---------------- WELCOME SCREEN ----------------
+    def load_lottieurl(url: str):
+        r = requests.get(url)
+        if r.status_code != 200:
+            return None
+        return r.json()
+
+    lottie_url = "https://assets10.lottiefiles.com/packages/lf20_5ngs2ksb.json"
+    lottie_json = load_lottieurl(lottie_url)
+
+    st.markdown("<div class='welcome-container'>", unsafe_allow_html=True)
+    st_lottie(lottie_json, height=300)
+    st.markdown("<div class='welcome-text'>Welcome to Bin Helper Dashboard</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
