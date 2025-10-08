@@ -195,7 +195,7 @@ def show_dashboard():
     if lottie_animation:
         st_lottie(lottie_animation, speed=1, reverse=False, loop=True, quality="high", height=200)
 
-    # KPI Cards
+    # KPI Cards with clickable buttons
     kpi_data = [
         {"title": "Empty Bins", "value": len(empty_bins_view_df), "icon": "📦"},
         {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df), "icon": "🟩"},
@@ -209,7 +209,9 @@ def show_dashboard():
     cols = st.columns(len(kpi_data))
     for i, item in enumerate(kpi_data):
         with cols[i]:
-            st.metric(label=item["title"], value=item["value"], delta="")
+            if st.button(f"{item['icon']} {item['title']} ({item['value']})", key=item['title']):
+                st.session_state.active_view = item['title']
+                st.experimental_rerun()
 
     st.markdown("---")
 
@@ -293,5 +295,41 @@ if st.session_state.active_view == "Dashboard":
 else:
     raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
     active_df = apply_filters(raw_df)
+
     st.subheader(f"{st.session_state.active_view}")
-    st.dataframe(active_df.reset_index(drop=True), use_container_width=True, hide_index=True)
+    if st.session_state.active_view == "Bulk Discrepancies":
+        grouped_df = bulk_df.groupby("LocationName")
+        for location, group in grouped_df:
+            with st.expander(f"{location} | {group.iloc[0]['Issue']}"):
+                details = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
+                for i, drow in details.iterrows():
+                    row_id = drow.get("LocationName", "") + str(drow.get("PalletId", ""))
+                    if row_id in st.session_state.resolved_items:
+                        continue
+                    st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
+                    note_key = f"note_bulk_{location}_{i}"
+                    note = st.text_input(f"Note for Pallet {drow['PalletId']}", key=note_key)
+                    if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{location}_{i}"):
+                        log_resolved_discrepancy_with_note(drow.to_dict(), note)
+                        st.success(f"Pallet {drow['PalletId']} logged as fixed!")
+                        st.experimental_rerun()
+    elif st.session_state.active_view == "Rack Discrepancies":
+        grouped_df = active_df.groupby("LocationName")
+        for location, group in grouped_df:
+            issue_summary = ", ".join(group["Issue"].unique())
+            with st.expander(f"{location} | {len(group)} issue(s): {issue_summary}"):
+                for idx, row in group.iterrows():
+                    row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
+                    if row_id in st.session_state.resolved_items:
+                        continue
+                    st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
+                    note_key = f"note_rack_{location}_{idx}"
+                    note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
+                    if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{location}_{idx}"):
+                        log_resolved_discrepancy_with_note(row.to_dict(), note)
+                        st.success(f"Pallet {row['PalletId']} logged as fixed!")
+                        st.experimental_rerun()
+    else:
+        required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
+        available_cols = [col for col in required_cols if col in active_df.columns]
+        st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
