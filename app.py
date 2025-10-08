@@ -28,11 +28,16 @@ master_df = pd.read_excel(master_file, sheet_name="Master Locations", engine="op
 # --- DATA PREP ---
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
+
+# Exclude OB and IB locations globally
+inventory_df = inventory_df[
+    ~inventory_df["LocationName"].astype(str).str.upper().str.startswith(("OB", "IB"))
+]
+
 bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
 
 filtered_inventory_df = inventory_df[
-    ~inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE", "MISSING"]) &
-    ~inventory_df["LocationName"].astype(str).str.upper().str.startswith("IB")
+    ~inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE", "MISSING"])
 ]
 
 occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
@@ -41,8 +46,7 @@ master_locations = set(master_df.iloc[1:, 0].dropna().astype(str).unique())
 # --- BUSINESS RULES ---
 def exclude_damage_missing(df):
     return df[
-        ~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"]) &
-        ~df["LocationName"].astype(str).str.upper().str.startswith("IB")
+        ~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"])
     ]
 
 def get_partial_bins(df):
@@ -179,18 +183,19 @@ if selected_nav == "Dashboard":
             st.metric(label=item["title"], value=item["value"])
 
     # Charts
-    location_usage = filtered_inventory_df["LocationName"].value_counts().nlargest(10).reset_index()
+    chart_df = filtered_inventory_df.copy()
+    location_usage = chart_df["LocationName"].value_counts().nlargest(10).reset_index()
     location_usage.columns = ["LocationName", "Count"]
     fig1 = px.pie(location_usage, names="LocationName", values="Count", title="Top 10 Location Usage")
     st.plotly_chart(fig1, use_container_width=True)
 
-    inventory_movement = filtered_inventory_df.groupby("WarehouseSku")["Qty"].sum().nlargest(10).reset_index()
+    inventory_movement = chart_df.groupby("WarehouseSku")["Qty"].sum().nlargest(10).reset_index()
     fig2 = px.bar(inventory_movement, x="WarehouseSku", y="Qty", title="Top 10 Inventory Movement", color="WarehouseSku")
     st.plotly_chart(fig2, use_container_width=True)
 
     bulk_utilization = []
     for zone in bulk_rules.keys():
-        zone_df = filtered_inventory_df[filtered_inventory_df["LocationName"].astype(str).str.startswith(zone)]
+        zone_df = chart_df[chart_df["LocationName"].astype(str).str.startswith(zone)]
         pallet_count = len(zone_df)
         total_qty = zone_df["Qty"].sum()
         bulk_utilization.append({"Zone": zone, "Pallet Count": pallet_count, "Qty": total_qty})
@@ -230,3 +235,4 @@ else:
     active_df = view_map.get(selected_nav, pd.DataFrame())
     required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
     available_cols = [col for col in required_cols if col in active_df.columns]
+    st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
