@@ -173,8 +173,8 @@ nav_options = ["Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bin
 selected_nav = st.radio("🔍 Navigate:", nav_options, horizontal=True)
 st.markdown("---")
 
-# --- Rack Discrepancies Tab ---
-elif selected_nav == "Rack Discrepancies":
+# --- MAIN VIEW ---
+if selected_nav == "Rack Discrepancies":
     st.subheader("Rack Discrepancies")
     display_cols = ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"]
     available_cols = [col for col in display_cols if col in discrepancy_df.columns]
@@ -186,7 +186,6 @@ elif selected_nav == "Rack Discrepancies":
     else:
         st.info("No rack discrepancies found.")
 
-# --- Bulk Discrepancies Tab ---
 elif selected_nav == "Bulk Discrepancies":
     st.subheader("Bulk Discrepancies")
     display_cols = ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"]
