@@ -242,33 +242,36 @@ else:
 
     st.subheader(f"{st.session_state.active_view}")
     if st.session_state.active_view == "Bulk Discrepancies":
-        for idx, row in active_df.iterrows():
-            location = row["LocationName"]
-            with st.expander(f"{location} | {row['Issue']}"):
+        grouped_df = bulk_df.groupby("LocationName")
+        for location, group in grouped_df:
+            with st.expander(f"{location} | {group.iloc[0]['Issue']}"):
                 details = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
                 for i, drow in details.iterrows():
                     row_id = drow.get("LocationName", "") + str(drow.get("PalletId", ""))
                     if row_id in st.session_state.resolved_items:
                         continue
                     st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
-                    note_key = f"note_bulk_{idx}_{i}"
+                    note_key = f"note_bulk_{location}_{i}"
                     note = st.text_input(f"Note for Pallet {drow['PalletId']}", key=note_key)
-                    if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{idx}_{i}"):
+                    if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{location}_{i}"):
                         log_resolved_discrepancy_with_note(drow.to_dict(), note)
                         st.success(f"Pallet {drow['PalletId']} logged as fixed!")
                         st.experimental_rerun()
     elif st.session_state.active_view == "Rack Discrepancies":
-        for idx, row in active_df.iterrows():
-            row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
-            if row_id in st.session_state.resolved_items:
-                continue
-            st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
-            note_key = f"note_rack_{idx}"
-            note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
-            if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{idx}"):
-                log_resolved_discrepancy_with_note(row.to_dict(), note)
-                st.success(f"Pallet {row['PalletId']} logged as fixed!")
-                st.experimental_rerun()
+        grouped_df = active_df.groupby("LocationName")
+        for location, group in grouped_df:
+            with st.expander(f"{location} | {len(group)} issue(s)"):
+                for idx, row in group.iterrows():
+                    row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
+                    if row_id in st.session_state.resolved_items:
+                        continue
+                    st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]])
+                    note_key = f"note_rack_{location}_{idx}"
+                    note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
+                    if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{location}_{idx}"):
+                        log_resolved_discrepancy_with_note(row.to_dict(), note)
+                        st.success(f"Pallet {row['PalletId']} logged as fixed!")
+                        st.experimental_rerun()
     else:
         required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
         available_cols = [col for col in required_cols if col in active_df.columns]
