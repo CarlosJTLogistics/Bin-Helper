@@ -43,15 +43,14 @@ def _load_lottie(url: str):
 
 def show_banner():
     """Animated banner kept at the top across all tabs."""
-    # Curated set of warehouse/logistics-themed animations (forklift, scanning, logistics)
     candidate_urls = [
-        # Forklift / warehouse motion
+        # Forklift / warehouse
         "https://assets10.lottiefiles.com/packages/lf20_9kmmv9.json",
         # Barcode scanning / boxes
         "https://assets2.lottiefiles.com/packages/lf20_1pxqjqps.json",
-        # Logistics / delivery concept
+        # Logistics / delivery
         "https://assets9.lottiefiles.com/packages/lf20_wnqlfojb.json",
-        # Fallback to your previous one
+        # Fallback (your previous)
         "https://assets10.lottiefiles.com/packages/lf20_j1adxtyb.json",
     ]
 
@@ -80,7 +79,7 @@ def show_banner():
                 unsafe_allow_html=True
             )
 
-# ---- Render the persistent banner first (visible on every tab) ----
+# ---- Persistent banner on every tab ----
 show_banner()
 
 # --- FILE PATHS ---
@@ -90,41 +89,31 @@ resolved_file = "resolved_discrepancies.csv"
 
 # --- LOAD DATA ---
 inventory_df = pd.read_excel(inventory_file, engine="openpyxl")
-# Preserve original behavior: load specific sheet "Master Locations"
 master_df = pd.read_excel(master_file, sheet_name="Master Locations", engine="openpyxl")
 
 # --- DATA PREP ---
-# Coerce numeric types
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
-
-# Normalize LocationName
 inventory_df["LocationName"] = inventory_df["LocationName"].astype(str)
 
-# Exclude OB and IB locations globally
+# Exclude OB and IB globally
 inventory_df = inventory_df[~inventory_df["LocationName"].str.upper().str.startswith(("OB", "IB"))].copy()
 
-# Bulk rule caps (unchanged)
+# Bulk rules (unchanged)
 bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
 
-# --- MASTER LOCATIONS (Robust extraction; same intent as before, safer for headers) ---
+# --- MASTER LOCATIONS (robust parse; intent unchanged) ---
 def extract_master_locations(df: pd.DataFrame) -> set:
-    """
-    Return a set of master locations by picking a 'Location' column if present,
-    else first column; keep only numeric slots or TUN-prefixed codes.
-    """
     for c in df.columns:
         if 'location' in str(c).lower():
             s = df[c].dropna().astype(str).str.strip()
             s = s[s.str.match(r'^(TUN\w+|\d+)$')]
             if not s.empty:
                 return set(s.unique().tolist())
-    # Fallback: first column
     s = df.iloc[:, 0].dropna().astype(str).str.strip()
     s = s[s.str.match(r'^(TUN\w+|\d+)$')]
     return set(s.unique().tolist())
 
-# Build master location set
 master_locations = extract_master_locations(master_df)
 
 # --- HELPERS / BUSINESS RULES (PRESERVED) ---
@@ -178,7 +167,6 @@ missing_df = inventory_df[inventory_df["LocationName"].str.upper() == "MISSING"]
 def analyze_bulk_locations_grouped(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     results = []
-    # Consider only letter-zones present in bulk_rules
     letter_mask = df2["LocationName"].str[0].str.upper().isin(bulk_rules.keys())
     df2 = df2[letter_mask]
     if df2.empty:
@@ -202,7 +190,7 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     results = []
 
-    # Partial errors: Qty > 5 OR PalletCount > 1
+    # Partial errors
     p_df = get_partial_bins(df2)
     if not p_df.empty:
         pe = p_df[(p_df["Qty"] > 5) | (p_df["PalletCount"] > 1)]
@@ -212,7 +200,7 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             rec["Issue"] = issue
             results.append(rec)
 
-    # Full rack errors: locations considered 'full rack' but Qty not in 6..15
+    # Full rack errors
     s = df2["LocationName"].astype(str)
     full_mask = ((~s.str.endswith("01")) | s.str.startswith("111")) & s.str.isnumeric()
     f_df = df2.loc[full_mask]
@@ -278,6 +266,27 @@ def log_resolved_discrepancy_with_note(row, note, selected_lot, discrepancy_type
             discrepancy_type
         ])
 
+# --- DISPLAY HELPERS (NEW; logic-neutral) ---
+CORE_COLS = ["LocationName", "WarehouseSku", "PalletId", "CustomerLotReference", "Qty"]
+
+def ensure_core(df: pd.DataFrame, include_issue: bool = False) -> pd.DataFrame:
+    """Return df with only core columns (and Issue if requested), adding blanks if cols are missing."""
+    cols = CORE_COLS + (["Issue"] if include_issue and "Issue" in df.columns else [])
+    out = df.copy()
+    for c in CORE_COLS:
+        if c not in out.columns:
+            out[c] = ""
+    if include_issue and "Issue" in df.columns:
+        # Keep Issue at the end
+        return out[CORE_COLS + ["Issue"]]
+    return out[CORE_COLS]
+
+def style_issue_red(df: pd.DataFrame):
+    """Make Issue column red & bold if present."""
+    if "Issue" in df.columns:
+        return df.style.set_properties(subset=["Issue"], **{"color": "red", "font-weight": "bold"})
+    return df
+
 # --- NAVIGATION (safe default + pending_nav pattern) ---
 nav_options = [
     "Dashboard",
@@ -291,15 +300,12 @@ nav_options = [
     "Bulk Discrepancies",
     "Bulk Locations",
     "Empty Bulk Locations",
-    "Self-Test"  # internal guard page; safe, read-only
+    "Self-Test"
 ]
 
-# If a button requested navigation, consume it BEFORE creating the radio
 _default_nav = st.session_state.get("nav", "Dashboard")
 if "pending_nav" in st.session_state:
     _default_nav = st.session_state.pop("pending_nav", _default_nav)
-
-# Create the radio with an index derived from default
 try:
     _default_index = nav_options.index(_default_nav) if _default_nav in nav_options else 0
 except ValueError:
@@ -361,65 +367,96 @@ if selected_nav == "Dashboard":
     fig = px.bar(kpi_df, x="Category", y="Count", title="Bin Status Distribution", text="Count")
     st.plotly_chart(fig, use_container_width=True)
 
-# --- TAB VIEWS (PRESERVED) ---
+# --- TAB VIEWS (tables limited to core headers) ---
 elif selected_nav == "Empty Bins":
     st.subheader("Empty Bins")
-    st.dataframe(empty_bins_view_df, use_container_width=True)
+    # Only Location has values here; add blanks for the core columns
+    empty_bins_display = ensure_core(empty_bins_view_df.assign(WarehouseSku="", PalletId="", CustomerLotReference="", Qty=""))
+    st.dataframe(empty_bins_display, use_container_width=True)
 
 elif selected_nav == "Empty Partial Bins":
     st.subheader("Empty Partial Bins")
-    st.dataframe(empty_partial_bins_df, use_container_width=True)
+    empty_partial_display = ensure_core(empty_partial_bins_df.assign(WarehouseSku="", PalletId="", CustomerLotReference="", Qty=""))
+    st.dataframe(empty_partial_display, use_container_width=True)
 
 elif selected_nav == "Partial Bins":
     st.subheader("Partial Bins")
-    st.dataframe(partial_bins_df, use_container_width=True)
+    st.dataframe(ensure_core(partial_bins_df), use_container_width=True)
 
 elif selected_nav == "Full Pallet Bins":
     st.subheader("Full Pallet Bins")
-    st.dataframe(full_pallet_bins_df, use_container_width=True)
+    st.dataframe(ensure_core(full_pallet_bins_df), use_container_width=True)
 
 elif selected_nav == "Damages":
     st.subheader("Damaged Pallets")
-    st.dataframe(damages_df, use_container_width=True)
+    st.dataframe(ensure_core(damages_df), use_container_width=True)
 
 elif selected_nav == "Missing":
     st.subheader("Missing Pallets")
-    st.dataframe(missing_df, use_container_width=True)
+    st.dataframe(ensure_core(missing_df), use_container_width=True)
 
+# --- DISCREPANCIES (with ISSUE in red + LOT fix) ---
 elif selected_nav == "Rack Discrepancies":
     st.subheader("Rack Discrepancies")
     if not discrepancy_df.empty:
-        st.dataframe(discrepancy_df, use_container_width=True)
+        # Filter by LOT for readability
+        lots = ["(All)"] + sorted([str(x) for x in discrepancy_df["CustomerLotReference"].dropna().unique()])
+        sel_lot = st.selectbox("Filter by LOT", lots, index=0, key="rack_lot_filter")
+        filt = discrepancy_df if sel_lot == "(All)" else discrepancy_df[discrepancy_df["CustomerLotReference"].astype(str) == sel_lot]
+
+        # Show only core + Issue (Issue styled in red)
+        rack_display = ensure_core(filt, include_issue=True)
+        st.dataframe(style_issue_red(rack_display), use_container_width=True)
+
+        # Download full discrepancies
         csv_data = discrepancy_df.to_csv(index=False).encode("utf-8")
         st.download_button("Download Rack Discrepancies CSV", csv_data, "rack_discrepancies.csv", "text/csv")
+
+        # Fix by LOT
+        st.markdown("### ✅ Fix discrepancy by LOT")
+        lot_choices = sorted([str(x) for x in discrepancy_df["CustomerLotReference"].dropna().unique()])
+        if lot_choices:
+            chosen_lot = st.selectbox("Select LOT to fix", lot_choices, key="rack_fix_lot")
+            note = st.text_input(f"Add note for LOT {chosen_lot}", key="rack_fix_note")
+            if st.button("Fix Selected LOT", key="rack_fix_btn"):
+                rows_to_fix = discrepancy_df[discrepancy_df["CustomerLotReference"].astype(str) == chosen_lot]
+                for _, row in rows_to_fix.iterrows():
+                    log_resolved_discrepancy_with_note(row.to_dict(), note, chosen_lot, "Rack")
+                st.success(f"All rack discrepancies for LOT {chosen_lot} marked as fixed ({len(rows_to_fix)} rows).")
+        else:
+            st.info("No LOT options available.")
     else:
         st.info("No rack discrepancies found.")
 
 elif selected_nav == "Bulk Discrepancies":
     st.subheader("Bulk Discrepancies")
     if not bulk_df.empty:
-        # Show only SKU, LOT, Pallet ID (display); keep full CSV for download
-        display_cols = [c for c in ["WarehouseSku", "CustomerLotReference", "PalletId"] if c in bulk_df.columns]
-        if display_cols:
-            st.dataframe(bulk_df[display_cols], use_container_width=True)
-        else:
-            st.dataframe(bulk_df, use_container_width=True)
+        # Filter by LOT for readability
+        lots = ["(All)"] + sorted([str(x) for x in bulk_df["CustomerLotReference"].dropna().unique()])
+        sel_lot = st.selectbox("Filter by LOT", lots, index=0, key="bulk_lot_filter")
+        filt = bulk_df if sel_lot == "(All)" else bulk_df[bulk_df["CustomerLotReference"].astype(str) == sel_lot]
 
+        # Show only core + Issue (Issue styled in red)
+        bulk_display = ensure_core(filt, include_issue=True)
+        st.dataframe(style_issue_red(bulk_display), use_container_width=True)
+
+        # Download full discrepancies
         csv_data = bulk_df.to_csv(index=False).encode("utf-8")
         st.download_button("Download Bulk Discrepancies CSV", csv_data, "bulk_discrepancies.csv", "text/csv")
 
-        st.subheader("✅ Fix Discrepancy by LOT")
-        lot_list = bulk_df["CustomerLotReference"].dropna().unique().tolist()
-        if lot_list:
-            selected_lot = st.selectbox("Select LOT to fix:", lot_list)
-            note = st.text_input(f"Add note for LOT {selected_lot}:")
-            if st.button("Fix Selected LOT"):
-                rows_to_fix = bulk_df[bulk_df["CustomerLotReference"] == selected_lot]
+        # Fix by LOT
+        st.markdown("### ✅ Fix discrepancy by LOT")
+        lot_choices = sorted([str(x) for x in bulk_df["CustomerLotReference"].dropna().unique()])
+        if lot_choices:
+            chosen_lot = st.selectbox("Select LOT to fix", lot_choices, key="bulk_fix_lot")
+            note = st.text_input(f"Add note for LOT {chosen_lot}", key="bulk_fix_note")
+            if st.button("Fix Selected LOT", key="bulk_fix_btn"):
+                rows_to_fix = bulk_df[bulk_df["CustomerLotReference"].astype(str) == chosen_lot]
                 for _, row in rows_to_fix.iterrows():
-                    log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot, "Bulk")
-                st.success(f"All discrepancies for LOT {selected_lot} marked as fixed ({len(rows_to_fix)} pallets).")
+                    log_resolved_discrepancy_with_note(row.to_dict(), note, chosen_lot, "Bulk")
+                st.success(f"All bulk discrepancies for LOT {chosen_lot} marked as fixed ({len(rows_to_fix)} rows).")
         else:
-            st.info("No LOT options available for bulk discrepancies.")
+            st.info("No LOT options available.")
     else:
         st.info("No bulk discrepancies found.")
 
@@ -431,17 +468,17 @@ elif selected_nav == "Empty Bulk Locations":
     st.subheader("Empty Bulk Locations")
     st.dataframe(empty_bulk_locations_df, use_container_width=True)
 
-# --- SELF-TEST (WARN vs FAIL classification; no rule changes) ---
+# --- SELF-TEST (WARN vs FAIL; preserved) ---
 elif selected_nav == "Self-Test":
     st.subheader("✅ Rule Self-Checks (Read-only)")
     problems = []
     notes = []
 
-    # 1) OB/IB should be excluded
+    # 1) OB/IB excluded
     if any(filtered_inventory_df["LocationName"].str.upper().str.startswith(("OB", "IB"))):
         problems.append("OB/IB locations leaked into filtered inventory.")
 
-    # 2) Partial bins pattern validation
+    # 2) Partial pattern
     pb = get_partial_bins(filtered_inventory_df)
     if not pb.empty:
         s2 = pb["LocationName"].astype(str)
@@ -454,7 +491,7 @@ elif selected_nav == "Self-Test":
         if (~mask_ok).any():
             problems.append("Some Partial Bins fail the 01/111/TUN/digit rule.")
 
-    # 3) Full-rack Qty range check -> classify as WARN when properly flagged
+    # 3) Full-rack Qty range -> WARN if properly flagged
     s3 = filtered_inventory_df["LocationName"].astype(str)
     full_mask = ((~s3.str.endswith("01")) | s3.str.startswith("111")) & s3.str.isnumeric()
     fdf = filtered_inventory_df.loc[full_mask].copy()
@@ -465,13 +502,11 @@ elif selected_nav == "Self-Test":
         offenders = fdf[~fdf["Qty"].between(6, 15)].copy()
 
         if not offenders.empty and not discrepancy_df.empty:
-            # Choose key set for matching
             if "PalletId" in offenders.columns and "PalletId" in discrepancy_df.columns:
                 key_cols = ["LocationName", "PalletId"]
             else:
                 key_cols = [c for c in ["LocationName", "WarehouseSku", "CustomerLotReference", "Qty"]
                             if c in offenders.columns and c in discrepancy_df.columns]
-
             if key_cols:
                 off_keys = offenders[key_cols].drop_duplicates()
                 disc_filt = discrepancy_df
@@ -485,11 +520,10 @@ elif selected_nav == "Self-Test":
             else:
                 notes.append("Self-Test: could not build a reliable match key; skipping 'not-flagged' verification.")
 
-    # 4) Ensure MISSING is not included in discrepancy base set
+    # 4) MISSING not in filtered base
     if "MISSING" in filtered_inventory_df["LocationName"].str.upper().unique():
         problems.append("MISSING found in filtered inventory (should be separate).")
 
-    # --- Reporting ---
     if problems:
         st.error("❌ FAIL")
         for p in problems:
@@ -499,7 +533,7 @@ elif selected_nav == "Self-Test":
             st.success("🎉 PASS — All baseline rules intact (no full-rack Qty offenders found).")
         else:
             if not_flagged.empty:
-                st.warning(f"⚠️ WARN — {len(offenders)} full-rack rows have Qty outside 6..15 (expected as discrepancies, and all are flagged).")
+                st.warning(f"⚠️ WARN — {len(offenders)} full-rack rows have Qty outside 6..15 (expected discrepancies, and all are flagged).")
                 with st.expander("Show sample offenders (top 10)"):
                     show_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"] if c in offenders.columns]
                     st.dataframe(offenders[show_cols].head(10), use_container_width=True)
@@ -511,4 +545,3 @@ elif selected_nav == "Self-Test":
                 with st.expander("Show un-flagged offenders (top 10)"):
                     show_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"] if c in not_flagged.columns]
                     st.dataframe(not_flagged[show_cols].head(10), use_container_width=True)
-                st.info("These rows should have Issue='Partial Pallet needs to be moved to Partial Location'. Investigate matching keys or transforms.")
