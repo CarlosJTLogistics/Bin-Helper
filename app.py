@@ -5,84 +5,27 @@ import csv
 from datetime import datetime
 import plotly.express as px
 
-# ---------------- PAGE CONFIG ----------------
+# --- PAGE CONFIG ---
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
-# ---------------- CUSTOM CSS ----------------
-st.markdown("""
-    <style>
-    body {
-        background-color: #0f1117;
-        color: #e0e0e0;
-        font-family: 'Segoe UI', sans-serif;
-    }
-    .kpi-card {
-        background-color: #1f2633;
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 0 10px #00f2ff;
-        transition: transform 0.2s ease-in-out;
-        text-align: center;
-    }
-    .kpi-card:hover {
-        transform: scale(1.05);
-        box-shadow: 0 0 15px #00f2ff;
-    }
-    .kpi-title {
-        font-size: 18px;
-        color: #00f2ff;
-    }
-    .kpi-value {
-        font-size: 24px;
-        font-weight: bold;
-        color: #ffffff;
-    }
-    .nav-tabs {
-        display: flex;
-        justify-content: center;
-        margin-bottom: 20px;
-        flex-wrap: wrap;
-    }
-    .nav-tab {
-        background-color: #1f2633;
-        color: #00f2ff;
-        padding: 10px 20px;
-        margin: 5px;
-        border-radius: 8px;
-        cursor: pointer;
-        transition: background-color 0.3s ease;
-    }
-    .nav-tab:hover {
-        background-color: #00f2ff;
-        color: #1f2633;
-    }
-    .nav-tab-active {
-        background-color: #00f2ff;
-        color: #1f2633;
-        font-weight: bold;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# --- EMBED IMAGES ---
+st.image("image.png", use_column_width=True)
+st.image("Screenshot 2025-10-07 175059.png", use_column_width=True)
+st.image("Screenshot 2025-10-08 104822.png", use_column_width=True)
+st.image("Screenshot 2025-10-08 080955.png", use_column_width=True)
+st.image("Screenshot 2025-10-08 075225.png", use_column_width=True)
 
-# ---------------- SESSION STATE ----------------
-if "active_view" not in st.session_state:
-    st.session_state.active_view = "Dashboard"
-if "filters" not in st.session_state:
-    st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
-if "resolved_items" not in st.session_state:
-    st.session_state.resolved_items = set()
-
-# ---------------- FILE PATHS ----------------
+# --- FILE PATHS ---
 inventory_file = "ON_HAND_INVENTORY.xlsx"
 master_file = "Empty Bin Formula.xlsx"
 trend_file = "trend_history.csv"
 resolved_file = "resolved_discrepancies.csv"
 
-# ---------------- LOAD DATA ----------------
+# --- LOAD DATA ---
 inventory_df = pd.read_excel(inventory_file, engine="openpyxl")
 master_df = pd.read_excel(master_file, sheet_name="Master Locations", engine="openpyxl")
 
-# ---------------- DATA PREP ----------------
+# --- DATA PREP ---
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
 
@@ -96,7 +39,7 @@ filtered_inventory_df = inventory_df[
 occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
 master_locations = set(master_df.iloc[1:, 0].dropna().astype(str).unique())
 
-# ---------------- BUSINESS RULES ----------------
+# --- BUSINESS RULES ---
 def exclude_damage_missing(df):
     return df[
         ~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"]) &
@@ -140,7 +83,7 @@ empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locati
 damages_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE"])]
 missing_df = inventory_df[inventory_df["LocationName"].astype(str).str.upper() == "MISSING"]
 
-# ---------------- BULK DISCREPANCY LOGIC ----------------
+# --- BULK DISCREPANCY LOGIC ---
 def analyze_bulk_locations_grouped(df):
     df = exclude_damage_missing(df)
     results = []
@@ -159,7 +102,7 @@ def analyze_bulk_locations_grouped(df):
 
 bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
 
-# ---------------- DISCREPANCY LOGIC ----------------
+# --- DISCREPANCY LOGIC ---
 def analyze_discrepancies(df):
     df = exclude_damage_missing(df)
     results = []
@@ -183,7 +126,7 @@ def analyze_discrepancies(df):
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
-# ---------------- LOGGING FUNCTION ----------------
+# --- LOGGING FUNCTION ---
 def log_resolved_discrepancy_with_note(row, note):
     row_with_note = row.copy()
     row_with_note["Note"] = note
@@ -195,14 +138,14 @@ def log_resolved_discrepancy_with_note(row, note):
         writer.writerow(row_with_note)
     st.session_state.resolved_items.add(row.get("LocationName", "") + str(row.get("PalletId", "")))
 
-# ---------------- FILTER FUNCTION ----------------
+# --- FILTER FUNCTION ---
 def apply_filters(df):
     for key, value in st.session_state.filters.items():
         if value and key in df.columns:
             df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
     return df
 
-# ---------------- TREND TRACKING ----------------
+# --- TREND TRACKING ---
 def log_trend_data():
     today = datetime.today().strftime("%Y-%m-%d")
     trend_row = {
@@ -229,14 +172,24 @@ def log_trend_data():
 
 log_trend_data()
 
-# ---------------- NAVIGATION ----------------
-nav_options = ["Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins", "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies"]
-selected_tab = st.selectbox("Select View", nav_options, index=nav_options.index(st.session_state.active_view))
-st.session_state.active_view = selected_tab
+# --- SIDEBAR FILTERS ---
+if "active_view" not in st.session_state:
+    st.session_state.active_view = "Dashboard"
+if "filters" not in st.session_state:
+    st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
+if "resolved_items" not in st.session_state:
+    st.session_state.resolved_items = set()
 
-# ---------------- DASHBOARD VIEW ----------------
+with st.sidebar:
+    st.header("🔍 Filter Options")
+    st.session_state.filters["LocationName"] = st.text_input("Location", value=st.session_state.filters["LocationName"])
+    st.session_state.filters["PalletId"] = st.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
+    st.session_state.filters["WarehouseSku"] = st.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
+    st.session_state.filters["CustomerLotReference"] = st.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
+
+# --- DASHBOARD VIEW ---
 def show_dashboard():
-    st.markdown("<h2 style='text-align:center;'>📊 Bin Helper Dashboard</h2>", unsafe_allow_html=True)
+    st.markdown("## 📊 Bin Helper Dashboard")
 
     if os.path.exists(trend_file):
         trend_df = pd.read_csv(trend_file)
@@ -247,6 +200,29 @@ def show_dashboard():
     else:
         st.info("No trend data available yet.")
 
+    # Bulk Zone Utilization
+    zone_counts = filtered_inventory_df["LocationName"].dropna().astype(str).str[0].value_counts().reset_index()
+    zone_counts.columns = ["Zone", "Count"]
+    fig_zone = px.bar(zone_counts, x="Zone", y="Count", title="Bulk Zone Utilization", color="Zone")
+    st.plotly_chart(fig_zone, use_container_width=True)
+
+    # Top SKUs by Quantity
+    top_skus = filtered_inventory_df.groupby("WarehouseSku")["Qty"].sum().nlargest(10).reset_index()
+    fig_sku = px.bar(top_skus, x="WarehouseSku", y="Qty", title="Top SKUs by Quantity", color="WarehouseSku")
+    st.plotly_chart(fig_sku, use_container_width=True)
+
+    # Donut chart for location usage
+    total_locations = len(master_locations)
+    used_locations = len(occupied_locations)
+    unused_locations = total_locations - used_locations
+    usage_df = pd.DataFrame({
+        "Status": ["Used", "Unused"],
+        "Count": [used_locations, unused_locations]
+    })
+    fig_donut = px.pie(usage_df, names="Status", values="Count", hole=0.4, title="Location Usage")
+    st.plotly_chart(fig_donut, use_container_width=True)
+
+    # KPI Cards
     kpi_data = [
         {"title": "Empty Bins", "value": len(empty_bins_view_df)},
         {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df)},
@@ -260,9 +236,9 @@ def show_dashboard():
     cols = st.columns(len(kpi_data))
     for i, item in enumerate(kpi_data):
         with cols[i]:
-            st.markdown(f"<div class='kpi-card'><div class='kpi-title'>{item['title']}</div><div class='kpi-value'>{item['value']}</div></div>", unsafe_allow_html=True)
+            st.metric(label=item["title"], value=item["value"])
 
-# ---------------- DISPLAY VIEWS ----------------
+# --- DISPLAY VIEWS ---
 view_map = {
     "Rack Discrepancies": discrepancy_df,
     "Bulk Discrepancies": bulk_df,
@@ -273,6 +249,10 @@ view_map = {
     "Damages": damages_df,
     "Missing": missing_df
 }
+
+nav_options = list(view_map.keys())
+selected_tab = st.selectbox("Select View", ["Dashboard"] + nav_options, index=0)
+st.session_state.active_view = selected_tab
 
 if st.session_state.active_view == "Dashboard":
     show_dashboard()
