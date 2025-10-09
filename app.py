@@ -24,6 +24,65 @@ if "filters" not in st.session_state:
 if "resolved_items" not in st.session_state:
     st.session_state.resolved_items = set()
 
+# --- UTIL: safer rerun wrapper ---
+def _rerun():
+    try:
+        st.rerun()
+    except Exception:
+        st.experimental_rerun()
+
+# --- ALWAYS-ON BANNER (Animated) ---
+def _load_lottie(url: str):
+    try:
+        r = requests.get(url, timeout=8)
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return None
+
+def show_banner():
+    """Animated banner kept at the top across all tabs."""
+    # Curated set of warehouse/logistics-themed animations (forklift, scanning, logistics)
+    candidate_urls = [
+        # Forklift / warehouse motion
+        "https://assets10.lottiefiles.com/packages/lf20_9kmmv9.json",
+        # Barcode scanning / boxes
+        "https://assets2.lottiefiles.com/packages/lf20_1pxqjqps.json",
+        # Logistics / delivery concept
+        "https://assets9.lottiefiles.com/packages/lf20_wnqlfojb.json",
+        # Fallback to your previous one
+        "https://assets10.lottiefiles.com/packages/lf20_j1adxtyb.json",
+    ]
+
+    with st.container():
+        col_a, col_b = st.columns([1, 3])
+        with col_a:
+            data = None
+            for u in candidate_urls:
+                data = _load_lottie(u)
+                if data:
+                    break
+            if data:
+                st_lottie(data, height=140, key="banner_lottie", speed=1.0, loop=True)
+            else:
+                st.info("Banner animation unavailable")
+        with col_b:
+            st.markdown(
+                """
+                <div style="padding:6px 0 0 6px">
+                  <h2 style="margin:0;">Bin Helper</h2>
+                  <p style="margin:4px 0 0;">
+                    Fast, visual lookups for <b>Empty</b>, <b>Partial</b>, <b>Full</b>, <b>Damages</b>, and <b>Missing</b> — all by your warehouse rules.
+                  </p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+# ---- Render the persistent banner first (visible on every tab) ----
+show_banner()
+
 # --- FILE PATHS ---
 inventory_file = "ON_HAND_INVENTORY.xlsx"
 master_file = "Empty Bin Formula.xlsx"
@@ -219,7 +278,7 @@ def log_resolved_discrepancy_with_note(row, note, selected_lot, discrepancy_type
             discrepancy_type
         ])
 
-# --- NAVIGATION ---
+# --- NAVIGATION (safe default + pending_nav pattern) ---
 nav_options = [
     "Dashboard",
     "Empty Bins",
@@ -235,62 +294,56 @@ nav_options = [
     "Self-Test"  # internal guard page; safe, read-only
 ]
 
-selected_nav = st.radio("🔍 Navigate:", nav_options, horizontal=True, key="nav")
+# If a button requested navigation, consume it BEFORE creating the radio
+_default_nav = st.session_state.get("nav", "Dashboard")
+if "pending_nav" in st.session_state:
+    _default_nav = st.session_state.pop("pending_nav", _default_nav)
+
+# Create the radio with an index derived from default
+try:
+    _default_index = nav_options.index(_default_nav) if _default_nav in nav_options else 0
+except ValueError:
+    _default_index = 0
+
+selected_nav = st.radio("🔍 Navigate:", nav_options, index=_default_index, horizontal=True, key="nav")
 st.markdown("---")
 
 # --- DASHBOARD VIEW ---
 if selected_nav == "Dashboard":
     st.subheader("📊 Bin Helper Dashboard")
 
-    # Lottie animation (unchanged)
-    def load_lottie_url(url: str):
-        try:
-            r = requests.get(url, timeout=8)
-            if r.status_code == 200:
-                return r.json()
-        except Exception:
-            pass
-        return None
-
-    lottie_url = "https://assets10.lottiefiles.com/packages/lf20_j1adxtyb.json"
-    lottie_json = load_lottie_url(lottie_url)
-    if lottie_json:
-        st_lottie(lottie_json, height=200, key="dashboard_lottie")
-    else:
-        st.info("Animation unavailable")
-
-    # KPI cards with "View" buttons that jump to tabs (no logic changed)
+    # KPI cards with "View" buttons that jump to tabs (safe pending_nav + rerun)
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     with col1:
         st.metric("Empty Bins", len(empty_bins_view_df))
         if st.button("View", key="btn_empty"):
-            st.session_state.nav = "Empty Bins"
-            st.experimental_rerun()
+            st.session_state["pending_nav"] = "Empty Bins"
+            _rerun()
     with col2:
         st.metric("Empty Partial Bins", len(empty_partial_bins_df))
         if st.button("View", key="btn_empty_partial"):
-            st.session_state.nav = "Empty Partial Bins"
-            st.experimental_rerun()
+            st.session_state["pending_nav"] = "Empty Partial Bins"
+            _rerun()
     with col3:
         st.metric("Partial Bins", len(partial_bins_df))
         if st.button("View", key="btn_partial"):
-            st.session_state.nav = "Partial Bins"
-            st.experimental_rerun()
+            st.session_state["pending_nav"] = "Partial Bins"
+            _rerun()
     with col4:
         st.metric("Full Pallet Bins", len(full_pallet_bins_df))
         if st.button("View", key="btn_full"):
-            st.session_state.nav = "Full Pallet Bins"
-            st.experimental_rerun()
+            st.session_state["pending_nav"] = "Full Pallet Bins"
+            _rerun()
     with col5:
         st.metric("Damages", len(damages_df))
         if st.button("View", key="btn_damage"):
-            st.session_state.nav = "Damages"
-            st.experimental_rerun()
+            st.session_state["pending_nav"] = "Damages"
+            _rerun()
     with col6:
         st.metric("Missing", len(missing_df))
         if st.button("View", key="btn_missing"):
-            st.session_state.nav = "Missing"
-            st.experimental_rerun()
+            st.session_state["pending_nav"] = "Missing"
+            _rerun()
 
     # KPI bar chart (unchanged)
     kpi_data = {
@@ -378,7 +431,7 @@ elif selected_nav == "Empty Bulk Locations":
     st.subheader("Empty Bulk Locations")
     st.dataframe(empty_bulk_locations_df, use_container_width=True)
 
-# --- SELF-TEST (UPDATED: WARN vs FAIL classification; no rule changes) ---
+# --- SELF-TEST (WARN vs FAIL classification; no rule changes) ---
 elif selected_nav == "Self-Test":
     st.subheader("✅ Rule Self-Checks (Read-only)")
     problems = []
@@ -401,7 +454,7 @@ elif selected_nav == "Self-Test":
         if (~mask_ok).any():
             problems.append("Some Partial Bins fail the 01/111/TUN/digit rule.")
 
-    # 3) Full-rack Qty range check -> classify as WARN when they are properly flagged
+    # 3) Full-rack Qty range check -> classify as WARN when properly flagged
     s3 = filtered_inventory_df["LocationName"].astype(str)
     full_mask = ((~s3.str.endswith("01")) | s3.str.startswith("111")) & s3.str.isnumeric()
     fdf = filtered_inventory_df.loc[full_mask].copy()
@@ -451,10 +504,11 @@ elif selected_nav == "Self-Test":
                     show_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"] if c in offenders.columns]
                     st.dataframe(offenders[show_cols].head(10), use_container_width=True)
                 if st.button("Go to Rack Discrepancies"):
-                    st.session_state.nav = "Rack Discrepancies"
-                    st.experimental_rerun()
+                    st.session_state["pending_nav"] = "Rack Discrepancies"
+                    _rerun()
             else:
                 st.error(f"❌ FAIL — {len(not_flagged)} full-rack offenders are NOT shown in Rack Discrepancies (possible regression).")
                 with st.expander("Show un-flagged offenders (top 10)"):
                     show_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"] if c in not_flagged.columns]
                     st.dataframe(not_flagged[show_cols].head(10), use_container_width=True)
+                st.info("These rows should have Issue='Partial Pallet needs to be moved to Partial Location'. Investigate matching keys or transforms.")
