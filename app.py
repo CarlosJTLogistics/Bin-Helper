@@ -4,21 +4,21 @@ import os
 import csv
 from datetime import datetime
 import plotly.express as px
+from streamlit_lottie import st_lottie
+import requests
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
-# --- EMBED IMAGES ---
-st.image("image.png", use_column_width=True)
-st.image("Screenshot 2025-10-07 175059.png", use_column_width=True)
-st.image("Screenshot 2025-10-08 104822.png", use_column_width=True)
-st.image("Screenshot 2025-10-08 080955.png", use_column_width=True)
-st.image("Screenshot 2025-10-08 075225.png", use_column_width=True)
+# --- SESSION STATE ---
+if "filters" not in st.session_state:
+    st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
+if "resolved_items" not in st.session_state:
+    st.session_state.resolved_items = set()
 
 # --- FILE PATHS ---
 inventory_file = "ON_HAND_INVENTORY.xlsx"
 master_file = "Empty Bin Formula.xlsx"
-trend_file = "trend_history.csv"
 resolved_file = "resolved_discrepancies.csv"
 
 # --- LOAD DATA ---
@@ -29,22 +29,19 @@ master_df = pd.read_excel(master_file, sheet_name="Master Locations", engine="op
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
 inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
 
+# Exclude OB and IB locations globally
+inventory_df = inventory_df[~inventory_df["LocationName"].astype(str).str.upper().str.startswith(("OB", "IB"))]
+
 bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
-
 filtered_inventory_df = inventory_df[
-    ~inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE", "MISSING"]) &
-    ~inventory_df["LocationName"].astype(str).str.upper().str.startswith("IB")
+    ~inventory_df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "IBDAMAGE", "MISSING"])
 ]
-
 occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
 master_locations = set(master_df.iloc[1:, 0].dropna().astype(str).unique())
 
 # --- BUSINESS RULES ---
 def exclude_damage_missing(df):
-    return df[
-        ~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"]) &
-        ~df["LocationName"].astype(str).str.upper().str.startswith("IB")
-    ]
+    return df[~df["LocationName"].astype(str).str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"])]
 
 def get_partial_bins(df):
     df = exclude_damage_missing(df)
@@ -58,7 +55,8 @@ def get_partial_bins(df):
 def get_full_pallet_bins(df):
     df = exclude_damage_missing(df)
     return df[
-        ((~df["LocationName"].astype(str).str.endswith("01")) | (df["LocationName"].astype(str).str.startswith("111"))) &
+        ((~df["LocationName"].astype(str).str.endswith("01")) |
+         (df["LocationName"].astype(str).str.startswith("111"))) &
         (df["LocationName"].astype(str).str.isnumeric()) &
         (df["Qty"].between(6, 15))
     ]
@@ -72,10 +70,7 @@ def get_empty_partial_bins(master_locs, occupied_locs):
     return pd.DataFrame({"LocationName": empty_partial})
 
 empty_bins_view_df = pd.DataFrame({
-    "LocationName": [
-        loc for loc in master_locations
-        if loc not in occupied_locations and not loc.endswith("01")
-    ]
+    "LocationName": [loc for loc in master_locations if loc not in occupied_locations and not loc.endswith("01")]
 })
 full_pallet_bins_df = get_full_pallet_bins(filtered_inventory_df)
 partial_bins_df = get_partial_bins(filtered_inventory_df)
@@ -92,12 +87,9 @@ def analyze_bulk_locations_grouped(df):
         slot_counts = letter_df.groupby("LocationName").size()
         for slot, count in slot_counts.items():
             if count > max_pallets:
-                results.append({
-                    "LocationName": slot,
-                    "TotalPallets": count,
-                    "MaxAllowed": max_pallets,
-                    "Issue": f"Exceeds max allowed: {count} > {max_pallets}"
-                })
+                slot_df = letter_df[letter_df["LocationName"] == slot]
+                for _, row in slot_df.iterrows():
+                    results.append(row.to_dict() | {"Issue": f"Exceeds max allowed: {count} > {max_pallets}"})
     return pd.DataFrame(results)
 
 bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
@@ -106,194 +98,172 @@ bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
 def analyze_discrepancies(df):
     df = exclude_damage_missing(df)
     results = []
-
     partial_df = get_partial_bins(df)
     partial_errors = partial_df[(partial_df["Qty"] > 5) | (partial_df["PalletCount"] > 1)]
     for _, row in partial_errors.iterrows():
         issue = "Qty too high for partial bin" if row["Qty"] > 5 else "Multiple pallets in partial bin"
         results.append(row.to_dict() | {"Issue": issue})
-
     full_df = df[
-        ((~df["LocationName"].astype(str).str.endswith("01")) | (df["LocationName"].astype(str).str.startswith("111"))) &
+        ((~df["LocationName"].astype(str).str.endswith("01")) |
+         (df["LocationName"].astype(str).str.startswith("111"))) &
         (df["LocationName"].astype(str).str.isnumeric())
     ]
     full_errors = full_df[~full_df["Qty"].between(6, 15)]
     for _, row in full_errors.iterrows():
         issue = "Partial Pallet needs to be moved to Partial Location"
         results.append(row.to_dict() | {"Issue": issue})
-
     return pd.DataFrame(results)
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
-# --- LOGGING FUNCTION ---
-def log_resolved_discrepancy_with_note(row, note):
-    row_with_note = row.copy()
-    row_with_note["Note"] = note
+# --- BULK LOCATIONS & EMPTY SLOTS ---
+bulk_locations = []
+empty_bulk_locations = []
+location_counts = filtered_inventory_df.groupby("LocationName").size().reset_index(name="PalletCount")
+for _, row in location_counts.iterrows():
+    location = row["LocationName"]
+    count = row["PalletCount"]
+    zone = str(location)[0].upper()
+    if zone in bulk_rules:
+        max_allowed = bulk_rules[zone]
+        empty_slots = max_allowed - count
+        bulk_locations.append({
+            "LocationName": location,
+            "Zone": zone,
+            "PalletCount": count,
+            "MaxAllowed": max_allowed,
+            "EmptySlots": max(0, empty_slots)
+        })
+        if empty_slots > 0:
+            empty_bulk_locations.append({
+                "LocationName": location,
+                "Zone": zone,
+                "EmptySlots": empty_slots
+            })
+bulk_locations_df = pd.DataFrame(bulk_locations)
+empty_bulk_locations_df = pd.DataFrame(empty_bulk_locations)
+
+# --- LOGGING ---
+def log_resolved_discrepancy_with_note(row, note, selected_lot, discrepancy_type):
     file_exists = os.path.isfile(resolved_file)
-    with open(resolved_file, mode='a', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=row_with_note.keys())
+    with open(resolved_file, mode="a", newline="") as file:
+        writer = csv.writer(file)
         if not file_exists:
-            writer.writeheader()
-        writer.writerow(row_with_note)
-    st.session_state.resolved_items.add(row.get("LocationName", "") + str(row.get("PalletId", "")))
+            writer.writerow(["Timestamp", "LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty", "Note", "SelectedLOT", "DiscrepancyType"])
+        writer.writerow([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            row.get("LocationName", ""),
+            row.get("PalletId", ""),
+            row.get("WarehouseSku", ""),
+            row.get("CustomerLotReference", ""),
+            row.get("Qty", ""),
+            note,
+            selected_lot,
+            discrepancy_type
+        ])
 
-# --- FILTER FUNCTION ---
-def apply_filters(df):
-    for key, value in st.session_state.filters.items():
-        if value and key in df.columns:
-            df = df[df[key].astype(str).str.contains(value, case=False, na=False)]
-    return df
-
-# --- TREND TRACKING ---
-def log_trend_data():
-    today = datetime.today().strftime("%Y-%m-%d")
-    trend_row = {
-        "Date": today,
-        "EmptyBins": len(empty_bins_view_df),
-        "FullPalletBins": len(full_pallet_bins_df),
-        "PartialBins": len(partial_bins_df),
-        "EmptyPartialBins": len(empty_partial_bins_df),
-        "Damages": len(damages_df),
-        "Missing": len(missing_df),
-        "RackDiscrepancies": len(discrepancy_df),
-        "BulkDiscrepancies": len(bulk_df)
-    }
-
-    if os.path.exists(trend_file):
-        existing = pd.read_csv(trend_file)
-        if today in existing["Date"].values:
-            return
-    with open(trend_file, mode='a', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=trend_row.keys())
-        if os.stat(trend_file).st_size == 0:
-            writer.writeheader()
-        writer.writerow(trend_row)
-
-log_trend_data()
-
-# --- SIDEBAR FILTERS ---
-if "active_view" not in st.session_state:
-    st.session_state.active_view = "Dashboard"
-if "filters" not in st.session_state:
-    st.session_state.filters = {"LocationName": "", "PalletId": "", "WarehouseSku": "", "CustomerLotReference": ""}
-if "resolved_items" not in st.session_state:
-    st.session_state.resolved_items = set()
-
-with st.sidebar:
-    st.header("🔍 Filter Options")
-    st.session_state.filters["LocationName"] = st.text_input("Location", value=st.session_state.filters["LocationName"])
-    st.session_state.filters["PalletId"] = st.text_input("Pallet ID", value=st.session_state.filters["PalletId"])
-    st.session_state.filters["WarehouseSku"] = st.text_input("Warehouse SKU", value=st.session_state.filters["WarehouseSku"])
-    st.session_state.filters["CustomerLotReference"] = st.text_input("LOT", value=st.session_state.filters["CustomerLotReference"])
+# --- NAVIGATION ---
+nav_options = ["Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins", "Partial Bins",
+               "Damages", "Missing", "Rack Discrepancies", "Bulk Discrepancies", "Bulk Locations", "Empty Bulk Locations"]
+selected_nav = st.radio("🔍 Navigate:", nav_options, horizontal=True)
+st.markdown("---")
 
 # --- DASHBOARD VIEW ---
-def show_dashboard():
-    st.markdown("## 📊 Bin Helper Dashboard")
+if selected_nav == "Dashboard":
+    st.subheader("📊 Bin Helper Dashboard")
 
-    if os.path.exists(trend_file):
-        trend_df = pd.read_csv(trend_file)
-        fig = px.line(trend_df, x="Date", y=["EmptyBins", "FullPalletBins", "PartialBins", "EmptyPartialBins", "RackDiscrepancies", "BulkDiscrepancies"],
-                      markers=True, title="Bin Trends Over Time", color_discrete_sequence=px.colors.qualitative.Bold)
-        fig.update_traces(mode="lines+markers", hovertemplate="%{y} on %{x}")
-        st.plotly_chart(fig, use_container_width=True)
+    def load_lottie_url(url):
+        r = requests.get(url)
+        if r.status_code == 200:
+            return r.json()
+        else:
+            return None
+
+    lottie_url = "https://assets10.lottiefiles.com/packages/lf20_j1adxtyb.json"
+    lottie_json = load_lottie_url(lottie_url)
+
+    if lottie_json:
+        st_lottie(lottie_json, height=200, key="dashboard_lottie")
     else:
-        st.info("No trend data available yet.")
+        st.info("Animation unavailable")
 
-    # Bulk Zone Utilization
-    zone_counts = filtered_inventory_df["LocationName"].dropna().astype(str).str[0].value_counts().reset_index()
-    zone_counts.columns = ["Zone", "Count"]
-    fig_zone = px.bar(zone_counts, x="Zone", y="Count", title="Bulk Zone Utilization", color="Zone")
-    st.plotly_chart(fig_zone, use_container_width=True)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    col1.metric("Empty Bins", len(empty_bins_view_df))
+    col2.metric("Empty Partial Bins", len(empty_partial_bins_df))
+    col3.metric("Partial Bins", len(partial_bins_df))
+    col4.metric("Full Pallet Bins", len(full_pallet_bins_df))
+    col5.metric("Damages", len(damages_df))
+    col6.metric("Missing", len(missing_df))
 
-    # Top SKUs by Quantity
-    top_skus = filtered_inventory_df.groupby("WarehouseSku")["Qty"].sum().nlargest(10).reset_index()
-    fig_sku = px.bar(top_skus, x="WarehouseSku", y="Qty", title="Top SKUs by Quantity", color="WarehouseSku")
-    st.plotly_chart(fig_sku, use_container_width=True)
+    kpi_data = {
+        "Category": ["Empty Bins", "Empty Partial Bins", "Partial Bins", "Full Pallet Bins", "Damages", "Missing"],
+        "Count": [len(empty_bins_view_df), len(empty_partial_bins_df), len(partial_bins_df),
+                  len(full_pallet_bins_df), len(damages_df), len(missing_df)]
+    }
+    kpi_df = pd.DataFrame(kpi_data)
+    fig = px.bar(kpi_df, x="Category", y="Count", title="Bin Status Distribution", text="Count")
+    st.plotly_chart(fig, use_container_width=True)
 
-    # Donut chart for location usage
-    total_locations = len(master_locations)
-    used_locations = len(occupied_locations)
-    unused_locations = total_locations - used_locations
-    usage_df = pd.DataFrame({
-        "Status": ["Used", "Unused"],
-        "Count": [used_locations, unused_locations]
-    })
-    fig_donut = px.pie(usage_df, names="Status", values="Count", hole=0.4, title="Location Usage")
-    st.plotly_chart(fig_donut, use_container_width=True)
+# --- TAB VIEWS ---
+elif selected_nav == "Empty Bins":
+    st.subheader("Empty Bins")
+    st.dataframe(empty_bins_view_df, use_container_width=True)
 
-    # KPI Cards
-    kpi_data = [
-        {"title": "Empty Bins", "value": len(empty_bins_view_df)},
-        {"title": "Full Pallet Bins", "value": len(full_pallet_bins_df)},
-        {"title": "Empty Partial Bins", "value": len(empty_partial_bins_df)},
-        {"title": "Partial Bins", "value": len(partial_bins_df)},
-        {"title": "Damages", "value": len(damages_df)},
-        {"title": "Missing", "value": len(missing_df)},
-        {"title": "Rack Discrepancies", "value": len(discrepancy_df)},
-        {"title": "Bulk Discrepancies", "value": len(bulk_df)}
-    ]
-    cols = st.columns(len(kpi_data))
-    for i, item in enumerate(kpi_data):
-        with cols[i]:
-            st.metric(label=item["title"], value=item["value"])
+elif selected_nav == "Empty Partial Bins":
+    st.subheader("Empty Partial Bins")
+    st.dataframe(empty_partial_bins_df, use_container_width=True)
 
-# --- DISPLAY VIEWS ---
-view_map = {
-    "Rack Discrepancies": discrepancy_df,
-    "Bulk Discrepancies": bulk_df,
-    "Empty Bins": empty_bins_view_df,
-    "Full Pallet Bins": full_pallet_bins_df,
-    "Empty Partial Bins": empty_partial_bins_df,
-    "Partial Bins": partial_bins_df,
-    "Damages": damages_df,
-    "Missing": missing_df
-}
+elif selected_nav == "Partial Bins":
+    st.subheader("Partial Bins")
+    st.dataframe(partial_bins_df, use_container_width=True)
 
-nav_options = list(view_map.keys())
-selected_tab = st.selectbox("Select View", ["Dashboard"] + nav_options, index=0)
-st.session_state.active_view = selected_tab
+elif selected_nav == "Full Pallet Bins":
+    st.subheader("Full Pallet Bins")
+    st.dataframe(full_pallet_bins_df, use_container_width=True)
 
-if st.session_state.active_view == "Dashboard":
-    show_dashboard()
-else:
-    raw_df = view_map.get(st.session_state.active_view, pd.DataFrame())
-    active_df = apply_filters(raw_df)
+elif selected_nav == "Damages":
+    st.subheader("Damaged Pallets")
+    st.dataframe(damages_df, use_container_width=True)
 
-    st.subheader(f"{st.session_state.active_view}")
-    if st.session_state.active_view == "Bulk Discrepancies":
-        grouped_df = bulk_df.groupby("LocationName")
-        for location, group in grouped_df:
-            with st.expander(f"{location} | {group.iloc[0]['Issue']}"):
-                details = filtered_inventory_df[filtered_inventory_df["LocationName"] == location]
-                for i, drow in details.iterrows():
-                    row_id = drow.get("LocationName", "") + str(drow.get("PalletId", ""))
-                    if row_id in st.session_state.resolved_items:
-                        continue
-                    st.write(drow[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
-                    note_key = f"note_bulk_{location}_{i}"
-                    note = st.text_input(f"Note for Pallet {drow['PalletId']}", key=note_key)
-                    if st.button(f"✅ Mark Pallet {drow['PalletId']} Fixed", key=f"bulk_fix_{location}_{i}"):
-                        log_resolved_discrepancy_with_note(drow.to_dict(), note)
-                        st.success(f"Pallet {drow['PalletId']} logged as fixed!")
-                        st.experimental_rerun()
-    elif st.session_state.active_view == "Rack Discrepancies":
-        grouped_df = active_df.groupby("LocationName")
-        for location, group in grouped_df:
-            issue_summary = ", ".join(group["Issue"].unique())
-            with st.expander(f"{location} | {len(group)} issue(s): {issue_summary}"):
-                for idx, row in group.iterrows():
-                    row_id = row.get("LocationName", "") + str(row.get("PalletId", ""))
-                    if row_id in st.session_state.resolved_items:
-                        continue
-                    st.write(row[["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty"]])
-                    note_key = f"note_rack_{location}_{idx}"
-                    note = st.text_input(f"Note for Pallet {row['PalletId']}", key=note_key)
-                    if st.button(f"✅ Mark Pallet {row['PalletId']} Fixed", key=f"rack_fix_{location}_{idx}"):
-                        log_resolved_discrepancy_with_note(row.to_dict(), note)
-                        st.success(f"Pallet {row['PalletId']} logged as fixed!")
-                        st.experimental_rerun()
+elif selected_nav == "Missing":
+    st.subheader("Missing Pallets")
+    st.dataframe(missing_df, use_container_width=True)
+
+elif selected_nav == "Rack Discrepancies":
+    st.subheader("Rack Discrepancies")
+    if not discrepancy_df.empty:
+        st.dataframe(discrepancy_df, use_container_width=True)
+        csv_data = discrepancy_df.to_csv(index=False).encode("utf-8")
+        st.download_button("Download Rack Discrepancies CSV", csv_data, "rack_discrepancies.csv", "text/csv")
     else:
-        required_cols = ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId"]
-        available_cols = [col for col in required_cols if col in active_df.columns]
-        st.dataframe(active_df[available_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
+        st.info("No rack discrepancies found.")
+
+elif selected_nav == "Bulk Discrepancies":
+    st.subheader("Bulk Discrepancies")
+    if not bulk_df.empty:
+        st.dataframe(bulk_df, use_container_width=True)
+        csv_data = bulk_df.to_csv(index=False).encode("utf-8")
+        st.download_button("Download Bulk Discrepancies CSV", csv_data, "bulk_discrepancies.csv", "text/csv")
+
+        st.subheader("✅ Fix Discrepancy by LOT")
+        lot_list = bulk_df["CustomerLotReference"].dropna().unique().tolist()
+        if lot_list:
+            selected_lot = st.selectbox("Select LOT to fix:", lot_list)
+            note = st.text_input(f"Add note for LOT {selected_lot}:")
+            if st.button("Fix Selected LOT"):
+                rows_to_fix = bulk_df[bulk_df["CustomerLotReference"] == selected_lot]
+                for _, row in rows_to_fix.iterrows():
+                    log_resolved_discrepancy_with_note(row.to_dict(), note, selected_lot, "Bulk")
+                st.success(f"All discrepancies for LOT {selected_lot} marked as fixed ({len(rows_to_fix)} pallets).")
+        else:
+            st.info("No LOT options available for bulk discrepancies.")
+    else:
+        st.info("No bulk discrepancies found.")
+
+elif selected_nav == "Bulk Locations":
+    st.subheader("Bulk Locations")
+    st.dataframe(bulk_locations_df, use_container_width=True)
+
+elif selected_nav == "Empty Bulk Locations":
+    st.subheader("Empty Bulk Locations")
+    st.dataframe(empty_bulk_locations_df, use_container_width=True)
