@@ -419,7 +419,7 @@ if selected_nav == "Dashboard":
     pie_df = pd.DataFrame({"Status": ["Full", "Empty"],
                            "Locations": [len(rack_full_used & rack_master), len(rack_empty)]})
     st.plotly_chart(px.pie(pie_df, names="Status", values="Locations", title="Racks: Full vs Empty (unique slots)"),
-                    use_container_width=True)
+        use_container_width=True)
 
     # NEW: Bulk Zones — Used vs Empty capacity (sum across slots)
     if not bulk_locations_df.empty:
@@ -662,7 +662,8 @@ elif selected_nav == "Self-Test":
             if "PalletId" in offenders.columns and "PalletId" in discrepancy_df.columns:
                 key_cols = ["LocationName", "PalletId"]
             else:
-                key_cols = [c for c in ["LocationName", "WarehouseSku", "CustomerLotReference", "Qty"] if c in offenders.columns and c in discrepancy_df.columns]
+                key_cols = [c for c in ["LocationName", "WarehouseSku", "CustomerLotReference", "Qty"]
+                            if c in offenders.columns and c in discrepancy_df.columns]
             if key_cols:
                 off_keys = offenders[key_cols].drop_duplicates()
                 disc_filt = discrepancy_df
@@ -682,6 +683,10 @@ elif selected_nav == "Self-Test":
         st.error("❌ FAIL")
         for p in problems:
             st.write("- ", p)
+        # Optional: quick nav if fail state is still actionable
+        if st.button("Go to Rack Discrepancies (review)"):
+            st.session_state["pending_nav"] = "Rack Discrepancies"
+            _rerun()
     else:
         if offenders.empty:
             st.success("🎉 PASS — All baseline rules intact (no full-rack Qty offenders found).")
@@ -691,9 +696,16 @@ elif selected_nav == "Self-Test":
                 with st.expander("Show un-flagged offenders (top 10)"):
                     show_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"] if c in not_flagged.columns]
                     st.dataframe(not_flagged[show_cols].head(10), use_container_width=True)
+                # Navigate button (properly indented body)
+                if st.button("Go to Rack Discrepancies"):
+                    st.session_state["pending_nav"] = "Rack Discrepancies"
+                    _rerun()
             else:
                 st.warning(f"⚠️ WARN — {len(offenders)} full-rack rows have Qty outside 6..15 (expected discrepancies, and all are flagged).")
                 with st.expander("Show sample offenders (top 10)"):
                     show_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"] if c in offenders.columns]
                     st.dataframe(offenders[show_cols].head(10), use_container_width=True)
+                # Navigate button (properly indented body)
                 if st.button("Go to Rack Discrepancies"):
+                    st.session_state["pending_nav"] = "Rack Discrepancies"
+                    _rerun()
