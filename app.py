@@ -10,6 +10,16 @@ import plotly.express as px
 from streamlit_lottie import st_lottie
 import requests
 
+# Try AgGrid; fall back gracefully if not installed
+try:
+    from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
+    _AGGRID_AVAILABLE = True
+except Exception:
+    _AGGRID_AVAILABLE = False
+    AgGrid = None
+    GridOptionsBuilder = None
+    GridUpdateMode = None
+
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
@@ -105,11 +115,6 @@ bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I
 
 # --- MASTER LOCATIONS (robust parse; intent unchanged) ---
 def extract_master_locations(df: pd.DataFrame) -> set:
-    """
-    Get the list of master locations.
-    We preserve intent by taking the column that looks like 'location' (or the first col),
-    trimming and returning unique non-null strings.
-    """
     for c in df.columns:
         if "location" in str(c).lower():
             s = df[c].dropna().astype(str).str.strip()
@@ -306,25 +311,21 @@ def read_action_log() -> pd.DataFrame:
 CORE_COLS = ["LocationName", "WarehouseSku", "PalletId", "CustomerLotReference", "Qty"]
 
 def _lot_to_str(x):
-    # Display LOT numbers as whole numbers (no decimals/scientific)
     try:
         if pd.isna(x):
             return ""
     except Exception:
         pass
-    # Numeric types
     if isinstance(x, (int,)):
         return str(int(x))
     if isinstance(x, float):
         return str(int(round(x)))
     s = str(x).strip()
-    # Strings like "9063350.0"
     if re.fullmatch(r"\d+(\.0+)?", s):
         return s.split(".")[0]
     return s
 
 def ensure_core(df: pd.DataFrame, include_issue: bool = False) -> pd.DataFrame:
-    """Return df with only core columns (and Issue if requested), adding blanks if cols are missing, with LOT formatted."""
     if df is None or df.empty:
         out = pd.DataFrame(columns=CORE_COLS + (["Issue"] if include_issue else []))
         return out
@@ -332,7 +333,6 @@ def ensure_core(df: pd.DataFrame, include_issue: bool = False) -> pd.DataFrame:
     for c in CORE_COLS:
         if c not in out.columns:
             out[c] = ""
-    # LOT formatting for display
     out["CustomerLotReference"] = out["CustomerLotReference"].apply(_lot_to_str)
     cols = CORE_COLS.copy()
     if include_issue and "Issue" in out.columns:
@@ -340,7 +340,6 @@ def ensure_core(df: pd.DataFrame, include_issue: bool = False) -> pd.DataFrame:
     return out[cols]
 
 def style_issue_red(df: pd.DataFrame):
-    """Make Issue column red & bold if present."""
     if "Issue" in df.columns:
         return df.style.set_properties(subset=["Issue"], **{"color": "red", "font-weight": "bold"})
     return df
@@ -368,7 +367,6 @@ st.markdown("---")
 if selected_nav == "Dashboard":
     st.subheader("📊 Bin Helper Dashboard")
 
-    # KPIs with "View" buttons
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     with col1:
         st.metric("Empty Bins", len(empty_bins_view_df))
@@ -395,7 +393,6 @@ if selected_nav == "Dashboard":
         if st.button("View", key="btn_missing"):
             st.session_state["pending_nav"] = "Missing"; _rerun()
 
-    # Original bar
     kpi_data = {
         "Category": ["Empty Bins", "Empty Partial Bins", "Partial Bins", "Full Pallet Bins", "Damages", "Missing"],
         "Count": [
@@ -407,7 +404,6 @@ if selected_nav == "Dashboard":
     st.plotly_chart(px.bar(kpi_df, x="Category", y="Count", title="Bin Status Distribution", text="Count"),
                     use_container_width=True)
 
-    # NEW: Racks Full vs Empty (unique rack locations)
     def is_rack_slot(loc: str) -> bool:
         s = str(loc)
         return s.isnumeric() and (((not s.endswith("01")) or s.startswith("111")))
@@ -419,9 +415,8 @@ if selected_nav == "Dashboard":
     pie_df = pd.DataFrame({"Status": ["Full", "Empty"],
                            "Locations": [len(rack_full_used & rack_master), len(rack_empty)]})
     st.plotly_chart(px.pie(pie_df, names="Status", values="Locations", title="Racks: Full vs Empty (unique slots)"),
-        use_container_width=True)
+                    use_container_width=True)
 
-    # NEW: Bulk Zones — Used vs Empty capacity (sum across slots)
     if not bulk_locations_df.empty:
         bulk_zone = bulk_locations_df.groupby("Zone").agg(
             Used=("PalletCount", "sum"),
@@ -434,12 +429,11 @@ if selected_nav == "Dashboard":
                                title="Bulk Zones: Used vs Empty Capacity"),
                         use_container_width=True)
 
-    # NEW: Damages vs Missing
     dm_df = pd.DataFrame({"Status": ["Damages", "Missing"], "Count": [len(damages_df), len(missing_df)]})
     st.plotly_chart(px.bar(dm_df, x="Status", y="Count", text="Count", title="Damages vs Missing"),
                     use_container_width=True)
 
-# --- TAB VIEWS (5 columns everywhere; no extra grouping) ---
+# --- TAB VIEWS ---
 elif selected_nav == "Empty Bins":
     st.subheader("Empty Bins")
     display = ensure_core(empty_bins_view_df.assign(WarehouseSku="", PalletId="", CustomerLotReference="", Qty=""))
@@ -466,7 +460,7 @@ elif selected_nav == "Missing":
     st.subheader("Missing Pallets")
     st.dataframe(ensure_core(missing_df), use_container_width=True)
 
-# --- DISCREPANCIES (Issue in red + Fix LOT + Undo) ---
+# --- DISCREPANCIES (unchanged logic) ---
 elif selected_nav == "Rack Discrepancies":
     st.subheader("Rack Discrepancies")
     if not discrepancy_df.empty:
@@ -495,7 +489,6 @@ elif selected_nav == "Rack Discrepancies":
                 rack_log = log_df[log_df["DiscrepancyType"] == "Rack"].sort_values("Timestamp", ascending=False).head(20)
                 st.dataframe(rack_log, use_container_width=True)
                 if not rack_log.empty and st.button("Undo last Rack RESOLVE batch"):
-                    # find last RESOLVE batch for Rack
                     last_resolve = log_df[(log_df["DiscrepancyType"] == "Rack") & (log_df["Action"] == "RESOLVE")]
                     if not last_resolve.empty:
                         last_batch = last_resolve.sort_values("Timestamp").iloc[-1]["BatchId"]
@@ -519,70 +512,77 @@ elif selected_nav == "Bulk Discrepancies":
         sel_lot = st.selectbox("Filter by LOT", lots, index=0, key="bulk_lot_filter")
         filt = bulk_df if sel_lot == "(All)" else bulk_df[bulk_df["CustomerLotReference"].apply(_lot_to_str) == sel_lot]
 
-        # =======================
-        # NEW: Grouped by Location
-        # =======================
-        st.markdown("#### Grouped by Location (click to expand)")
+        # ---- Search by location (optional, preserved) ----
         loc_search = st.text_input("Search location (optional)", value="", key="bulk_loc_search")
         df2 = filt.copy()
         if loc_search.strip():
             df2 = df2[df2["LocationName"].astype(str).str.contains(loc_search.strip(), case=False, na=False)]
 
-        if df2.empty:
-            st.info("No bulk discrepancies match your filters.")
+        # =======================
+        # NEW: AgGrid grouped table
+        # =======================
+        st.markdown("#### Grouped by Location (AgGrid)")
+        if not _AGGRID_AVAILABLE:
+            st.warning("`streamlit-aggrid` is not installed. Add `streamlit-aggrid==0.3.5` to requirements.txt to enable the grouped table.")
         else:
-            # Build summaries by LocationName
-            grp = df2.groupby("LocationName", dropna=False)
-            # Sort groups by severity (count desc, then total Qty desc)
-            summaries = []
-            for gkey, gdf in grp:
-                count = len(gdf)
-                total_qty = pd.to_numeric(gdf.get("Qty", 0), errors="coerce").fillna(0).sum()
-                summaries.append((gkey, count, total_qty))
-            summaries.sort(key=lambda x: (x[1], abs(x[2])), reverse=True)
-
-            st.caption(f"{len(summaries)} grouped location(s)")
-            display_cols = [c for c in [
+            # Choose columns to show in the grid
+            show_cols = [c for c in [
+                "LocationName",
                 "WarehouseSku",            # SKU
                 "CustomerLotReference",    # LOT Number
                 "PalletId",                # Pallet ID
                 "Qty",
                 "Issue"
             ] if c in df2.columns]
+            grid_df = df2[show_cols].copy()
+            grid_df["CustomerLotReference"] = grid_df["CustomerLotReference"].apply(_lot_to_str)
 
-            for gkey, count, total_qty in summaries:
-                gdf = grp.get_group(gkey).reset_index(drop=True)
-                header = f"{gkey} • {count} row(s) • Qty Σ = {total_qty:+}"
-                with st.expander(header, expanded=False):
-                    st.dataframe(
-                        style_issue_red(gdf[display_cols]),
-                        use_container_width=True
-                    )
+            # Expand/collapse control
+            expand_all = st.toggle("Expand all groups", value=False, help="When on, all location groups load expanded by default.")
 
-                    # Per-row logging right here
-                    st.write("Log a fix for a specific row:")
-                    r_idx = st.selectbox(
-                        f"Select row in {gkey} to log",
-                        options=range(len(gdf)),
-                        format_func=lambda i: f"{gdf.iloc[i].get('WarehouseSku','')} | "
-                                              f"LOT { _lot_to_str(gdf.iloc[i].get('CustomerLotReference','')) } | "
-                                              f"Pallet {gdf.iloc[i].get('PalletId','')}",
-                        key=f"bulk_row_select_{gkey}"
-                    )
-                    note = st.text_input("Note (optional)", key=f"bulk_note_{gkey}_{r_idx}")
+            gb = GridOptionsBuilder.from_dataframe(grid_df)
+            gb.configure_default_column(resizable=True, filter=True, sortable=True, floatingFilter=True)
+            gb.configure_column("LocationName", rowGroup=True, hide=True)
+            gb.configure_selection("multiple", use_checkbox=True, groupSelectsChildren=True, groupSelectsFiltered=True)
+            gb.configure_pagination(enabled=True, paginationAutoPageSize=False, paginationPageSize=50)
+            gb.configure_side_bar()  # show filters panel
+            # Aggregate Qty at group level
+            if "Qty" in grid_df.columns:
+                gb.configure_column("Qty", aggFunc="sum")
+            gb.configure_grid_options(groupDefaultExpanded=(-1 if expand_all else 0))
+            grid_options = gb.build()
 
-                    if st.button(f"Log Fix for selected row", key=f"bulk_logfix_{gkey}_{r_idx}"):
-                        row = gdf.iloc[r_idx].to_dict()
-                        batch_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
-                        log_action(
-                            row=row,
-                            note=note,
-                            selected_lot=_lot_to_str(row.get("CustomerLotReference","")),
-                            discrepancy_type="Bulk",
-                            action="RESOLVE",
-                            batch_id=batch_id
-                        )
-                        st.success(f"Logged fix for {gkey}. BatchId={batch_id}")
+            grid_resp = AgGrid(
+                grid_df,
+                gridOptions=grid_options,
+                update_mode=GridUpdateMode.SELECTION_CHANGED,
+                allow_unsafe_jscode=True,
+                fit_columns_on_grid_load=True,
+                height=480
+            )
+
+            sel_rows = pd.DataFrame(grid_resp.get("selected_rows", []))
+            st.caption(f"Selected rows: {len(sel_rows)}")
+
+            # Log Fix for selected rows
+            with st.expander("Log Fix for selected rows"):
+                default_note = ""
+                note = st.text_input("Note (optional)", value=default_note, key="bulk_aggrid_note")
+                # Pick a 'SelectedLOT' value: if all same LOT, use it; else '(Multiple)'
+                selected_lot_value = "(Multiple)"
+                if not sel_rows.empty and "CustomerLotReference" in sel_rows.columns:
+                    lots_sel = set(sel_rows["CustomerLotReference"].apply(_lot_to_str).tolist())
+                    if len(lots_sel) == 1:
+                        selected_lot_value = list(lots_sel)[0]
+                st.write(f"Selected LOT (auto): **{selected_lot_value}**")
+
+                if st.button("Log Fix for selected row(s)", disabled=sel_rows.empty):
+                    # Ensure required columns exist for log_action/_row_key
+                    for req in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty", "Issue"]:
+                        if req not in sel_rows.columns:
+                            sel_rows[req] = ""
+                    batch_id = log_batch(sel_rows, note, selected_lot_value, "Bulk", action="RESOLVE")
+                    st.success(f"Logged fix for {len(sel_rows)} row(s). BatchId={batch_id}")
 
         # ---- Flat view (preserved) + CSV ----
         st.markdown("#### Flat view (all rows)")
@@ -633,16 +633,14 @@ elif selected_nav == "Empty Bulk Locations":
     st.subheader("Empty Bulk Locations")
     st.dataframe(empty_bulk_locations_df, use_container_width=True)
 
-# --- SELF-TEST (WARN vs FAIL; preserved) ---
+# --- SELF-TEST (unchanged logic; minor nav buttons) ---
 elif selected_nav == "Self-Test":
     st.subheader("✅ Rule Self-Checks (Read-only)")
     problems = []
 
-    # 1) OB/IB excluded
     if any(filtered_inventory_df["LocationName"].str.upper().str.startswith(("OB", "IB"))):
         problems.append("OB/IB locations leaked into filtered inventory.")
 
-    # 2) Partial pattern
     pb = get_partial_bins(filtered_inventory_df)
     if not pb.empty:
         s2 = pb["LocationName"].astype(str)
@@ -650,7 +648,6 @@ elif selected_nav == "Self-Test":
         if (~mask_ok).any():
             problems.append("Some Partial Bins fail the 01/111/TUN/digit rule.")
 
-    # 3) Full-rack Qty range -> WARN if properly flagged
     s3 = filtered_inventory_df["LocationName"].astype(str)
     full_mask = (((~s3.str.endswith("01")) | s3.str.startswith("111")) & s3.str.isnumeric())
     fdf = filtered_inventory_df.loc[full_mask].copy()
@@ -675,7 +672,6 @@ elif selected_nav == "Self-Test":
                 if missing_mask.any():
                     not_flagged = offenders.merge(merged.loc[missing_mask, key_cols], on=key_cols, how="inner")
 
-    # 4) MISSING not in filtered base
     if "MISSING" in filtered_inventory_df["LocationName"].str.upper().unique():
         problems.append("MISSING found in filtered inventory (should be separate).")
 
@@ -683,7 +679,6 @@ elif selected_nav == "Self-Test":
         st.error("❌ FAIL")
         for p in problems:
             st.write("- ", p)
-        # Optional: quick nav if fail state is still actionable
         if st.button("Go to Rack Discrepancies (review)"):
             st.session_state["pending_nav"] = "Rack Discrepancies"
             _rerun()
@@ -696,7 +691,6 @@ elif selected_nav == "Self-Test":
                 with st.expander("Show un-flagged offenders (top 10)"):
                     show_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"] if c in not_flagged.columns]
                     st.dataframe(not_flagged[show_cols].head(10), use_container_width=True)
-                # Navigate button (properly indented body)
                 if st.button("Go to Rack Discrepancies"):
                     st.session_state["pending_nav"] = "Rack Discrepancies"
                     _rerun()
@@ -705,7 +699,6 @@ elif selected_nav == "Self-Test":
                 with st.expander("Show sample offenders (top 10)"):
                     show_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"] if c in offenders.columns]
                     st.dataframe(offenders[show_cols].head(10), use_container_width=True)
-                # Navigate button (properly indented body)
                 if st.button("Go to Rack Discrepancies"):
                     st.session_state["pending_nav"] = "Rack Discrepancies"
                     _rerun()
