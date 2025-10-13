@@ -4,6 +4,7 @@ import csv
 import re
 import time  # KPI animations
 import hashlib  # <-- for file hash (trend de-dup)
+import tempfile  # SAFEGUARD: fallback dirs
 from datetime import datetime
 import pandas as pd
 import streamlit as st
@@ -44,7 +45,6 @@ if "resolved_items" not in st.session_state:
 if "inventory_path" not in st.session_state:
     st.session_state.inventory_path = None  # set when user uploads
 
-
 # --- UTIL: rerun wrapper ---
 def _rerun():
     try:
@@ -55,7 +55,6 @@ def _rerun():
         except Exception:
             pass
 
-
 # --- Lottie helpers ---
 def _load_lottie(url: str):
     try:
@@ -65,7 +64,6 @@ def _load_lottie(url: str):
     except Exception:
         pass
     return None
-
 
 def show_banner():
     with st.container():
@@ -94,14 +92,83 @@ Fast, visual lookups for **Empty**, **Partial**, **Full**, **Damages**, and **Mi
                 unsafe_allow_html=True
             )
 
-
 show_banner()
 
-# ===== Paths =====
-LOG_DIR = r"C:\Users\carlos.pacheco.MYA-LOGISTICS\OneDrive - JT Logistics\bin-helper\logs"
-os.makedirs(LOG_DIR, exist_ok=True)
-DATA_DIR = os.path.join(os.path.dirname(LOG_DIR), "data")
-os.makedirs(DATA_DIR, exist_ok=True)
+# ===== SAFEGUARD: robust path resolution & file append =====
+def _resolve_writable_dir(preferred: str | None, purpose: str = "logs") -> tuple[str, bool]:
+    """
+    Try multiple candidates; return first writable directory and a flag if we had to fallback.
+    Order:
+      1) BIN_HELPER_LOG_DIR env (if set)
+      2) preferred
+      3) ./<purpose> next to app.py
+      4) OS temp dir /tmp/bin-helper-<purpose>
+    """
+    candidates = []
+    env_override = os.environ.get("BIN_HELPER_LOG_DIR")
+    if env_override:
+        candidates.append(env_override)
+    if preferred:
+        candidates.append(preferred)
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(app_dir, purpose))
+    candidates.append(os.path.join(tempfile.gettempdir(), f"bin-helper-{purpose}"))
+
+    for d in candidates:
+        try:
+            os.makedirs(d, exist_ok=True)
+            test_path = os.path.join(d, ".write_test")
+            with open(test_path, "w", encoding="utf-8") as f:
+                f.write("ok")
+            os.remove(test_path)
+            # writable
+            return d, (d != preferred)
+        except Exception:
+            continue
+    # last resort: current workdir (best effort)
+    d = os.getcwd()
+    try:
+        test_path = os.path.join(d, ".write_test")
+        with open(test_path, "w", encoding="utf-8") as f:
+            f.write("ok")
+        os.remove(test_path)
+        return d, True
+    except Exception:
+        return d, True
+
+def _safe_append_csv(path: str, header: list[str], row: list) -> tuple[bool, str, str]:
+    """
+    Append a CSV row; create file and header if missing.
+    If write fails, fallback to a safe dir and try again.
+    Returns (success, used_path, error_message_if_any)
+    """
+    def _try_write(p: str) -> tuple[bool, str]:
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        file_exists = os.path.isfile(p)
+        with open(p, mode="a", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            if not file_exists:
+                w.writerow(header)
+            w.writerow(row)
+        return True, p
+
+    try:
+        ok, used = _try_write(path)
+        return True, used, ""
+    except Exception as e:
+        # fallback to a writable logs dir near app.py or temp
+        fb_dir, _ = _resolve_writable_dir(None, purpose="logs")
+        fb_path = os.path.join(fb_dir, os.path.basename(path))
+        try:
+            ok, used = _try_write(fb_path)
+            return True, used, f"Primary write failed: {e}"
+        except Exception as e2:
+            return False, path, f"Primary write failed: {e}; Fallback failed: {e2}"
+
+# ===== Paths (preferred) =====
+PREFERRED_LOG_DIR = r"C:\Users\carlos.pacheco.MYA-LOGISTICS\OneDrive - JT Logistics\bin-helper\logs"
+LOG_DIR, LOG_FALLBACK_USED = _resolve_writable_dir(PREFERRED_LOG_DIR, purpose="logs")
+DATA_DIR, DATA_FALLBACK_USED = _resolve_writable_dir(os.path.join(os.path.dirname(LOG_DIR), "data"), purpose="data")
 resolved_file = os.path.join(LOG_DIR, "resolved_discrepancies.csv")
 TRENDS_FILE = os.path.join(LOG_DIR, "trend_history.csv")
 DEFAULT_INVENTORY_FILE = "ON_HAND_INVENTORY.xlsx"
@@ -116,7 +183,6 @@ def _clear_cache_and_rerun():
     st.session_state["kpi_run_id"] = datetime.now().strftime("%H%M%S%f")
     _rerun()
 
-
 def _save_uploaded_inventory(uploaded) -> str:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_name = re.sub(r"[^\w.\-]+", "_", uploaded.name)
@@ -124,7 +190,6 @@ def _save_uploaded_inventory(uploaded) -> str:
     with open(out_path, "wb") as f:
         f.write(uploaded.getbuffer())
     return out_path
-
 
 def _file_md5(path: str) -> str:
     try:
@@ -135,7 +200,6 @@ def _file_md5(path: str) -> str:
         return h.hexdigest()
     except Exception:
         return ""
-
 
 with st.sidebar:
     st.subheader("📦 Upload Inventory")
@@ -152,6 +216,12 @@ with st.sidebar:
     st.toggle("Fast tables (limit to 1000 rows)", value=False, key="fast_tables")
     st.button("🔄 Refresh Data", on_click=_clear_cache_and_rerun)
 
+    st.subheader("🗂 Log Folder")
+    st.caption(f"Path: `{LOG_DIR}`")
+    if LOG_FALLBACK_USED:
+        st.warning("Using fallback log folder (preferred path not writable here).")
+    else:
+        st.success("Writing to preferred log folder.")
     st.subheader("🎨 Card Style")
     card_style = st.selectbox("Choose KPI card style", ["Neon Glow", "Glassmorphism", "Blueprint"], index=0)
 
@@ -163,12 +233,10 @@ with st.sidebar:
     if st.button("Record snapshot now"):
         st.session_state["pending_trend_record"] = True
 
-
 # ===== Cached Loader =====
 @st.cache_data(ttl=120, show_spinner=False)
 def _load_excel(path: str, sheet_name=0):
     return pd.read_excel(path, sheet_name=sheet_name, engine="openpyxl")
-
 
 inventory_file = st.session_state.inventory_path or DEFAULT_INVENTORY_FILE
 master_file = DEFAULT_MASTER_FILE
@@ -194,14 +262,12 @@ def normalize_whole_number(val) -> str:
     except Exception:
         pass
     s = str(val).strip()
-    # Handle typical Excel whole-number floats like '9062716.0'
-    if re.fullmatch(r"\d+(\.0+)?", s):
+    if re.fullmatch(r"\d+(\.0+)?", s):  # Excel '9062716.0'
         s = s.split(".")[0]
     else:
         s = re.sub(r"\D", "", s)  # keep digits only
     s = s.lstrip("0")
     return s if s else ""
-
 
 # Ensure numeric columns exist
 def ensure_numeric_col(df: pd.DataFrame, col: str, default: float | int = 0):
@@ -209,7 +275,6 @@ def ensure_numeric_col(df: pd.DataFrame, col: str, default: float | int = 0):
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(default)
     else:
         df[col] = default
-
 
 ensure_numeric_col(inventory_df, "Qty", 0)
 ensure_numeric_col(inventory_df, "PalletCount", 0)
@@ -229,10 +294,8 @@ inventory_df["CustomerLotReference"] = inventory_df["CustomerLotReference"].appl
 def exclude_damage_missing(df: pd.DataFrame) -> pd.DataFrame:
     return df[~df["LocationName"].str.upper().isin(["DAMAGE", "MISSING", "IBDAMAGE"])].copy()
 
-
 filtered_inventory_df = exclude_damage_missing(inventory_df)
 occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
-
 
 # Master list extract
 def extract_master_locations(df: pd.DataFrame) -> set:
@@ -243,9 +306,7 @@ def extract_master_locations(df: pd.DataFrame) -> set:
     s = df.iloc[:, 0].dropna().astype(str).str.strip()
     return set(s.unique().tolist())
 
-
 master_locations = extract_master_locations(master_df)
-
 
 def get_partial_bins(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
@@ -258,13 +319,11 @@ def get_partial_bins(df: pd.DataFrame) -> pd.DataFrame:
     )
     return df2.loc[mask].copy()
 
-
 def get_full_pallet_bins(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     s = df2["LocationName"].astype(str)
     mask = (((~s.str.endswith("01")) | (s.str.startswith("111"))) & s.str.isnumeric() & df2["Qty"].between(6, 15))
     return df2.loc[mask].copy()
-
 
 def get_empty_partial_bins(master_locs: set, occupied_locs: set) -> pd.DataFrame:
     series = pd.Series(list(master_locs), dtype=str)
@@ -278,48 +337,30 @@ def get_empty_partial_bins(master_locs: set, occupied_locs: set) -> pd.DataFrame
     empty_partial = sorted(partial_candidates - set(occupied_locs))
     return pd.DataFrame({"LocationName": empty_partial})
 
-
 # Multi-pallet rule for ALL rack locations (full + partial) using normalized PalletId
 def _find_multi_pallet_all_racks(df: pd.DataFrame):
-    """
-    Returns (summary_df, details_df)
-    - summary_df: LocationName | DistinctPallets
-    - details_df: normalized core columns + Issue + DistinctPallets
-
-    Rack:
-    * Partial rack: numeric, endswith "01", not starting "111"
-    * Full rack: numeric, and ((not endswith "01") or startswith "111")
-    """
     df2 = exclude_damage_missing(df).copy()
     df2["LocationName"] = df2["LocationName"].astype(str).str.strip()
-    # PalletId already normalized at load
     s = df2["LocationName"].astype(str)
-    is_numeric = s.str.isnumeric()
-    rack_df = df2[is_numeric].copy()
+    rack_df = df2[s.str.isnumeric()].copy()
     if rack_df.empty:
         return pd.DataFrame(columns=["LocationName", "DistinctPallets"]), pd.DataFrame()
-
     grp = (rack_df.groupby("LocationName")["PalletId"]
            .nunique(dropna=True)
            .reset_index(name="DistinctPallets"))
     viol = grp[grp["DistinctPallets"] > 1]
     if viol.empty:
         return grp.iloc[0:0], pd.DataFrame()
-
     viol_locs = set(viol["LocationName"])
     details = rack_df[rack_df["LocationName"].isin(viol_locs)].copy()
-
-    # Issue per rack type
     locs = details["LocationName"].astype(str)
     details["Issue"] = [
-        "Multiple pallets in partial bin"
-        if (loc.endswith("01") and not loc.startswith("111"))
+        "Multiple pallets in partial bin" if (loc.endswith("01") and not loc.startswith("111"))
         else "Multiple pallets in rack location"
         for loc in locs
     ]
     details = details.merge(viol, on="LocationName", how="left")
     return viol.sort_values("DistinctPallets", ascending=False), details
-
 
 # ===== Build views =====
 empty_bins_view_df = pd.DataFrame({
@@ -334,7 +375,6 @@ missing_df = inventory_df[inventory_df["LocationName"].str.upper() == "MISSING"]
 # ===== Bulk discrepancy logic =====
 bulk_rules = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
 
-
 def analyze_bulk_locations_grouped(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     results = []
@@ -342,7 +382,6 @@ def analyze_bulk_locations_grouped(df: pd.DataFrame) -> pd.DataFrame:
     df2 = df2[letter_mask]
     if df2.empty:
         return pd.DataFrame()
-
     slot_counts = df2.groupby("LocationName").size()
     for slot, count in slot_counts.items():
         zone = str(slot)[0].upper()
@@ -355,15 +394,13 @@ def analyze_bulk_locations_grouped(df: pd.DataFrame) -> pd.DataFrame:
                 results.append(rec)
     return pd.DataFrame(results)
 
-
 bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
 
 # ===== Rack discrepancies (enhanced) =====
 def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     results = []
-
-    # Partial errors: qty>5 or >1 pallet (based on PalletCount from WMS)
+    # Partial errors
     p_df = get_partial_bins(df2)
     if not p_df.empty:
         pe = p_df[(p_df["Qty"] > 5) | (p_df["PalletCount"] > 1)]
@@ -371,7 +408,6 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             issue = "Qty too high for partial bin" if row["Qty"] > 5 else "Multiple pallets in partial bin"
             rec = row.to_dict(); rec["Issue"] = issue
             results.append(rec)
-
     # Full rack qty errors
     s = df2["LocationName"].astype(str)
     full_mask = (((~s.str.endswith("01")) | (s.str.startswith("111"))) & s.str.isnumeric())
@@ -382,18 +418,15 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             rec = row.to_dict()
             rec["Issue"] = "Partial Pallet needs to be moved to Partial Location"
             results.append(rec)
-
-    # Multi-pallet (normalized PalletId) for ALL racks
-    mp_summary, mp_details = _find_multi_pallet_all_racks(df2)
+    # Multi-pallet
+    _, mp_details = _find_multi_pallet_all_racks(df2)
     if not mp_details.empty:
         results += mp_details.to_dict("records")
-
     out = pd.DataFrame(results)
     if not out.empty:
         keep_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Issue"] if c in out.columns]
         out = out.drop_duplicates(subset=keep_cols)
     return out
-
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
@@ -419,7 +452,7 @@ for _, row in location_counts.iterrows():
 bulk_locations_df = pd.DataFrame(bulk_locations)
 empty_bulk_locations_df = pd.DataFrame(empty_bulk_locations)
 
-# ===== Logging =====
+# ===== Logging (SAFE APPEND) =====
 def _row_key(row: dict, discrepancy_type: str) -> str:
     fields = [
         str(row.get("LocationName", "")),
@@ -431,54 +464,52 @@ def _row_key(row: dict, discrepancy_type: str) -> str:
     ]
     return "\n".join(fields)
 
+RESOLVED_HEADER = [
+    "Timestamp", "Action", "BatchId", "DiscrepancyType", "RowKey",
+    "LocationName", "PalletId", "WarehouseSku", "CustomerLotReference",
+    "Qty", "Issue", "Note", "SelectedLOT"
+]
 
-def _write_header_if_needed(writer, file_exists: bool):
-    if not file_exists:
-        writer.writerow([
-            "Timestamp", "Action", "BatchId", "DiscrepancyType", "RowKey",
-            "LocationName", "PalletId", "WarehouseSku", "CustomerLotReference",
-            "Qty", "Issue", "Note", "SelectedLOT"
-        ])
+def log_action(row: dict, note: str, selected_lot: str, discrepancy_type: str, action: str, batch_id: str) -> tuple[bool, str, str]:
+    csv_row = [
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        action, batch_id, discrepancy_type, _row_key(row, discrepancy_type),
+        row.get("LocationName", ""), row.get("PalletId", ""), row.get("WarehouseSku", ""),
+        row.get("CustomerLotReference", ""), row.get("Qty", ""), row.get("Issue", ""),
+        note, selected_lot
+    ]
+    ok, used_path, err = _safe_append_csv(resolved_file, RESOLVED_HEADER, csv_row)
+    return ok, used_path, err
 
-
-def log_action(row: dict, note: str, selected_lot: str, discrepancy_type: str, action: str, batch_id: str):
-    file_exists = os.path.isfile(resolved_file)
-    with open(resolved_file, mode="a", newline="") as f:
-        w = csv.writer(f)
-        _write_header_if_needed(w, file_exists)
-        w.writerow([
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            action, batch_id, discrepancy_type, _row_key(row, discrepancy_type),
-            row.get("LocationName", ""), row.get("PalletId", ""), row.get("WarehouseSku", ""),
-            row.get("CustomerLotReference", ""), row.get("Qty", ""), row.get("Issue", ""),
-            note, selected_lot
-        ])
-
-
-def log_batch(df_rows: pd.DataFrame, note: str, selected_lot: str, discrepancy_type: str, action: str):
+def log_batch(df_rows: pd.DataFrame, note: str, selected_lot: str, discrepancy_type: str, action: str) -> tuple[str, str]:
     batch_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    used_path = resolved_file
     for _, r in df_rows.iterrows():
-        log_action(r.to_dict(), note, selected_lot, discrepancy_type, action, batch_id)
-    return batch_id
-
+        ok, upath, err = log_action(r.to_dict(), note, selected_lot, discrepancy_type, action, batch_id)
+        used_path = upath
+        if not ok:
+            st.error(f"Failed to write action log.\n{err}")
+            break
+    return batch_id, used_path
 
 def read_action_log() -> pd.DataFrame:
-    if os.path.isfile(resolved_file):
-        try:
+    try:
+        if os.path.isfile(resolved_file):
             return pd.read_csv(resolved_file)
-        except Exception:
-            return pd.DataFrame()
+        # If preferred file doesn’t exist but fallback was used, try that too
+        fb_dir, _ = _resolve_writable_dir(None, purpose="logs")
+        fb_path = os.path.join(fb_dir, os.path.basename(resolved_file))
+        if os.path.isfile(fb_path):
+            return pd.read_csv(fb_path)
+    except Exception:
+        pass
     return pd.DataFrame()
-
 
 # ===== Display helpers =====
 CORE_COLS = ["LocationName", "WarehouseSku", "PalletId", "CustomerLotReference", "Qty"]
 
-
 def _lot_to_str(x):
-    # Reuse strict normalization for LOT display
     return normalize_whole_number(x)
-
 
 def ensure_core(df: pd.DataFrame, include_issue: bool = False) -> pd.DataFrame:
     if df is None or df.empty:
@@ -487,12 +518,10 @@ def ensure_core(df: pd.DataFrame, include_issue: bool = False) -> pd.DataFrame:
     for c in CORE_COLS:
         if c not in out.columns:
             out[c] = ""
-    # enforce display normalization
     if "PalletId" in out.columns:
         out["PalletId"] = out["PalletId"].apply(normalize_whole_number)
     if "CustomerLotReference" in out.columns:
         out["CustomerLotReference"] = out["CustomerLotReference"].apply(normalize_whole_number)
-
     cols = CORE_COLS.copy()
     if include_issue and "Issue" in out.columns:
         cols += ["Issue"]
@@ -501,18 +530,15 @@ def ensure_core(df: pd.DataFrame, include_issue: bool = False) -> pd.DataFrame:
     cols = [c for c in cols if c in out.columns]
     return out[cols]
 
-
 def style_issue_red(df: pd.DataFrame):
     if "Issue" in df.columns:
         return df.style.set_properties(subset=["Issue"], **{"color": "red", "font-weight": "bold"})
     return df
 
-
 def maybe_limit(df: pd.DataFrame) -> pd.DataFrame:
     return df.head(1000) if st.session_state.get("fast_tables", False) else df
 
-
-# ===== KPI Card CSS (and menu animation CSS) =====
+# ===== KPI Card CSS (no f-strings in CSS) =====
 def _inject_card_css(style: str):
     common = """
 div[data-testid="stMetric"] {
@@ -526,7 +552,6 @@ div[data-testid="stMetric"] [data-testid="stMetricLabel"] { font-weight: 600; le
 div[data-testid="stMetric"] [data-testid="stMetricValue"] { font-weight: 800; }
 .stButton>button { transition: transform .05s ease, box-shadow .2s ease; }
 .stButton>button:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.18); }
-/* Responsive: stack columns & wrap nav on small screens */
 @media (max-width: 900px) {
   section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
     width: 100% !important; flex: 1 1 100% !important; padding-bottom: 8px;
@@ -538,7 +563,6 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] { font-weight: 800; }
 }
 """
     neon = """
-/* NEON GLOW */
 div[data-testid="stMetric"] {
   color: #e8f0ff;
   background: radial-gradient(120% 120% at 0% 0%, #0b1220 0%, #101a2e 55%, #0b1220 100%);
@@ -552,7 +576,6 @@ div[data-testid="stMetric"]:hover {
 }
 """
     glass = """
-/* GLASSMORPHISM */
 div[data-testid="stMetric"] {
   color: #0e1730;
   background: linear-gradient(160deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,.25) 100%);
@@ -565,7 +588,6 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: __BLUE__; }
 div[data-testid="stMetric"]:hover { box-shadow: 0 14px 36px rgba(0,0,0,.12); }
 """
     blueprint = """
-/* BLUEPRINT */
 div[data-testid="stMetric"] {
   color: #d7e9ff;
   background:
@@ -582,7 +604,6 @@ div[data-testid="stMetric"]:hover {
 }
 """
     exception_hint = """
-/* Exception accent for Damages/Missing (columns 5 & 6) */
 section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(5) div[data-testid="stMetric"],
 section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] {
   border-color: rgba(214,39,40,.5) !important;
@@ -597,84 +618,7 @@ section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-
     bundle = bundle.replace("__BLUE__", BLUE).replace("__RED__", RED)
     st.markdown(f"<style>{bundle}</style>", unsafe_allow_html=True)
 
-
-def _inject_nav_css():
-    """Animated dashboard menu (radio) — glow pulse, underline, shimmer."""
-    css = f"""
-<style>
-/* Nav wrapper shimmer + padding */
-div[data-testid="stRadio"] {{
-  background: linear-gradient(90deg, rgba(31,119,180, .06), rgba(214,39,40, .06), rgba(31,119,180, .06));
-  background-size: 200% 100%;
-  animation: navShimmer 8s linear infinite;
-  padding: 8px 10px;
-  border-radius: 14px;
-  border: 1px solid rgba(31,119,180,.10);
-}}
-@keyframes navShimmer {{
-  0% {{ background-position: 0% 0; }}
-  100% {{ background-position: 200% 0; }}
-}}
-
-/* Radio group layout & item look */
-div[data-testid="stRadio"] div[role="radiogroup"] {{
-  display: flex; gap: 8px 10px; flex-wrap: wrap; align-items: center;
-}}
-div[data-testid="stRadio"] div[role="radiogroup"] > div[role="radio"] {{
-  border: 1px solid rgba(31,119,180,.25);
-  border-radius: 999px;
-  padding: 8px 14px;
-  background: rgba(255,255,255,.65);
-  backdrop-filter: blur(6px);
-  transition: transform .12s ease, box-shadow .2s ease, border-color .2s ease, background .2s ease, color .2s ease;
-  position: relative;
-}}
-div[data-testid="stRadio"] div[role="radiogroup"] > div[role="radio"]:hover {{
-  transform: translateY(-1px);
-  box-shadow: 0 8px 22px rgba(0,0,0,.10);
-}}
-
-/* Active (checked) state with glow pulse + animated underline */
-div[data-testid="stRadio"] div[role="radiogroup"] > div[role="radio"][aria-checked="true"] {{
-  background: linear-gradient(135deg, rgba(31,119,180,.12), rgba(214,39,40,.12));
-  border-color: rgba(31,119,180,.55);
-  color: #0b2239;
-  box-shadow: 0 0 0 2px rgba(31,119,180,.25), 0 0 18px rgba(31,119,180,.35), inset 0 0 12px rgba(31,119,180,.18);
-  animation: pulseGlow 1.8s ease-in-out infinite;
-}}
-div[data-testid="stRadio"] div[role="radiogroup"] > div[role="radio"][aria-checked="true"]::after {{
-  content: "";
-  position: absolute;
-  left: 12px; right: 12px; bottom: 4px;
-  height: 2px;
-  background: linear-gradient(90deg, {BLUE}, {RED});
-  border-radius: 2px;
-  filter: drop-shadow(0 0 6px rgba(31,119,180,.45));
-  transform-origin: center;
-  animation: underlineSlide 2.2s ease-in-out infinite;
-}}
-
-@keyframes pulseGlow {{
-  0%, 100% {{
-     box-shadow: 0 0 0 2px rgba(31,119,180,.25), 0 0 12px rgba(31,119,180,.25), inset 0 0 6px rgba(31,119,180,.14);
-  }}
-  50% {{
-     box-shadow: 0 0 0 2px rgba(31,119,180,.38), 0 0 22px rgba(31,119,180,.45), inset 0 0 12px rgba(31,119,180,.22);
-  }}
-}}
-@keyframes underlineSlide {{
-  0% {{ transform: scaleX(.3); opacity:.65; }}
-  50% {{ transform: scaleX(1); opacity: 1; }}
-  100% {{ transform: scaleX(.3); opacity: .65; }}
-}}
-</style>
-"""
-    st.markdown(css, unsafe_allow_html=True)
-
-
-# Inject styles
 _inject_card_css(card_style)
-_inject_nav_css()
 
 # ===== NAV =====
 nav_options = [
@@ -709,7 +653,6 @@ def _animate_metric(ph, label: str, value: int | float, duration_ms: int = 600, 
     except Exception:
         ph.metric(label, value)
 
-
 def _current_kpis() -> dict:
     return {
         "EmptyBins": len(empty_bins_view_df),
@@ -719,7 +662,6 @@ def _current_kpis() -> dict:
         "Damages": len(damages_df),
         "Missing": len(missing_df),
     }
-
 
 def _append_trend_snapshot(kpis: dict, src_path: str):
     os.makedirs(os.path.dirname(TRENDS_FILE), exist_ok=True)
@@ -731,25 +673,22 @@ def _append_trend_snapshot(kpis: dict, src_path: str):
         hist = pd.read_csv(TRENDS_FILE) if exists else pd.DataFrame()
     except Exception:
         hist = pd.DataFrame()
-
     if not hist.empty and "FileHash" in hist.columns:
         last_hash = str(hist.iloc[-1].get("FileHash", ""))
         if file_hash and file_hash == last_hash:
-            return False
-
-    with open(TRENDS_FILE, mode="a", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(row.keys()))
-        if not exists:
-            w.writeheader()
-        w.writerow(row)
-    return True
-
+            return False, TRENDS_FILE, ""
+    # SAFEGUARD: write with fallback
+    header = list(row.keys())
+    csv_row = [row[h] for h in header]
+    ok, used_path, err = _safe_append_csv(TRENDS_FILE, header, csv_row)
+    return ok, used_path, err
 
 if st.session_state.get("pending_trend_record", False):
-    took = _append_trend_snapshot(_current_kpis(), inventory_file)
-    # Explicit if/else to avoid Streamlit auto-write of DeltaGenerator
+    took, used_path, err = _append_trend_snapshot(_current_kpis(), inventory_file)
     if took:
-        st.success("📈 Trend snapshot recorded.")
+        st.success(f"📈 Trend snapshot recorded → `{used_path}`")
+        if err:
+            st.info(f"(Used fallback) {err}")
     else:
         st.info("Trend snapshot skipped (same file as last snapshot).")
     st.session_state["pending_trend_record"] = False
@@ -757,7 +696,6 @@ if st.session_state.get("pending_trend_record", False):
 # ===== Dashboard =====
 if selected_nav == "Dashboard":
     st.subheader("📊 Bin Helper Dashboard")
-
     kpi_vals = {
         "Empty Bins": len(empty_bins_view_df),
         "Empty Partial Bins": len(empty_partial_bins_df),
@@ -766,7 +704,6 @@ if selected_nav == "Dashboard":
         "Damages": len(damages_df),
         "Missing": len(missing_df),
     }
-
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     k1 = col1.empty();  k1_btn = col1.button("View", key="btn_empty")
     k2 = col2.empty();  k2_btn = col2.button("View", key="btn_empty_partial")
@@ -774,14 +711,12 @@ if selected_nav == "Dashboard":
     k4 = col4.empty();  k4_btn = col4.button("View", key="btn_full")
     k5 = col5.empty();  k5_btn = col5.button("View", key="btn_damage")
     k6 = col6.empty();  k6_btn = col6.button("View", key="btn_missing")
-
     _animate_metric(k1, "Empty Bins", kpi_vals["Empty Bins"])
     _animate_metric(k2, "Empty Partial Bins", kpi_vals["Empty Partial Bins"])
     _animate_metric(k3, "Partial Bins", kpi_vals["Partial Bins"])
     _animate_metric(k4, "Full Pallet Bins", kpi_vals["Full Pallet Bins"])
     _animate_metric(k5, "Damages", kpi_vals["Damages"])
     _animate_metric(k6, "Missing", kpi_vals["Missing"])
-
     if k1_btn: st.session_state["pending_nav"] = "Empty Bins"; _rerun()
     if k2_btn: st.session_state["pending_nav"] = "Empty Partial Bins"; _rerun()
     if k3_btn: st.session_state["pending_nav"] = "Partial Bins"; _rerun()
@@ -792,10 +727,8 @@ if selected_nav == "Dashboard":
     # Bin Status Distribution
     kpi_df = pd.DataFrame({"Category": list(kpi_vals.keys()), "Count": list(kpi_vals.values())})
     kpi_df["Group"] = kpi_df["Category"].apply(lambda c: "Exceptions" if c in ["Damages", "Missing"] else "Bins")
-    fig_kpi = px.bar(
-        kpi_df, x="Category", y="Count", color="Group", text="Count",
-        title="Bin Status Distribution", color_discrete_map={"Bins": BLUE, "Exceptions": RED}
-    )
+    fig_kpi = px.bar(kpi_df, x="Category", y="Count", color="Group", text="Count",
+                     title="Bin Status Distribution", color_discrete_map={"Bins": BLUE, "Exceptions": RED})
     fig_kpi.update_traces(textposition="outside")
     fig_kpi.update_layout(xaxis_title="", yaxis_title="Count", showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
     st.plotly_chart(fig_kpi, use_container_width=True)
@@ -804,17 +737,13 @@ if selected_nav == "Dashboard":
     def is_rack_slot(loc: str) -> bool:
         s = str(loc)
         return s.isnumeric() and (((not s.endswith("01")) or s.startswith("111")))
-
     rack_master = {loc for loc in master_locations if is_rack_slot(loc)}
     rack_full_used = set(full_pallet_bins_df["LocationName"].astype(str).unique())
     rack_empty = rack_master - occupied_locations
-
     pie_df = pd.DataFrame({"Status": ["Full", "Empty"], "Locations": [len(rack_full_used & rack_master), len(rack_empty)]})
-    fig_rack_pie = px.pie(
-        pie_df, names="Status", values="Locations",
-        title="Racks: Full vs Empty (unique slots)",
-        color="Status", color_discrete_map={"Full": BLUE, "Empty": RED}
-    )
+    fig_rack_pie = px.pie(pie_df, names="Status", values="Locations",
+                          title="Racks: Full vs Empty (unique slots)",
+                          color="Status", color_discrete_map={"Full": BLUE, "Empty": RED})
     fig_rack_pie.update_layout(showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
     st.plotly_chart(fig_rack_pie, use_container_width=True)
 
@@ -823,10 +752,8 @@ if selected_nav == "Dashboard":
         bulk_zone = bulk_locations_df.groupby("Zone").agg(Used=("PalletCount", "sum"), Capacity=("MaxAllowed", "sum")).reset_index()
         bulk_zone["Empty"] = (bulk_zone["Capacity"] - bulk_zone["Used"]).clip(lower=0)
         bulk_stack = bulk_zone.melt(id_vars="Zone", value_vars=["Used", "Empty"], var_name="Type", value_name="Count")
-        fig_bulk = px.bar(
-            bulk_stack, x="Zone", y="Count", color="Type", barmode="stack",
-            title="Bulk Zones: Used vs Empty Capacity", color_discrete_map={"Used": BLUE, "Empty": RED}
-        )
+        fig_bulk = px.bar(bulk_stack, x="Zone", y="Count", color="Type", barmode="stack",
+                          title="Bulk Zones: Used vs Empty Capacity", color_discrete_map={"Used": BLUE, "Empty": RED})
         fig_bulk.update_layout(xaxis_title="Zone", yaxis_title="Pallets", showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
         st.plotly_chart(fig_bulk, use_container_width=True)
 
@@ -904,8 +831,9 @@ elif selected_nav == "Rack Discrepancies":
             note = st.text_input(f"Add note for LOT {chosen_lot}", key="rack_fix_note")
             if st.button("Fix Selected LOT", key="rack_fix_btn"):
                 rows_to_fix = discrepancy_df[discrepancy_df["CustomerLotReference"].apply(_lot_to_str) == chosen_lot]
-                batch_id = log_batch(rows_to_fix, note, chosen_lot, "Rack", action="RESOLVE")
-                st.success(f"Resolved {len(rows_to_fix)} rack discrepancy row(s) for LOT {chosen_lot}. BatchId={batch_id}")
+                batch_id, used_path = log_batch(rows_to_fix, note, chosen_lot, "Rack", action="RESOLVE")
+                st.success(f"Resolved {len(rows_to_fix)} rack discrepancy row(s) for LOT {chosen_lot}.")
+                st.caption(f"📝 Logged to: `{used_path}` • BatchId={batch_id}")
                 data = _load_lottie("https://assets10.lottiefiles.com/packages/lf20_jbrw3hcz.json")
                 if data:
                     st_lottie(data, height=90, key=f"rack_fix_success_{batch_id}", loop=False, speed=1.2)
@@ -921,7 +849,10 @@ elif selected_nav == "Rack Discrepancies":
                         last_batch = last_resolve.sort_values("Timestamp").iloc[-1]["BatchId"]
                         rows = last_resolve[last_resolve["BatchId"] == last_batch]
                         for _, r in rows.iterrows():
-                            log_action(r.to_dict(), f"UNDO of batch {last_batch}", r.get("SelectedLOT", ""), "Rack", "UNDO", str(last_batch))
+                            ok, upath, err = log_action(r.to_dict(), f"UNDO of batch {last_batch}", r.get("SelectedLOT", ""), "Rack", "UNDO", str(last_batch))
+                            if not ok:
+                                st.error(f"Failed to write UNDO action. {err}")
+                                break
                         st.success(f"UNDO recorded for batch {last_batch} ({len(rows)} row(s)).")
                         data = _load_lottie("https://assets10.lottiefiles.com/packages/lf20_jbrw3hcz.json")
                         if data:
@@ -1000,8 +931,9 @@ elif selected_nav == "Bulk Discrepancies":
                     for req in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty", "Issue"]:
                         if req not in sel_rows.columns:
                             sel_rows[req] = ""
-                    batch_id = log_batch(sel_rows, note, selected_lot_value, "Bulk", action="RESOLVE")
-                    st.success(f"Logged fix for {len(sel_rows)} row(s). BatchId={batch_id}")
+                    batch_id, used_path = log_batch(sel_rows, note, selected_lot_value, "Bulk", action="RESOLVE")
+                    st.success(f"Logged fix for {len(sel_rows)} row(s).")
+                    st.caption(f"📝 Logged to: `{used_path}` • BatchId={batch_id}")
                     data = _load_lottie("https://assets10.lottiefiles.com/packages/lf20_jbrw3hcz.json")
                     if data:
                         st_lottie(data, height=90, key=f"bulk_fix_success_{batch_id}", loop=False, speed=1.2)
@@ -1020,8 +952,9 @@ elif selected_nav == "Bulk Discrepancies":
             note = st.text_input(f"Add note for LOT {chosen_lot}", key="bulk_fix_note")
             if st.button("Fix Selected LOT", key="bulk_fix_btn"):
                 rows_to_fix = bulk_df[bulk_df["CustomerLotReference"].apply(_lot_to_str) == chosen_lot]
-                batch_id = log_batch(rows_to_fix, note, chosen_lot, "Bulk", action="RESOLVE")
-                st.success(f"Resolved {len(rows_to_fix)} bulk discrepancy row(s) for LOT {chosen_lot}. BatchId={batch_id}")
+                batch_id, used_path = log_batch(rows_to_fix, note, chosen_lot, "Bulk", action="RESOLVE")
+                st.success(f"Resolved {len(rows_to_fix)} bulk discrepancy row(s) for LOT {chosen_lot}.")
+                st.caption(f"📝 Logged to: `{used_path}` • BatchId={batch_id}")
                 data = _load_lottie("https://assets10.lottiefiles.com/packages/lf20_jbrw3hcz.json")
                 if data:
                     st_lottie(data, height=90, key=f"bulk_lot_fix_success_{batch_id}", loop=False, speed=1.2)
@@ -1037,7 +970,10 @@ elif selected_nav == "Bulk Discrepancies":
                         last_batch = last_resolve.sort_values("Timestamp").iloc[-1]["BatchId"]
                         rows = last_resolve[last_resolve["BatchId"] == last_batch]
                         for _, r in rows.iterrows():
-                            log_action(r.to_dict(), f"UNDO of batch {last_batch}", r.get("SelectedLOT",""), "Bulk", "UNDO", str(last_batch))
+                            ok, upath, err = log_action(r.to_dict(), f"UNDO of batch {last_batch}", r.get("SelectedLOT",""), "Bulk", "UNDO", str(last_batch))
+                            if not ok:
+                                st.error(f"Failed to write UNDO action. {err}")
+                                break
                         st.success(f"UNDO recorded for batch {last_batch} ({len(rows)} row(s)).")
                         data = _load_lottie("https://assets10.lottiefiles.com/packages/lf20_jbrw3hcz.json")
                         if data:
@@ -1111,24 +1047,20 @@ elif selected_nav == "Trends":
 elif selected_nav == "Self-Test":
     st.subheader("✅ Rule Self-Checks (Read-only)")
     problems = []
-
     if any(filtered_inventory_df["LocationName"].str.upper().str.startswith(("OB", "IB"))):
         problems.append("OB/IB locations leaked into filtered inventory.")
-
     pb = get_partial_bins(filtered_inventory_df)
     if not pb.empty:
         s2 = pb["LocationName"].astype(str)
         mask_ok = (s2.str.endswith("01") & ~s2.str.startswith("111") & ~s2.str.upper().str.startswith("TUN") & s2.str[0].str.isdigit())
         if (~mask_ok).any():
             problems.append("Some Partial Bins fail the 01/111/TUN/digit rule.")
-
     s3 = filtered_inventory_df["LocationName"].astype(str)
     full_mask = (((~s3.str.endswith("01")) | s3.str.startswith("111")) & s3.str.isnumeric())
     fdf = filtered_inventory_df.loc[full_mask].copy()
     offenders = pd.DataFrame(); not_flagged = pd.DataFrame()
     if not fdf.empty:
         offenders = fdf[~fdf["Qty"].between(6, 15)].copy()
-
     if not offenders.empty and not discrepancy_df.empty:
         if "PalletId" in offenders.columns and "PalletId" in discrepancy_df.columns:
             key_cols = ["LocationName", "PalletId"]
@@ -1145,10 +1077,8 @@ elif selected_nav == "Self-Test":
             missing_mask = merged["_merge"].eq("left_only")
             if missing_mask.any():
                 not_flagged = offenders.merge(merged.loc[missing_mask, key_cols], on=key_cols, how="inner")
-
     if "MISSING" in filtered_inventory_df["LocationName"].str.upper().unique():
         problems.append("MISSING found in filtered inventory (should be separate).")
-
     if problems:
         st.error("❌ FAIL")
         for p in problems:
