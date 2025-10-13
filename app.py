@@ -23,6 +23,13 @@ except Exception:
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
+# --- THEME COLORS (2-color palette) ---
+BLUE = "#1f77b4"   # Plotly classic blue
+RED  = "#d62728"   # Plotly classic red
+
+# Use a light plotly template (readable on light Streamlit theme)
+px.defaults.template = "plotly_white"
+
 # --- SESSION STATE ---
 if "filters" not in st.session_state:
     st.session_state.filters = {
@@ -78,7 +85,6 @@ def show_banner():
             st.markdown(
                 """
                 ### Bin Helper
-
                 Fast, visual lookups for **Empty**, **Partial**, **Full**, **Damages**, and **Missing** — all by your warehouse rules.
                 """,
                 unsafe_allow_html=True
@@ -135,10 +141,10 @@ def get_partial_bins(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     s = df2["LocationName"].astype(str)
     mask = (
-        s.str.endswith("01") &
-        ~s.str.startswith("111") &
-        ~s.str.upper().str.startswith("TUN") &
-        s.str[0].str.isdigit()
+        s.str.endswith("01")
+        & ~s.str.startswith("111")
+        & ~s.str.upper().str.startswith("TUN")
+        & s.str[0].str.isdigit()
     )
     return df2.loc[mask].copy()
 
@@ -155,10 +161,10 @@ def get_full_pallet_bins(df: pd.DataFrame) -> pd.DataFrame:
 def get_empty_partial_bins(master_locs: set, occupied_locs: set) -> pd.DataFrame:
     series = pd.Series(list(master_locs), dtype=str)
     mask = (
-        series.str.endswith("01") &
-        ~series.str.startswith("111") &
-        ~series.str.upper().str.startswith("TUN") &
-        series.str[0].str.isdigit()
+        series.str.endswith("01")
+        & ~series.str.startswith("111")
+        & ~series.str.upper().str.startswith("TUN")
+        & series.str[0].str.isdigit()
     )
     partial_candidates = set(series[mask])
     empty_partial = sorted(partial_candidates - set(occupied_locs))
@@ -200,7 +206,6 @@ bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
 def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     results = []
-
     # Partial errors
     p_df = get_partial_bins(df2)
     if not p_df.empty:
@@ -210,10 +215,9 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             rec = row.to_dict()
             rec["Issue"] = issue
             results.append(rec)
-
     # Full rack errors
     s = df2["LocationName"].astype(str)
-    full_mask = (((~s.str.endswith("01")) | s.str.startswith("111")) & s.str.isnumeric())
+    full_mask = (((~s.str.endswith("01")) | (s.str.startswith("111"))) & s.str.isnumeric())
     f_df = df2.loc[full_mask]
     if not f_df.empty:
         fe = f_df[~f_df["Qty"].between(6, 15)]
@@ -221,7 +225,6 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             rec = row.to_dict()
             rec["Issue"] = "Partial Pallet needs to be moved to Partial Location"
             results.append(rec)
-
     return pd.DataFrame(results)
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
@@ -288,7 +291,7 @@ def log_action(row: dict, note: str, selected_lot: str, discrepancy_type: str, a
             row.get("WarehouseSku", ""),
             row.get("CustomerLotReference", ""),
             row.get("Qty", ""),
-            row.get("Issue", ""),   # <-- Include Issue in log
+            row.get("Issue", ""),  # <-- Include Issue in log
             note,
             selected_lot
         ])
@@ -316,7 +319,7 @@ def _lot_to_str(x):
             return ""
     except Exception:
         pass
-    if isinstance(x, (int,)):
+    if isinstance(x, (int, )):
         return str(int(x))
     if isinstance(x, float):
         return str(int(round(x)))
@@ -351,7 +354,6 @@ nav_options = [
     "Rack Discrepancies", "Bulk Discrepancies",
     "Bulk Locations", "Empty Bulk Locations", "Self-Test"
 ]
-
 _default_nav = st.session_state.get("nav", "Dashboard")
 if "pending_nav" in st.session_state:
     _default_nav = st.session_state.pop("pending_nav", _default_nav)
@@ -363,7 +365,7 @@ except ValueError:
 selected_nav = st.radio("🔍 Navigate:", nav_options, index=_default_index, horizontal=True, key="nav")
 st.markdown("---")
 
-# --- DASHBOARD VIEW (extra charts) ---
+# --- DASHBOARD VIEW (updated charts with Blue/Red) ---
 if selected_nav == "Dashboard":
     st.subheader("📊 Bin Helper Dashboard")
 
@@ -393,17 +395,35 @@ if selected_nav == "Dashboard":
         if st.button("View", key="btn_missing"):
             st.session_state["pending_nav"] = "Missing"; _rerun()
 
+    # --- Bin Status Distribution (2-color by group) ---
     kpi_data = {
         "Category": ["Empty Bins", "Empty Partial Bins", "Partial Bins", "Full Pallet Bins", "Damages", "Missing"],
         "Count": [
-            len(empty_bins_view_df), len(empty_partial_bins_df), len(partial_bins_df),
-            len(full_pallet_bins_df), len(damages_df), len(missing_df)
-        ]
+            len(empty_bins_view_df),
+            len(empty_partial_bins_df),
+            len(partial_bins_df),
+            len(full_pallet_bins_df),
+            len(damages_df),
+            len(missing_df)
+        ],
     }
     kpi_df = pd.DataFrame(kpi_data)
-    st.plotly_chart(px.bar(kpi_df, x="Category", y="Count", title="Bin Status Distribution", text="Count"),
-                    use_container_width=True)
+    kpi_df["Group"] = kpi_df["Category"].apply(lambda c: "Exceptions" if c in ["Damages", "Missing"] else "Bins")
 
+    fig_kpi = px.bar(
+        kpi_df,
+        x="Category",
+        y="Count",
+        color="Group",
+        text="Count",
+        title="Bin Status Distribution",
+        color_discrete_map={"Bins": BLUE, "Exceptions": RED},
+    )
+    fig_kpi.update_traces(textposition="outside")
+    fig_kpi.update_layout(xaxis_title="", yaxis_title="Count", showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
+    st.plotly_chart(fig_kpi, use_container_width=True)
+
+    # --- Racks: Full vs Empty (pie) - Full=Blue, Empty=Red ---
     def is_rack_slot(loc: str) -> bool:
         s = str(loc)
         return s.isnumeric() and (((not s.endswith("01")) or s.startswith("111")))
@@ -414,24 +434,54 @@ if selected_nav == "Dashboard":
 
     pie_df = pd.DataFrame({"Status": ["Full", "Empty"],
                            "Locations": [len(rack_full_used & rack_master), len(rack_empty)]})
-    st.plotly_chart(px.pie(pie_df, names="Status", values="Locations", title="Racks: Full vs Empty (unique slots)"),
-                    use_container_width=True)
 
+    fig_rack_pie = px.pie(
+        pie_df,
+        names="Status",
+        values="Locations",
+        title="Racks: Full vs Empty (unique slots)",
+        color="Status",
+        color_discrete_map={"Full": BLUE, "Empty": RED},
+    )
+    fig_rack_pie.update_layout(showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
+    st.plotly_chart(fig_rack_pie, use_container_width=True)
+
+    # --- Bulk Zones: Used vs Empty (stacked bar) - Used=Blue, Empty=Red ---
     if not bulk_locations_df.empty:
         bulk_zone = bulk_locations_df.groupby("Zone").agg(
             Used=("PalletCount", "sum"),
             Capacity=("MaxAllowed", "sum")
         ).reset_index()
         bulk_zone["Empty"] = (bulk_zone["Capacity"] - bulk_zone["Used"]).clip(lower=0)
-        bulk_stack = bulk_zone.melt(id_vars="Zone", value_vars=["Used", "Empty"],
-                                    var_name="Type", value_name="Count")
-        st.plotly_chart(px.bar(bulk_stack, x="Zone", y="Count", color="Type", barmode="stack",
-                               title="Bulk Zones: Used vs Empty Capacity"),
-                        use_container_width=True)
+        bulk_stack = bulk_zone.melt(
+            id_vars="Zone", value_vars=["Used", "Empty"], var_name="Type", value_name="Count"
+        )
+        fig_bulk = px.bar(
+            bulk_stack,
+            x="Zone",
+            y="Count",
+            color="Type",
+            barmode="stack",
+            title="Bulk Zones: Used vs Empty Capacity",
+            color_discrete_map={"Used": BLUE, "Empty": RED},
+        )
+        fig_bulk.update_layout(xaxis_title="Zone", yaxis_title="Pallets", showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
+        st.plotly_chart(fig_bulk, use_container_width=True)
 
+    # --- Damages vs Missing (bar) - Damages=Red, Missing=Blue ---
     dm_df = pd.DataFrame({"Status": ["Damages", "Missing"], "Count": [len(damages_df), len(missing_df)]})
-    st.plotly_chart(px.bar(dm_df, x="Status", y="Count", text="Count", title="Damages vs Missing"),
-                    use_container_width=True)
+    fig_dm = px.bar(
+        dm_df,
+        x="Status",
+        y="Count",
+        text="Count",
+        title="Damages vs Missing",
+        color="Status",
+        color_discrete_map={"Damages": RED, "Missing": BLUE},
+    )
+    fig_dm.update_traces(textposition="outside")
+    fig_dm.update_layout(xaxis_title="", yaxis_title="Count", showlegend=False, margin=dict(t=60, b=40, l=10, r=10))
+    st.plotly_chart(fig_dm, use_container_width=True)
 
 # --- TAB VIEWS ---
 elif selected_nav == "Empty Bins":
@@ -494,7 +544,7 @@ elif selected_nav == "Rack Discrepancies":
                         last_batch = last_resolve.sort_values("Timestamp").iloc[-1]["BatchId"]
                         rows = last_resolve[last_resolve["BatchId"] == last_batch]
                         for _, r in rows.iterrows():
-                            log_action(r.to_dict(), f"UNDO of batch {last_batch}", r.get("SelectedLOT",""), "Rack", "UNDO", str(last_batch))
+                            log_action(r.to_dict(), f"UNDO of batch {last_batch}", r.get("SelectedLOT", ""), "Rack", "UNDO", str(last_batch))
                         st.success(f"UNDO recorded for batch {last_batch} ({len(rows)} row(s)).")
                     else:
                         st.info("No RESOLVE actions to undo for Rack.")
@@ -505,7 +555,6 @@ elif selected_nav == "Rack Discrepancies":
 
 elif selected_nav == "Bulk Discrepancies":
     st.subheader("Bulk Discrepancies")
-
     if not bulk_df.empty:
         # ---- Existing LOT filter (preserved) ----
         lots = ["(All)"] + sorted([_lot_to_str(x) for x in bulk_df["CustomerLotReference"].dropna().unique()])
@@ -528,9 +577,9 @@ elif selected_nav == "Bulk Discrepancies":
             # Choose columns to show in the grid
             show_cols = [c for c in [
                 "LocationName",
-                "WarehouseSku",            # SKU
-                "CustomerLotReference",    # LOT Number
-                "PalletId",                # Pallet ID
+                "WarehouseSku",          # SKU
+                "CustomerLotReference",  # LOT Number
+                "PalletId",              # Pallet ID
                 "Qty",
                 "Issue"
             ] if c in df2.columns]
@@ -539,7 +588,6 @@ elif selected_nav == "Bulk Discrepancies":
 
             # Expand/collapse control
             expand_all = st.toggle("Expand all groups", value=False, help="When on, all location groups load expanded by default.")
-
             gb = GridOptionsBuilder.from_dataframe(grid_df)
             gb.configure_default_column(resizable=True, filter=True, sortable=True, floatingFilter=True)
             gb.configure_column("LocationName", rowGroup=True, hide=True)
@@ -560,7 +608,6 @@ elif selected_nav == "Bulk Discrepancies":
                 fit_columns_on_grid_load=True,
                 height=480
             )
-
             sel_rows = pd.DataFrame(grid_resp.get("selected_rows", []))
             st.caption(f"Selected rows: {len(sel_rows)}")
 
@@ -575,7 +622,6 @@ elif selected_nav == "Bulk Discrepancies":
                     if len(lots_sel) == 1:
                         selected_lot_value = list(lots_sel)[0]
                 st.write(f"Selected LOT (auto): **{selected_lot_value}**")
-
                 if st.button("Log Fix for selected row(s)", disabled=sel_rows.empty):
                     # Ensure required columns exist for log_action/_row_key
                     for req in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty", "Issue"]:
@@ -609,7 +655,6 @@ elif selected_nav == "Bulk Discrepancies":
             if not log_df.empty:
                 bulk_log = log_df[log_df["DiscrepancyType"] == "Bulk"].sort_values("Timestamp", ascending=False).head(20)
                 st.dataframe(bulk_log, use_container_width=True)
-
                 if not bulk_log.empty and st.button("Undo last Bulk RESOLVE batch"):
                     last_resolve = log_df[(log_df["DiscrepancyType"] == "Bulk") & (log_df["Action"] == "RESOLVE")]
                     if not last_resolve.empty:
@@ -651,6 +696,7 @@ elif selected_nav == "Self-Test":
     s3 = filtered_inventory_df["LocationName"].astype(str)
     full_mask = (((~s3.str.endswith("01")) | s3.str.startswith("111")) & s3.str.isnumeric())
     fdf = filtered_inventory_df.loc[full_mask].copy()
+
     offenders = pd.DataFrame()
     not_flagged = pd.DataFrame()
     if not fdf.empty:
