@@ -2,7 +2,8 @@
 import os
 import csv
 import re
-import time  # <-- for KPI animations
+import time  # KPI animations
+import hashlib  # <-- for file hash (trend de-dup)
 from datetime import datetime
 import uuid
 import pandas as pd
@@ -43,6 +44,8 @@ if "filters" not in st.session_state:
     }
 if "resolved_items" not in st.session_state:
     st.session_state.resolved_items = set()
+if "inventory_path" not in st.session_state:
+    st.session_state.inventory_path = None  # will be set when user uploads
 
 # --- UTIL: safer rerun wrapper ---
 def _rerun():
@@ -96,17 +99,61 @@ def show_banner():
 # ---- Persistent banner on every tab ----
 show_banner()
 
-# ============== Performance + Style Sidebar ==============
+# ============== Paths (Logs + Data) ==============
+LOG_DIR = r"C:\Users\carlos.pacheco.MYA-LOGISTICS\OneDrive - JT Logistics\bin-helper\logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+# Keep uploads in a sibling "data" folder next to logs (inside bin-helper)
+DATA_DIR = os.path.join(os.path.dirname(LOG_DIR), "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+resolved_file = os.path.join(LOG_DIR, "resolved_discrepancies.csv")
+TRENDS_FILE = os.path.join(LOG_DIR, "trend_history.csv")  # <- new persistent trend log
+
+# --- default files (still supported) ---
+DEFAULT_INVENTORY_FILE = "ON_HAND_INVENTORY.xlsx"
+DEFAULT_MASTER_FILE = "Empty Bin Formula.xlsx"
+
+# ============== Performance + Style + Upload Sidebar ==============
 def _clear_cache_and_rerun():
     try:
         st.cache_data.clear()
     except Exception:
         pass
-    # mark a new animation run id so KPIs animate after refresh
     st.session_state["kpi_run_id"] = datetime.now().strftime("%H%M%S%f")
     _rerun()
 
+def _save_uploaded_inventory(uploaded) -> str:
+    """Save uploaded Excel to DATA_DIR with timestamp; return path."""
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_name = re.sub(r"[^\w\.-]+", "_", uploaded.name)
+    out_path = os.path.join(DATA_DIR, f"{ts}__{safe_name}")
+    with open(out_path, "wb") as f:
+        f.write(uploaded.getbuffer())
+    return out_path
+
+def _file_md5(path: str) -> str:
+    try:
+        h = hashlib.md5()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
+        return ""
+
 with st.sidebar:
+    st.subheader("📦 Upload Inventory")
+    up = st.file_uploader("Upload new ON_HAND_INVENTORY.xlsx", type=["xlsx"], key="inv_upload",
+                          help="Each upload will be saved and can be used for trend snapshots.")
+    auto_record = st.toggle("Auto-record trend on new upload (recommended)", value=True, key="auto_record_trend")
+    if up is not None:
+        saved_path = _save_uploaded_inventory(up)
+        st.session_state.inventory_path = saved_path
+        st.success(f"Saved: {os.path.basename(saved_path)}")
+        if auto_record:
+            # We'll record after data loads & KPIs compute
+            st.session_state["pending_trend_record"] = True
+
     st.subheader("⚡ Performance")
     st.toggle("Fast tables (limit to 1000 rows)", value=False, key="fast_tables",
               help="Speed up plain tables by rendering only the first 1,000 rows.")
@@ -125,14 +172,10 @@ with st.sidebar:
     st.toggle("Animate KPI counters", value=True, key="animate_kpis",
               help="Counts smoothly animate on Dashboard load (lightweight).")
 
-# --- FILE PATHS ---
-inventory_file = "ON_HAND_INVENTORY.xlsx"
-master_file = "Empty Bin Formula.xlsx"
-
-# Preferred logs directory (auto-created)
-LOG_DIR = r"C:\Users\carlos.pacheco.MYA-LOGISTICS\OneDrive - JT Logistics\bin-helper\logs"
-os.makedirs(LOG_DIR, exist_ok=True)
-resolved_file = os.path.join(LOG_DIR, "resolved_discrepancies.csv")
+    st.subheader("🧭 Trends")
+    st.caption("Snapshots are stored in logs/trend_history.csv")
+    if st.button("Record snapshot now"):
+        st.session_state["pending_trend_record"] = True  # will run after KPIs computed
 
 # ============== Cached Data Loading (default first sheet) ==============
 @st.cache_data(ttl=120, show_spinner=False)
@@ -140,8 +183,17 @@ def _load_excel(path: str, sheet_name=0):
     """Load one sheet by default (sheet 0). Pass a sheet_name to target a specific sheet."""
     return pd.read_excel(path, sheet_name=sheet_name, engine="openpyxl")
 
+# Decide inventory path: uploaded or default
+inventory_file = st.session_state.inventory_path or DEFAULT_INVENTORY_FILE
+master_file = DEFAULT_MASTER_FILE
+
 # --- LOAD DATA ---
-inventory_df = _load_excel(inventory_file)
+try:
+    inventory_df = _load_excel(inventory_file)
+except Exception as e:
+    st.error(f"Failed to load inventory file: {inventory_file}. Error: {e}")
+    st.stop()
+
 # Master: prefer explicit sheet, fallback to first if not present
 try:
     master_df = _load_excel(master_file, sheet_name="Master Locations")
@@ -410,72 +462,46 @@ def _inject_card_css(style: str):
     Also injects mobile-responsive CSS to stack columns and wrap nav on small screens.
     """
     common = """
-/* Base: keep layout tight */
 div[data-testid="stMetric"] {
   border-radius: 12px;
   padding: 12px 14px;
   transition: box-shadow .2s ease, transform .08s ease, border-color .2s ease, background .2s ease;
   border: 1px solid transparent;
 }
-div[data-testid="stMetric"]:hover {
-  transform: translateY(-1px);
-}
-div[data-testid="stMetric"] [data-testid="stMetricLabel"] {
-  font-weight: 600;
-  letter-spacing: .2px;
-}
-div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-  font-weight: 800;
-}
+div[data-testid="stMetric"]:hover { transform: translateY(-1px); }
+div[data-testid="stMetric"] [data-testid="stMetricLabel"] { font-weight: 600; letter-spacing: .2px; }
+div[data-testid="stMetric"] [data-testid="stMetricValue"] { font-weight: 800; }
 
-/* Buttons micro-hover */
-.stButton>button {
-  transition: transform .05s ease, box-shadow .2s ease;
-}
-.stButton>button:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(0,0,0,.18);
-}
+.stButton>button { transition: transform .05s ease, box-shadow .2s ease; }
+.stButton>button:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.18); }
 
-/* === Responsive: stack columns & wrap nav on small screens === */
+/* Responsive: stack columns & wrap nav on small screens */
 @media (max-width: 900px) {
-  /* Stack any columns (esp. KPI row) */
   section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
-    width: 100% !important;
-    flex: 1 1 100% !important;
-    padding-bottom: 8px;
+    width: 100% !important; flex: 1 1 100% !important; padding-bottom: 8px;
   }
-  /* Wrap the horizontal radio nav neatly */
   div[data-testid="stRadio"] div[role="radiogroup"] {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 10px;
-    justify-content: center;
+    display: flex; flex-wrap: wrap; gap: 6px 10px; justify-content: center;
   }
-  /* Shrink table font slightly for compact view */
   .stDataFrame, .stTable { font-size: 0.92rem; }
 }
 """
     neon = f"""
-/* === NEON GLOW === */
+/* NEON GLOW */
 div[data-testid="stMetric"] {{
   color: #e8f0ff;
   background: radial-gradient(120% 120% at 0% 0%, #0b1220 0%, #101a2e 55%, #0b1220 100%);
   border: 1px solid rgba(31,119,180, .35);
-  box-shadow:
-    0 0 12px rgba(31,119,180, .35),
-    inset 0 0 10px rgba(31,119,180, .15);
+  box-shadow: 0 0 12px rgba(31,119,180, .35), inset 0 0 10px rgba(31,119,180, .15);
 }}
 div[data-testid="stMetric"] [data-testid="stMetricLabel"] {{ color: rgba(200,220,255,.9); }}
 div[data-testid="stMetric"] [data-testid="stMetricValue"] {{ color: {BLUE}; text-shadow: 0 0 12px rgba(31,119,180,.5); }}
 div[data-testid="stMetric"]:hover {{
-  box-shadow:
-    0 0 18px rgba(31,119,180,.55),
-    inset 0 0 12px rgba(31,119,180,.22);
+  box-shadow: 0 0 18px rgba(31,119,180,.55), inset 0 0 12px rgba(31,119,180,.22);
 }}
 """
     glass = f"""
-/* === GLASSMORPHISM === */
+/* GLASSMORPHISM */
 div[data-testid="stMetric"] {{
   color: #0e1730;
   background: linear-gradient(160deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,.25) 100%);
@@ -485,12 +511,10 @@ div[data-testid="stMetric"] {{
 }}
 div[data-testid="stMetric"] [data-testid="stMetricLabel"] {{ color: rgba(14,23,48,.8); }}
 div[data-testid="stMetric"] [data-testid="stMetricValue"] {{ color: {BLUE}; }}
-div[data-testid="stMetric"]:hover {{
-  box-shadow: 0 14px 36px rgba(0,0,0,.12);
-}}
+div[data-testid="stMetric"]:hover {{ box-shadow: 0 14px 36px rgba(0,0,0,.12); }}
 """
     blueprint = f"""
-/* === BLUEPRINT === */
+/* BLUEPRINT */
 div[data-testid="stMetric"] {{
   color: #d7e9ff;
   background:
@@ -506,19 +530,16 @@ div[data-testid="stMetric"]:hover {{
   box-shadow: inset 0 0 0 1px rgba(31,119,180,.45), 0 14px 28px rgba(0,0,0,.28);
 }}
 """
-    # Exception accent (for Damages/Missing columns 5 & 6 on dashboard)
     exception_hint = f"""
+/* Exception accent for Damages/Missing (columns 5 & 6) */
 section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(5) div[data-testid="stMetric"],
 section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] {{
   border-color: rgba(214,39,40,.5) !important;
-  box-shadow:
-    0 0 12px rgba(214,39,40,.45),
-    inset 0 0 10px rgba(214,39,40,.18) !important;
+  box-shadow: 0 0 12px rgba(214,39,40,.45), inset 0 0 10px rgba(214,39,40,.18) !important;
 }}
 section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(5) div[data-testid="stMetric"] [data-testid="stMetricValue"],
 section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
-  color: {RED} !important;
-  text-shadow: 0 0 10px rgba(214,39,40,.45) !important;
+  color: {RED} !important; text-shadow: 0 0 10px rgba(214,39,40,.45) !important;
 }}
 """
     bundle = common
@@ -539,7 +560,7 @@ nav_options = [
     "Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins",
     "Partial Bins", "Damages", "Missing",
     "Rack Discrepancies", "Bulk Discrepancies",
-    "Bulk Locations", "Empty Bulk Locations", "Self-Test"
+    "Bulk Locations", "Empty Bulk Locations", "Trends", "Self-Test"
 ]
 _default_nav = st.session_state.get("nav", "Dashboard")
 if "pending_nav" in st.session_state:
@@ -554,10 +575,6 @@ st.markdown("---")
 
 # --- KPI Animation Helper ---
 def _animate_metric(ph, label: str, value: int | float, duration_ms: int = 600, steps: int = 20):
-    """
-    Smoothly animates a metric value in the given placeholder.
-    Keeps CPU very light: ~20 DOM updates over ~0.6s.
-    """
     try:
         v_end = int(value)
         if not st.session_state.get("animate_kpis", True) or v_end <= 0:
@@ -571,6 +588,61 @@ def _animate_metric(ph, label: str, value: int | float, duration_ms: int = 600, 
             time.sleep(sleep_s)
     except Exception:
         ph.metric(label, value)
+
+# --- Helper: capture current KPI counts (for trends) ---
+def _current_kpis() -> dict:
+    return {
+        "EmptyBins": len(empty_bins_view_df),
+        "EmptyPartialBins": len(empty_partial_bins_df),
+        "PartialBins": len(partial_bins_df),
+        "FullPalletBins": len(full_pallet_bins_df),
+        "Damages": len(damages_df),
+        "Missing": len(missing_df),
+    }
+
+def _append_trend_snapshot(kpis: dict, src_path: str):
+    """Append snapshot to TRENDS_FILE if hash not already present as latest row."""
+    os.makedirs(os.path.dirname(TRENDS_FILE), exist_ok=True)
+    file_hash = _file_md5(src_path) if src_path else ""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    row = {
+        "Timestamp": ts,
+        "FileName": os.path.basename(src_path) if src_path else "",
+        "FileHash": file_hash,
+        **kpis
+    }
+    # read existing
+    exists = os.path.isfile(TRENDS_FILE)
+    if exists:
+        try:
+            hist = pd.read_csv(TRENDS_FILE)
+        except Exception:
+            hist = pd.DataFrame()
+    else:
+        hist = pd.DataFrame()
+
+    # De-dup: if last row has same hash, skip
+    if not hist.empty and "FileHash" in hist.columns:
+        last_hash = str(hist.iloc[-1].get("FileHash", ""))
+        if file_hash and file_hash == last_hash:
+            return False  # skipped
+
+    # Append
+    with open(TRENDS_FILE, mode="a", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(row.keys()))
+        if not exists:
+            w.writeheader()
+        w.writerow(row)
+    return True
+
+# --- Auto snapshot if requested (after data loaded & views computed) ---
+if st.session_state.get("pending_trend_record", False):
+    took = _append_trend_snapshot(_current_kpis(), inventory_file)
+    if took:
+        st.success("📈 Trend snapshot recorded.")
+    else:
+        st.info("Trend snapshot skipped (same file as last snapshot).")
+    st.session_state["pending_trend_record"] = False
 
 # --- DASHBOARD VIEW (Charts remain Blue/Red) ---
 if selected_nav == "Dashboard":
@@ -693,7 +765,7 @@ if selected_nav == "Dashboard":
     fig_dm.update_layout(xaxis_title="", yaxis_title="Count", showlegend=False, margin=dict(t=60, b=40, l=10, r=10))
     st.plotly_chart(fig_dm, use_container_width=True)
 
-# --- TAB VIEWS ---
+# --- TAB VIEWS (unchanged logic) ---
 elif selected_nav == "Empty Bins":
     st.subheader("Empty Bins")
     display = ensure_core(empty_bins_view_df.assign(WarehouseSku="", PalletId="", CustomerLotReference="", Qty=""))
@@ -720,7 +792,6 @@ elif selected_nav == "Missing":
     st.subheader("Missing Pallets")
     st.dataframe(maybe_limit(ensure_core(missing_df)), use_container_width=True)
 
-# --- DISCREPANCIES (unchanged logic + prior enhancements) ---
 elif selected_nav == "Rack Discrepancies":
     st.subheader("Rack Discrepancies")
     if not discrepancy_df.empty:
@@ -909,6 +980,75 @@ elif selected_nav == "Bulk Locations":
 elif selected_nav == "Empty Bulk Locations":
     st.subheader("Empty Bulk Locations")
     st.dataframe(maybe_limit(empty_bulk_locations_df), use_container_width=True)
+
+# --- TRENDS (NEW) ---
+elif selected_nav == "Trends":
+    st.subheader("📈 Trends Over Time")
+    if not os.path.isfile(TRENDS_FILE):
+        st.info("No trend snapshots yet. Upload a new inventory file or click 'Record snapshot now' in the sidebar.")
+    else:
+        try:
+            hist = pd.read_csv(TRENDS_FILE)
+        except Exception as e:
+            st.error(f"Failed to read trend history: {e}")
+            hist = pd.DataFrame()
+
+        if not hist.empty:
+            # Ensure datetime type and sort
+            try:
+                hist["Timestamp"] = pd.to_datetime(hist["Timestamp"])
+            except Exception:
+                pass
+            hist = hist.sort_values("Timestamp")
+
+            # Controls
+            st.caption(f"Snapshots: **{len(hist)}**  •  File: {os.path.basename(TRENDS_FILE)}")
+            with st.expander("Show trend table"):
+                st.dataframe(hist, use_container_width=True)
+                st.download_button("Download trend_history.csv", hist.to_csv(index=False).encode("utf-8"),
+                                   "trend_history.csv", "text/csv")
+
+            # Bins trend (single color BLUE, different dash styles)
+            required_cols_bins = ["EmptyBins", "EmptyPartialBins", "PartialBins", "FullPalletBins"]
+            if all(c in hist.columns for c in required_cols_bins):
+                bins_long = hist.melt(id_vars=["Timestamp"], value_vars=required_cols_bins,
+                                      var_name="Series", value_name="Count")
+                # Map dash styles to distinguish while keeping BLUE color
+                dash_map = {
+                    "EmptyBins": "dash",
+                    "EmptyPartialBins": "dot",
+                    "PartialBins": "dashdot",
+                    "FullPalletBins": "solid",
+                }
+                fig_bins = px.line(
+                    bins_long,
+                    x="Timestamp", y="Count", color="Series",
+                    title="Bins Trend (Empty / Empty Partial / Partial / Full)",
+                    color_discrete_map={s: BLUE for s in bins_long["Series"].unique()}
+                )
+                # Apply dash styles
+                for s in dash_map:
+                    fig_bins.for_each_trace(lambda t: t.update(line=dict(dash=dash_map[s])) if t.name == s else ())
+                fig_bins.update_traces(mode="lines+markers")
+                fig_bins.update_layout(showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
+                st.plotly_chart(fig_bins, use_container_width=True)
+
+            # Exceptions trend (two colors: Damages=RED, Missing=BLUE)
+            required_cols_exc = ["Damages", "Missing"]
+            if all(c in hist.columns for c in required_cols_exc):
+                exc_long = hist.melt(id_vars=["Timestamp"], value_vars=required_cols_exc,
+                                     var_name="Status", value_name="Count")
+                fig_exc = px.line(
+                    exc_long,
+                    x="Timestamp", y="Count", color="Status",
+                    title="Exceptions Trend (Damages vs Missing)",
+                    color_discrete_map={"Damages": RED, "Missing": BLUE}
+                )
+                fig_exc.update_traces(mode="lines+markers")
+                fig_exc.update_layout(showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
+                st.plotly_chart(fig_exc, use_container_width=True)
+        else:
+            st.info("Trend log exists but is empty. Record a snapshot to begin.")
 
 # --- SELF-TEST (unchanged logic) ---
 elif selected_nav == "Self-Test":
