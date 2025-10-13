@@ -8,8 +8,6 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 import plotly.express as px
-import plotly.graph_objects as go            # <-- added for advanced charts
-from plotly.subplots import make_subplots    # <-- added for dual-axis chart
 from streamlit_lottie import st_lottie
 import requests
 
@@ -514,7 +512,7 @@ def maybe_limit(df: pd.DataFrame) -> pd.DataFrame:
     return df.head(1000) if st.session_state.get("fast_tables", False) else df
 
 
-# ===== KPI Card CSS (no f-strings in CSS) =====
+# ===== KPI Card CSS (and menu animation CSS) =====
 def _inject_card_css(style: str):
     common = """
 div[data-testid="stMetric"] {
@@ -600,7 +598,83 @@ section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-
     st.markdown(f"<style>{bundle}</style>", unsafe_allow_html=True)
 
 
+def _inject_nav_css():
+    """Animated dashboard menu (radio) — glow pulse, underline, shimmer."""
+    css = f"""
+<style>
+/* Nav wrapper shimmer + padding */
+div[data-testid="stRadio"] {{
+  background: linear-gradient(90deg, rgba(31,119,180, .06), rgba(214,39,40, .06), rgba(31,119,180, .06));
+  background-size: 200% 100%;
+  animation: navShimmer 8s linear infinite;
+  padding: 8px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(31,119,180,.10);
+}}
+@keyframes navShimmer {{
+  0% {{ background-position: 0% 0; }}
+  100% {{ background-position: 200% 0; }}
+}}
+
+/* Radio group layout & item look */
+div[data-testid="stRadio"] div[role="radiogroup"] {{
+  display: flex; gap: 8px 10px; flex-wrap: wrap; align-items: center;
+}}
+div[data-testid="stRadio"] div[role="radiogroup"] > div[role="radio"] {{
+  border: 1px solid rgba(31,119,180,.25);
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: rgba(255,255,255,.65);
+  backdrop-filter: blur(6px);
+  transition: transform .12s ease, box-shadow .2s ease, border-color .2s ease, background .2s ease, color .2s ease;
+  position: relative;
+}}
+div[data-testid="stRadio"] div[role="radiogroup"] > div[role="radio"]:hover {{
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(0,0,0,.10);
+}}
+
+/* Active (checked) state with glow pulse + animated underline */
+div[data-testid="stRadio"] div[role="radiogroup"] > div[role="radio"][aria-checked="true"] {{
+  background: linear-gradient(135deg, rgba(31,119,180,.12), rgba(214,39,40,.12));
+  border-color: rgba(31,119,180,.55);
+  color: #0b2239;
+  box-shadow: 0 0 0 2px rgba(31,119,180,.25), 0 0 18px rgba(31,119,180,.35), inset 0 0 12px rgba(31,119,180,.18);
+  animation: pulseGlow 1.8s ease-in-out infinite;
+}}
+div[data-testid="stRadio"] div[role="radiogroup"] > div[role="radio"][aria-checked="true"]::after {{
+  content: "";
+  position: absolute;
+  left: 12px; right: 12px; bottom: 4px;
+  height: 2px;
+  background: linear-gradient(90deg, {BLUE}, {RED});
+  border-radius: 2px;
+  filter: drop-shadow(0 0 6px rgba(31,119,180,.45));
+  transform-origin: center;
+  animation: underlineSlide 2.2s ease-in-out infinite;
+}}
+
+@keyframes pulseGlow {{
+  0%, 100% {{
+     box-shadow: 0 0 0 2px rgba(31,119,180,.25), 0 0 12px rgba(31,119,180,.25), inset 0 0 6px rgba(31,119,180,.14);
+  }}
+  50% {{
+     box-shadow: 0 0 0 2px rgba(31,119,180,.38), 0 0 22px rgba(31,119,180,.45), inset 0 0 12px rgba(31,119,180,.22);
+  }}
+}}
+@keyframes underlineSlide {{
+  0% {{ transform: scaleX(.3); opacity:.65; }}
+  50% {{ transform: scaleX(1); opacity: 1; }}
+  100% {{ transform: scaleX(.3); opacity: .65; }}
+}}
+</style>
+"""
+    st.markdown(css, unsafe_allow_html=True)
+
+
+# Inject styles
 _inject_card_css(card_style)
+_inject_nav_css()
 
 # ===== NAV =====
 nav_options = [
@@ -673,7 +747,7 @@ def _append_trend_snapshot(kpis: dict, src_path: str):
 
 if st.session_state.get("pending_trend_record", False):
     took = _append_trend_snapshot(_current_kpis(), inventory_file)
-    # explicit if/else to avoid Streamlit writing DeltaGenerator implicitly
+    # Explicit if/else to avoid Streamlit auto-write of DeltaGenerator
     if took:
         st.success("📈 Trend snapshot recorded.")
     else:
@@ -839,7 +913,7 @@ elif selected_nav == "Rack Discrepancies":
         with st.expander("Recent discrepancy actions (Rack) & Undo"):
             log_df = read_action_log()
             if not log_df.empty:
-                rack_log = log_df[log_df["DiscrepancyType"] == "Rack"].sort_values("Timestamp", descending=False).tail(20)
+                rack_log = log_df[log_df["DiscrepancyType"] == "Rack"].sort_values("Timestamp", ascending=False).head(20)
                 st.dataframe(maybe_limit(rack_log), use_container_width=True)
                 if not rack_log.empty and st.button("Undo last Rack RESOLVE batch"):
                     last_resolve = log_df[(log_df["DiscrepancyType"] == "Rack") & (log_df["Action"] == "RESOLVE")]
@@ -993,22 +1067,18 @@ elif selected_nav == "Trends":
         except Exception as e:
             st.error(f"Failed to read trend history: {e}")
             hist = pd.DataFrame()
-
         if not hist.empty:
-            # --- prep & base views (existing) ---
             try:
                 hist["Timestamp"] = pd.to_datetime(hist["Timestamp"])
             except Exception:
                 pass
-            hist = hist.sort_values("Timestamp").reset_index(drop=True)
+            hist = hist.sort_values("Timestamp")
             st.caption(f"Snapshots: **{len(hist)}** • File: {os.path.basename(TRENDS_FILE)}")
-
             with st.expander("Show trend table"):
                 st.dataframe(hist, use_container_width=True)
                 st.download_button("Download trend_history.csv", hist.to_csv(index=False).encode("utf-8"),
                                    "trend_history.csv", "text/csv")
 
-            # Existing: bins line
             req_bins = ["EmptyBins", "EmptyPartialBins", "PartialBins", "FullPalletBins"]
             if all(c in hist.columns for c in req_bins):
                 bins_long = hist.melt(id_vars=["Timestamp"], value_vars=req_bins, var_name="Series", value_name="Count")
@@ -1024,7 +1094,6 @@ elif selected_nav == "Trends":
                 fig_bins.update_layout(showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
                 st.plotly_chart(fig_bins, use_container_width=True)
 
-            # Existing: exceptions line
             req_exc = ["Damages", "Missing"]
             if all(c in hist.columns for c in req_exc):
                 exc_long = hist.melt(id_vars=["Timestamp"], value_vars=req_exc, var_name="Status", value_name="Count")
@@ -1036,152 +1105,6 @@ elif selected_nav == "Trends":
                 fig_exc.update_traces(mode="lines+markers")
                 fig_exc.update_layout(showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
                 st.plotly_chart(fig_exc, use_container_width=True)
-
-            # ===== NEW CHARTS Carlos requested =====
-
-            # (1) Small multiples for bins
-            if all(c in hist.columns for c in req_bins):
-                with st.expander("1) Bins – Small Multiples", expanded=False):
-                    bins_long_sm = hist.melt(id_vars=["Timestamp"], value_vars=req_bins, var_name="Series", value_name="Count")
-                    fig_sm = px.line(
-                        bins_long_sm, x="Timestamp", y="Count", color="Series",
-                        facet_row="Series", height=650,
-                        color_discrete_map={c: BLUE for c in req_bins}
-                    )
-                    fig_sm.update_yaxes(matches=None, showgrid=True)
-                    fig_sm.update_xaxes(showgrid=False)
-                    fig_sm.update_layout(showlegend=False, margin=dict(t=60, b=20, l=10, r=10))
-                    st.plotly_chart(fig_sm, use_container_width=True)
-
-            # (2) Stacked area – composition of bins (%)
-            if all(c in hist.columns for c in req_bins):
-                with st.expander("2) Composition of Bins (%) – Stacked Area", expanded=False):
-                    dfc = hist.copy()
-                    dfc["TotalBins"] = dfc["EmptyBins"] + dfc["EmptyPartialBins"] + dfc["PartialBins"] + dfc["FullPalletBins"]
-                    for c in req_bins:
-                        dfc[c] = (dfc[c] / dfc["TotalBins"]).replace([pd.NA, pd.NaT], 0).fillna(0) * 100
-                    area_long = dfc.melt(id_vars=["Timestamp"], value_vars=req_bins, var_name="Series", value_name="Percent")
-                    fig_area = px.area(
-                        area_long, x="Timestamp", y="Percent", color="Series",
-                        title="Composition of Bins (%) Over Time",
-                        color_discrete_map={
-                            "EmptyBins": BLUE,
-                            "EmptyPartialBins": "#5aa9e6",
-                            "PartialBins": "#98c8f0",
-                            "FullPalletBins": "#0b68a6",
-                        }
-                    )
-                    fig_area.update_layout(yaxis_title="% of Bins", legend_title="", margin=dict(t=60, b=40, l=10, r=10))
-                    st.plotly_chart(fig_area, use_container_width=True)
-
-            # (3) Damages run chart with MA & control limits
-            if "Damages" in hist.columns:
-                with st.expander("3) Damages – Run Chart with 7‑pt MA & Control Limits", expanded=False):
-                    s = pd.to_numeric(hist["Damages"], errors="coerce").fillna(0)
-                    mean = float(s.mean())
-                    std = float(s.std(ddof=0))
-                    ucl = mean + 3*std
-                    lcl = max(0.0, mean - 3*std)
-
-                    fig_d_run = go.Figure()
-                    fig_d_run.add_trace(go.Scatter(x=hist["Timestamp"], y=s, mode="lines+markers",
-                                                   name="Damages", line=dict(color=RED)))
-                    fig_d_run.add_trace(go.Scatter(x=hist["Timestamp"], y=s.rolling(7, min_periods=1).mean(),
-                                                   mode="lines", name="7‑pt MA", line=dict(color="#aa0000", dash="dash")))
-                    fig_d_run.add_hline(y=mean, line_color="#666", line_dash="dot",
-                                        annotation_text=f"Mean ({mean:.1f})", annotation_position="top left")
-                    fig_d_run.add_hline(y=ucl, line_color=RED, line_dash="dot", annotation_text=f"UCL ({ucl:.1f})")
-                    fig_d_run.add_hline(y=lcl, line_color=RED, line_dash="dot", annotation_text=f"LCL ({lcl:.1f})")
-                    fig_d_run.update_layout(title="Damages – Run Chart", xaxis_title="", yaxis_title="Count")
-                    st.plotly_chart(fig_d_run, use_container_width=True)
-
-            # (5) 7‑day rolling sum – Exceptions
-            if all(c in hist.columns for c in ["Damages", "Missing"]):
-                with st.expander("5) 7‑Day Rolling Sum – Exceptions", expanded=False):
-                    roll = hist[["Timestamp","Damages","Missing"]].copy()
-                    roll["Damages_7d"] = pd.to_numeric(roll["Damages"], errors="coerce").fillna(0).rolling(7, min_periods=1).sum()
-                    roll["Missing_7d"] = pd.to_numeric(roll["Missing"], errors="coerce").fillna(0).rolling(7, min_periods=1).sum()
-
-                    fig_roll = go.Figure()
-                    fig_roll.add_trace(go.Scatter(x=roll["Timestamp"], y=roll["Damages_7d"], mode="lines",
-                                                  name="Damages (7‑day sum)", line=dict(color=RED)))
-                    fig_roll.add_trace(go.Scatter(x=roll["Timestamp"], y=roll["Missing_7d"], mode="lines",
-                                                  name="Missing (7‑day sum)", line=dict(color=BLUE, dash="dash")))
-                    fig_roll.update_layout(title="7‑Day Rolling Sum – Exceptions", yaxis_title="Count (7d sum)")
-                    st.plotly_chart(fig_roll, use_container_width=True)
-
-            # (6) Dual‑axis – Full vs Empty
-            if all(c in hist.columns for c in ["FullPalletBins", "EmptyBins"]):
-                with st.expander("6) Full vs Empty (Dual Axis)", expanded=False):
-                    y1 = pd.to_numeric(hist["FullPalletBins"], errors="coerce").fillna(0)
-                    y2 = pd.to_numeric(hist["EmptyBins"], errors="coerce").fillna(0)
-                    fig_dual = make_subplots(specs=[[{"secondary_y": True}]])
-                    fig_dual.add_trace(go.Scatter(x=hist["Timestamp"], y=y1,
-                                                  name="Full Pallet Bins", line=dict(color=BLUE)),
-                                       secondary_y=False)
-                    fig_dual.add_trace(go.Scatter(x=hist["Timestamp"], y=y2,
-                                                  name="Empty Bins", line=dict(color=RED, dash="dot")),
-                                       secondary_y=True)
-                    fig_dual.update_yaxes(title_text="Full Pallet Bins", secondary_y=False)
-                    fig_dual.update_yaxes(title_text="Empty Bins", secondary_y=True)
-                    fig_dual.update_layout(title="Full vs Empty (Dual Axis)")
-                    st.plotly_chart(fig_dual, use_container_width=True)
-
-            # (7) SLA/Target band – Missing
-            if "Missing" in hist.columns:
-                with st.expander("7) Missing vs Target Band", expanded=False):
-                    target_max = st.slider("Target maximum Missing per snapshot", min_value=0, max_value=20, value=2, step=1)
-                    miss = pd.to_numeric(hist["Missing"], errors="coerce").fillna(0)
-                    fig_target = go.Figure()
-                    fig_target.add_trace(go.Scatter(x=hist["Timestamp"], y=miss, mode="lines+markers",
-                                                    name="Missing", line=dict(color=BLUE)))
-                    fig_target.add_hrect(y0=0, y1=target_max, fillcolor="rgba(31,119,180,0.08)", line_width=0,
-                                         annotation_text=f"Target ≤ {target_max}", annotation_position="top left")
-                    fig_target.update_layout(title="Missing vs Target Band (≤ target)")
-                    st.plotly_chart(fig_target, use_container_width=True)
-
-            # (8) KPI table with sparklines
-            cols = ["EmptyBins","EmptyPartialBins","PartialBins","FullPalletBins","Damages","Missing"]
-            if all(c in hist.columns for c in cols):
-                with st.expander("8) KPI Table with Sparklines (last N points)", expanded=False):
-                    N = st.slider("Sparkline window (last N snapshots)", 10, max(10, len(hist)), min(50, max(10, len(hist))), step=5)
-                    def series_tail(col):
-                        return pd.to_numeric(hist[col], errors="coerce").fillna(0).tail(N).reset_index(drop=True)
-
-                    spark_tbl = pd.DataFrame({
-                        "KPI": cols,
-                        "Current": [int(pd.to_numeric(hist[c], errors="coerce").fillna(0).iloc[-1]) if len(hist)>0 else 0 for c in cols],
-                        "Sparkline": [series_tail(c) for c in cols]
-                    })
-
-                    try:
-                        global_max = int(max(1, int(pd.to_numeric(hist[cols], errors="coerce").fillna(0).max().max())))
-                        st.dataframe(
-                            spark_tbl,
-                            column_config={
-                                "Sparkline": st.column_config.LineChartColumn(
-                                    y_min=0, y_max=global_max, label="Trend"
-                                )
-                            },
-                            use_container_width=True
-                        )
-                    except Exception:
-                        # Fallback if Streamlit version lacks LineChartColumn
-                        st.warning("Sparkline column not supported on this Streamlit version. Showing basic table instead.")
-                        st.dataframe(spark_tbl.drop(columns=["Sparkline"]), use_container_width=True)
-
-            # (9) Week-over-week deltas (table)
-            if all(c in hist.columns for c in cols):
-                with st.expander("9) Week-over-Week Deltas", expanded=False):
-                    wk = hist.copy()
-                    wk["Week"] = wk["Timestamp"].dt.to_period("W").apply(lambda r: r.start_time.date())
-                    agg = wk.groupby("Week")[cols].sum().reset_index()
-                    for c in cols:
-                        agg[f"{c}_Δ"] = agg[c].diff()
-                        with pd.option_context("mode.use_inf_as_na", True):
-                            agg[f"{c}_Δ%"] = (agg[c].pct_change() * 100).round(1).replace([pd.NA], 0)
-                    st.dataframe(agg.tail(12), use_container_width=True)
-
         else:
             st.info("Trend log exists but is empty. Record a snapshot to begin.")
 
