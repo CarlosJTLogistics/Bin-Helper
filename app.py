@@ -7,6 +7,8 @@ import json  # (19) Config file
 import hashlib  # for file hash (trend de-dup)
 import tempfile  # SAFEGUARD: fallback dirs
 from datetime import datetime, timedelta
+from typing import Optional, Tuple, Dict, List, Union
+
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -101,7 +103,7 @@ Fast, visual lookups for **Empty**, **Partial**, **Full**, **Damages**, and **Mi
 show_banner()
 
 # ===== SAFEGUARD: robust path resolution & file append =====
-def _resolve_writable_dir(preferred: str | None, purpose: str = "logs") -> tuple[str, bool]:
+def _resolve_writable_dir(preferred: Optional[str], purpose: str = "logs") -> Tuple[str, bool]:
     candidates = []
     env_override = os.environ.get("BIN_HELPER_LOG_DIR")
     if env_override:
@@ -131,11 +133,10 @@ def _resolve_writable_dir(preferred: str | None, purpose: str = "logs") -> tuple
     except Exception:
         return d, True
 
-def _safe_append_csv(path: str, header: list[str], row: list) -> tuple[bool, str, str]:
-    def _try_write(p: str) -> tuple[bool, str]:
+def _safe_append_csv(path: str, header: List[str], row: List) -> Tuple[bool, str, str]:
+    def _try_write(p: str) -> Tuple[bool, str]:
         os.makedirs(os.path.dirname(p), exist_ok=True)
         file_exists = os.path.isfile(p)
-        # (8) If file exists but header differs, we keep appending; first write header if not exists
         with open(p, mode="a", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             if not file_exists:
@@ -263,7 +264,7 @@ def normalize_whole_number(val) -> str:
     s = s.lstrip("0")
     return s if s else ""
 
-def ensure_numeric_col(df: pd.DataFrame, col: str, default: float | int = 0):
+def ensure_numeric_col(df: pd.DataFrame, col: str, default: Union[float, int] = 0):
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(default)
     else:
@@ -431,7 +432,7 @@ def maybe_limit(df: pd.DataFrame) -> pd.DataFrame:
     return df.head(1000) if st.session_state.get("fast_tables", False) else df
 
 # Location -> core rows
-LOC_INDEX: dict[str, pd.DataFrame] = {}
+LOC_INDEX: Dict[str, pd.DataFrame] = {}
 for loc, g in filtered_inventory_df.groupby(filtered_inventory_df["LocationName"].astype(str)):
     LOC_INDEX[str(loc)] = ensure_core(g)
 
@@ -459,7 +460,7 @@ def _mk_pallet_labels(df: pd.DataFrame):
     label_to_key = { _label(r): r["_PID_KEY"] for _, r in uniq.iterrows() }
     return labels, label_to_key, df
 
-PALLET_LABELS_BY_LOC: dict[str, tuple[list[str], dict, pd.DataFrame]] = {}
+PALLET_LABELS_BY_LOC: Dict[str, Tuple[List[str], dict, pd.DataFrame]] = {}
 for loc, df in LOC_INDEX.items():
     PALLET_LABELS_BY_LOC[loc] = _mk_pallet_labels(df)
 
@@ -518,7 +519,7 @@ def _row_key(row: dict, discrepancy_type: str) -> str:
     ]
     return "\n".join(fields)
 
-def log_action(row: dict, note: str, selected_lot: str, discrepancy_type: str, action: str, batch_id: str, reason: str = "") -> tuple[bool, str, str]:
+def log_action(row: dict, note: str, selected_lot: str, discrepancy_type: str, action: str, batch_id: str, reason: str = "") -> Tuple[bool, str, str]:
     has_reason = _resolved_has_reason()
     csv_row_v1 = [
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -537,7 +538,7 @@ def log_action(row: dict, note: str, selected_lot: str, discrepancy_type: str, a
     ok, used_path, err = _safe_append_csv(resolved_file, header, csv_row)
     return ok, used_path, err
 
-def log_batch(df_rows: pd.DataFrame, note: str, selected_lot: str, discrepancy_type: str, action: str, reason: str = "") -> tuple[str, str]:
+def log_batch(df_rows: pd.DataFrame, note: str, selected_lot: str, discrepancy_type: str, action: str, reason: str = "") -> Tuple[str, str]:
     batch_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
     used_path = resolved_file
     for _, r in df_rows.iterrows():
@@ -551,7 +552,6 @@ def log_batch(df_rows: pd.DataFrame, note: str, selected_lot: str, discrepancy_t
 def read_action_log() -> pd.DataFrame:
     try:
         if os.path.isfile(resolved_file):
-            # be lenient if column count changed
             return pd.read_csv(resolved_file, engine="python")
         fb_dir, _ = _resolve_writable_dir(None, purpose="logs")
         fb_path = os.path.join(fb_dir, os.path.basename(resolved_file))
@@ -621,7 +621,7 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
 # ===== (7) Duplicate Pallets (PalletId in >1 Location) =====
-def build_duplicate_pallets(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def build_duplicate_pallets(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     base = df.copy()
     base["PalletId"] = base["PalletId"].apply(normalize_whole_number)
     grp = base.groupby("PalletId")["LocationName"].nunique().reset_index(name="DistinctLocations")
@@ -796,14 +796,11 @@ def _current_kpis() -> dict:
         "Missing": len(missing_df),
     }
 
-def _kpi_deltas(hist: pd.DataFrame, now: dict) -> dict[str, dict]:
-    # returns {key: {"vs_last": int|None, "vs_yday": int|None}}
+def _kpi_deltas(hist: pd.DataFrame, now: dict) -> Dict[str, dict]:
     out = {k: {"vs_last": None, "vs_yday": None} for k in now}
     if hist is None or hist.empty:
         return out
-    # last snapshot
     last = hist.iloc[-1] if not hist.empty else None
-    # same day -1 (closest)
     yday = None
     try:
         day_ago = datetime.now() - timedelta(days=1)
@@ -811,7 +808,6 @@ def _kpi_deltas(hist: pd.DataFrame, now: dict) -> dict[str, dict]:
         if not ydf.empty:
             yday = ydf.iloc[-1]
         else:
-            # nearest older than 24h if exact date missing
             ydf2 = hist[hist["Timestamp"] <= (datetime.now() - timedelta(hours=24))]
             if not ydf2.empty:
                 yday = ydf2.iloc[-1]
@@ -871,7 +867,7 @@ if st.session_state.get("pending_trend_record", False):
     st.session_state["pending_trend_record"] = False
 
 # ===== KPI helper with delta support =====
-def _animate_metric(ph, label: str, value: int | float, delta_text: str | None = None, duration_ms: int = 600, steps: int = 20):
+def _animate_metric(ph, label: str, value: Union[int, float], delta_text: Optional[str] = None, duration_ms: int = 600, steps: int = 20):
     try:
         v_end = int(value)
         if not st.session_state.get("animate_kpis", True) or v_end <= 0:
@@ -882,7 +878,6 @@ def _animate_metric(ph, label: str, value: int | float, delta_text: str | None =
             v = int(round(v_end * i / steps))
             ph.metric(label, v)
             time.sleep(sleep_s)
-        # final lock-in with delta
         ph.metric(label, v_end, delta=delta_text)
     except Exception:
         ph.metric(label, value, delta=delta_text)
@@ -898,13 +893,11 @@ if selected_nav == "Dashboard":
         "Damages": len(damages_df),
         "Missing": len(missing_df),
     }
-    # (11) Compute deltas
     hist = _read_trends()
     now = _current_kpis()
     deltas = _kpi_deltas(hist, now)
 
     def _dx(key_name):
-        # map display -> trend key
         m = {
             "Empty Bins": "EmptyBins",
             "Empty Partial Bins": "EmptyPartialBins",
@@ -925,7 +918,6 @@ if selected_nav == "Dashboard":
     _animate_metric(k5, "Damages", kpi_vals["Damages"], delta_text=_dx("Damages"))
     _animate_metric(k6, "Missing", kpi_vals["Missing"], delta_text=_dx("Missing"))
 
-    # KPI view buttons
     if col1.button("View", key="btn_empty"): st.session_state["pending_nav"] = "Empty Bins"; _rerun()
     if col2.button("View", key="btn_empty_partial"): st.session_state["pending_nav"] = "Empty Partial Bins"; _rerun()
     if col3.button("View", key="btn_partial"): st.session_state["pending_nav"] = "Partial Bins"; _rerun()
@@ -933,7 +925,6 @@ if selected_nav == "Dashboard":
     if col5.button("View", key="btn_damage"): st.session_state["pending_nav"] = "Damages"; _rerun()
     if col6.button("View", key="btn_missing"): st.session_state["pending_nav"] = "Missing"; _rerun()
 
-    # Distribution chart
     kpi_df = pd.DataFrame({"Category": list(kpi_vals.keys()), "Count": list(kpi_vals.values())})
     kpi_df["Group"] = kpi_df["Category"].apply(lambda c: "Exceptions" if c in ["Damages", "Missing"] else "Bins")
     fig_kpi = px.bar(kpi_df, x="Category", y="Count", color="Group", text="Count",
@@ -942,7 +933,6 @@ if selected_nav == "Dashboard":
     fig_kpi.update_layout(xaxis_title="", yaxis_title="Count", showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
     st.plotly_chart(fig_kpi, use_container_width=True)
 
-    # Rack pie
     def is_rack_slot(loc: str) -> bool:
         s = str(loc)
         return s.isnumeric() and (((not s.endswith("01")) or s.startswith("111")))
@@ -956,7 +946,6 @@ if selected_nav == "Dashboard":
     fig_rack_pie.update_layout(showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
     st.plotly_chart(fig_rack_pie, use_container_width=True)
 
-    # Bulk zone stacked (Used vs Empty)
     if not pd.DataFrame(bulk_locations_df).empty:
         bulk_zone = bulk_locations_df.groupby("Zone").agg(Used=("PalletCount", "sum"), Capacity=("MaxAllowed", "sum")).reset_index()
         bulk_zone["Empty"] = (bulk_zone["Capacity"] - bulk_zone["Used"]).clip(lower=0)
@@ -966,7 +955,6 @@ if selected_nav == "Dashboard":
         fig_bulk.update_layout(xaxis_title="Zone", yaxis_title="Pallets", showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
         st.plotly_chart(fig_bulk, use_container_width=True)
 
-        # (12) Zone heat block by utilization ratio
         bulk_zone["Utilization"] = bulk_zone["Used"] / bulk_zone["Capacity"].replace(0, pd.NA)
         fig_heat = px.bar(
             bulk_zone, x="Zone", y="Utilization", color="Utilization",
@@ -1171,7 +1159,6 @@ elif selected_nav == "Bulk Locations":
     st.subheader("Bulk Locations")
     st.caption("Click a location or use Quick Jump, then pick a pallet from the dropdown.")
 
-    # High-contrast row highlight for over-capacity (GRID mode)
     st.markdown(
         """
         <style>
@@ -1196,10 +1183,9 @@ elif selected_nav == "Bulk Locations":
         if over_mask.any():
             st.warning(f"{over_mask.sum()} location(s) exceed max allowed pallets. Highlighted in red.")
 
-    # (2) Quick Jump: show jump result panel even without grid selection
     jump = st.session_state.get("jump_intent", {}) or {}
 
-    def _render_location_detail(loc: str, preselect_pallet: str | None = None, key_prefix: str = ""):
+    def _render_location_detail(loc: str, preselect_pallet: Optional[str] = None, key_prefix: str = ""):
         loc = str(loc)
         rows = LOC_INDEX.get(loc, pd.DataFrame())
         if rows.empty:
@@ -1208,7 +1194,6 @@ elif selected_nav == "Bulk Locations":
         choices = ["(All)"] + labels
         default_index = 0
         if preselect_pallet:
-            # Pick label that contains the pallet id
             for i, lab in enumerate(labels, start=1):
                 if preselect_pallet in lab:
                     default_index = i; break
@@ -1221,7 +1206,6 @@ elif selected_nav == "Bulk Locations":
         st.dataframe(ensure_core(show_df), use_container_width=True)
 
     if ui_mode.startswith("Grid") and _AGGRID_AVAILABLE and not parent_df.empty:
-        # Build grid of bulk locations (no enterprise features)
         show_cols = ["LocationName", "Zone", "PalletCount", "MaxAllowed", "EmptySlots"]
         grid_df = parent_df[show_cols].copy()
         gb = GridOptionsBuilder.from_dataframe(grid_df)
@@ -1247,12 +1231,10 @@ elif selected_nav == "Bulk Locations":
             sel_loc = str(sel_rows.iloc[0]["LocationName"])
             _render_location_detail(sel_loc, key_prefix="grid_")
 
-        # Jump panel (preferred if Quick Jump was used)
         if jump.get("type") in ("pallet", "location") and jump.get("location"):
             st.markdown("#### Jump Result")
             _render_location_detail(jump["location"], preselect_pallet=jump.get("pallet_id"), key_prefix="jump_")
     else:
-        # Expanders fallback
         if parent_df.empty:
             st.info("No bulk locations found.")
         else:
@@ -1265,7 +1247,6 @@ elif selected_nav == "Bulk Locations":
                 with st.expander(header, expanded=False):
                     _render_location_detail(loc, key_prefix="exp_")
 
-        # Jump panel when not using grid
         if jump.get("type") in ("pallet", "location") and jump.get("location"):
             st.markdown("#### Jump Result")
             _render_location_detail(jump["location"], preselect_pallet=jump.get("pallet_id"), key_prefix="jump2_")
@@ -1281,7 +1262,6 @@ elif selected_nav == "Duplicate Pallets":
     else:
         st.write("Summary (PalletId with count of distinct locations):")
         st.dataframe(dups_summary_df, use_container_width=True)
-        # Select a PalletId to see details & log
         opt = ["(Select)"] + dups_summary_df["PalletId"].astype(str).tolist()
         sel_pid = st.selectbox("Choose a duplicate Pallet ID", opt, index=0)
         if sel_pid != "(Select)":
@@ -1349,7 +1329,6 @@ elif selected_nav == "Config":
     st.subheader("⚙️ Config — Bulk Capacity Rules (A..I)")
     st.caption("Edit and **Save** to apply. This writes to `config.json` in your logs folder.")
 
-    # Current rules (with defaults if file missing)
     cur = _config.get("bulk_rules", DEFAULT_BULK_RULES).copy()
 
     zones = list(DEFAULT_BULK_RULES.keys())  # ['A'..'I']
@@ -1378,7 +1357,6 @@ elif selected_nav == "Config":
     with apply_col:
         if st.button("⚙️ Apply (rebuild zone capacity views)", use_container_width=True, key="cfg_apply"):
             # Recompute the bulk location derived views using the new rules
-            global bulk_locations_df, empty_bulk_locations_df, bulk_rules
             bulk_rules = _config["bulk_rules"].copy()
             bulk_locations_df, empty_bulk_locations_df = build_bulk_views()
             st.success("Bulk zone capacity views rebuilt.")
@@ -1432,3 +1410,4 @@ elif selected_nav == "Self-Test":
             st.warning(f"Duplicate pallet IDs found: {len(dups_summary_df)}")
 
     st.markdown("———")
+    st.caption("Tip: If deploying on Streamlit Cloud, set a secret `BIN_HELPER_LOG_DIR` to `/mount/src/bin-helper/logs` to keep logs persistent.")
