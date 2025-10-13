@@ -28,9 +28,8 @@ except Exception:
 st.set_page_config(page_title="Bin Helper", layout="wide")
 
 # --- THEME COLORS (2-color palette) ---
-BLUE = "#1f77b4"   # Plotly classic blue
-RED  = "#d62728"   # Plotly classic red
-
+BLUE = "#1f77b4"  # Plotly classic blue
+RED = "#d62728"   # Plotly classic red
 # Plotly defaults (light template for readability)
 px.defaults.template = "plotly_white"
 
@@ -73,7 +72,7 @@ def show_banner():
         "https://assets10.lottiefiles.com/packages/lf20_9kmmv9.json",  # forklift
         "https://assets2.lottiefiles.com/packages/lf20_1pxqjqps.json",  # barcode boxes
         "https://assets9.lottiefiles.com/packages/lf20_wnqlfojb.json",  # logistics
-        "https://assets10.lottiefiles.com/packages/lf20_j1adxtyb.json", # fallback
+        "https://assets10.lottiefiles.com/packages/lf20_j1adxtyb.json",  # fallback
     ]
     with st.container():
         col_a, col_b = st.columns([1, 3])
@@ -90,9 +89,9 @@ def show_banner():
         with col_b:
             st.markdown(
                 """
-                ### Bin Helper
-                Fast, visual lookups for **Empty**, **Partial**, **Full**, **Damages**, and **Missing** — all by your warehouse rules.
-                """,
+### Bin Helper
+Fast, visual lookups for **Empty**, **Partial**, **Full**, **Damages**, and **Missing** — all by your warehouse rules.
+""",
                 unsafe_allow_html=True
             )
 
@@ -105,7 +104,6 @@ os.makedirs(LOG_DIR, exist_ok=True)
 # Keep uploads in a sibling "data" folder next to logs (inside bin-helper)
 DATA_DIR = os.path.join(os.path.dirname(LOG_DIR), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
-
 resolved_file = os.path.join(LOG_DIR, "resolved_discrepancies.csv")
 TRENDS_FILE = os.path.join(LOG_DIR, "trend_history.csv")  # <- new persistent trend log
 
@@ -125,7 +123,7 @@ def _clear_cache_and_rerun():
 def _save_uploaded_inventory(uploaded) -> str:
     """Save uploaded Excel to DATA_DIR with timestamp; return path."""
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_name = re.sub(r"[^\w\.-]+", "_", uploaded.name)
+    safe_name = re.sub(r"[^\w\.\-]+", "_", uploaded.name)
     out_path = os.path.join(DATA_DIR, f"{ts}__{safe_name}")
     with open(out_path, "wb") as f:
         f.write(uploaded.getbuffer())
@@ -175,7 +173,7 @@ with st.sidebar:
     st.subheader("🧭 Trends")
     st.caption("Snapshots are stored in logs/trend_history.csv")
     if st.button("Record snapshot now"):
-        st.session_state["pending_trend_record"] = True  # will run after KPIs computed
+        st.session_state["pending_trend_record"] = True
 
 # ============== Cached Data Loading (default first sheet) ==============
 @st.cache_data(ttl=120, show_spinner=False)
@@ -210,7 +208,6 @@ def ensure_numeric_col(df: pd.DataFrame, col: str, default: float | int = 0):
 
 ensure_numeric_col(inventory_df, "Qty", 0)
 ensure_numeric_col(inventory_df, "PalletCount", 0)
-
 if "LocationName" not in inventory_df.columns:
     inventory_df["LocationName"] = ""
 inventory_df["LocationName"] = inventory_df["LocationName"].astype(str)
@@ -272,6 +269,43 @@ def get_empty_partial_bins(master_locs: set, occupied_locs: set) -> pd.DataFrame
     empty_partial = sorted(partial_candidates - set(occupied_locs))
     return pd.DataFrame({"LocationName": empty_partial})
 
+# --- NEW: Multi-pallet-in-rack detection ---
+def _find_multi_pallet_in_rack(df: pd.DataFrame):
+    """
+    Returns (summary_df, details_df)
+    - summary_df: LocationName | DistinctPallets
+    - details_df: core columns + Issue + DistinctPallets for violating rack locations
+    Rack is defined as numeric location and ((not endswith "01") OR startswith "111")
+    """
+    df2 = exclude_damage_missing(df).copy()
+    df2["LocationName"] = df2["LocationName"].astype(str).str.strip()
+    if "PalletId" in df2.columns:
+        df2["PalletId"] = df2["PalletId"].astype(str).str.strip()
+    else:
+        df2["PalletId"] = ""
+
+    s = df2["LocationName"].astype(str)
+    rack_mask = (s.str.isnumeric()) & ((~s.str.endswith("01")) | (s.str.startswith("111")))
+    rack_df = df2.loc[rack_mask].copy()
+
+    if rack_df.empty:
+        return pd.DataFrame(columns=["LocationName", "DistinctPallets"]), pd.DataFrame()
+
+    # Count distinct pallets per rack slot
+    grp = (
+        rack_df.groupby("LocationName")["PalletId"]
+        .nunique(dropna=True)
+        .reset_index(name="DistinctPallets")
+    )
+    viol_locs = grp[grp["DistinctPallets"] > 1]["LocationName"]
+    if viol_locs.empty:
+        return grp.iloc[0:0], pd.DataFrame()
+
+    details = rack_df[rack_df["LocationName"].isin(viol_locs)].copy()
+    details["Issue"] = "Multiple pallets in rack location"
+    details = details.merge(grp, on="LocationName", how="left")
+    return grp[grp["DistinctPallets"] > 1].sort_values("DistinctPallets", ascending=False), details
+
 # --- BUILD VIEWS (PRESERVED) ---
 empty_bins_view_df = pd.DataFrame({
     "LocationName": sorted([loc for loc in master_locations if (loc not in occupied_locations and not str(loc).endswith("01"))])
@@ -304,10 +338,11 @@ def analyze_bulk_locations_grouped(df: pd.DataFrame) -> pd.DataFrame:
 
 bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
 
-# --- RACK DISCREPANCY LOGIC (PRESERVED) ---
+# --- RACK DISCREPANCY LOGIC (ENHANCED) ---
 def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     results = []
+
     # Partial errors
     p_df = get_partial_bins(df2)
     if not p_df.empty:
@@ -317,6 +352,7 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             rec = row.to_dict()
             rec["Issue"] = issue
             results.append(rec)
+
     # Full rack errors
     s = df2["LocationName"].astype(str)
     full_mask = (((~s.str.endswith("01")) | (s.str.startswith("111"))) & s.str.isnumeric())
@@ -327,6 +363,12 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             rec = row.to_dict()
             rec["Issue"] = "Partial Pallet needs to be moved to Partial Location"
             results.append(rec)
+
+    # NEW: Multi-pallet per rack slot
+    mp_summary, mp_details = _find_multi_pallet_in_rack(df2)
+    if not mp_details.empty:
+        results += mp_details.to_dict("records")
+
     return pd.DataFrame(results)
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
@@ -442,7 +484,9 @@ def ensure_core(df: pd.DataFrame, include_issue: bool = False) -> pd.DataFrame:
     cols = CORE_COLS.copy()
     if include_issue and "Issue" in out.columns:
         cols += ["Issue"]
-    return out[cols]
+    if "DistinctPallets" in out.columns:
+        cols += ["DistinctPallets"]
+    return out[cols] if set(cols).issubset(out.columns) else out[[c for c in cols if c in out.columns]]
 
 def style_issue_red(df: pd.DataFrame):
     if "Issue" in df.columns:
@@ -471,10 +515,8 @@ div[data-testid="stMetric"] {
 div[data-testid="stMetric"]:hover { transform: translateY(-1px); }
 div[data-testid="stMetric"] [data-testid="stMetricLabel"] { font-weight: 600; letter-spacing: .2px; }
 div[data-testid="stMetric"] [data-testid="stMetricValue"] { font-weight: 800; }
-
 .stButton>button { transition: transform .05s ease, box-shadow .2s ease; }
 .stButton>button:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.18); }
-
 /* Responsive: stack columns & wrap nav on small screens */
 @media (max-width: 900px) {
   section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
@@ -511,16 +553,16 @@ div[data-testid="stMetric"] {{
 }}
 div[data-testid="stMetric"] [data-testid="stMetricLabel"] {{ color: rgba(14,23,48,.8); }}
 div[data-testid="stMetric"] [data-testid="stMetricValue"] {{ color: {BLUE}; }}
-div[data-testid="stMetric"]:hover {{ box-shadow: 0 14px 36px rgba(0,0,0,.12); }}
+div[data-testid="stMetric"]:hover { box-shadow: 0 14px 36px rgba(0,0,0,.12); }
 """
     blueprint = f"""
 /* BLUEPRINT */
 div[data-testid="stMetric"] {{
   color: #d7e9ff;
   background:
-    linear-gradient(#0b1f33 1px, transparent 1px) 0 0/100% 22px,
-    linear-gradient(90deg, #0b1f33 1px, transparent 1px) 0 0/22px 100%,
-    linear-gradient(160deg, #07233e 0%, #0a2949 60%, #061a2d 100%);
+  linear-gradient(#0b1f33 1px, transparent 1px) 0 0/100% 22px,
+  linear-gradient(90deg, #0b1f33 1px, transparent 1px) 0 0/22px 100%,
+  linear-gradient(160deg, #07233e 0%, #0a2949 60%, #061a2d 100%);
   border: 1px dashed rgba(120,170,220,.45);
   box-shadow: inset 0 0 0 1px rgba(31,119,180,.25), 0 10px 24px rgba(0,0,0,.22);
 }}
@@ -620,13 +662,11 @@ def _append_trend_snapshot(kpis: dict, src_path: str):
             hist = pd.DataFrame()
     else:
         hist = pd.DataFrame()
-
     # De-dup: if last row has same hash, skip
     if not hist.empty and "FileHash" in hist.columns:
         last_hash = str(hist.iloc[-1].get("FileHash", ""))
         if file_hash and file_hash == last_hash:
             return False  # skipped
-
     # Append
     with open(TRENDS_FILE, mode="a", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(row.keys()))
@@ -660,7 +700,6 @@ if selected_nav == "Dashboard":
 
     # 6 KPI columns
     col1, col2, col3, col4, col5, col6 = st.columns(6)
-
     # Placeholders for animation
     k1 = col1.empty(); k1_btn = col1.button("View", key="btn_empty")
     k2 = col2.empty(); k2_btn = col2.button("View", key="btn_empty_partial")
@@ -691,7 +730,6 @@ if selected_nav == "Dashboard":
         "Count": list(kpi_vals.values())
     })
     kpi_df["Group"] = kpi_df["Category"].apply(lambda c: "Exceptions" if c in ["Damages", "Missing"] else "Bins")
-
     fig_kpi = px.bar(
         kpi_df,
         x="Category",
@@ -709,14 +747,11 @@ if selected_nav == "Dashboard":
     def is_rack_slot(loc: str) -> bool:
         s = str(loc)
         return s.isnumeric() and (((not s.endswith("01")) or s.startswith("111")))
-
     rack_master = {loc for loc in master_locations if is_rack_slot(loc)}
     rack_full_used = set(full_pallet_bins_df["LocationName"].astype(str).unique())
     rack_empty = rack_master - occupied_locations
-
     pie_df = pd.DataFrame({"Status": ["Full", "Empty"],
                            "Locations": [len(rack_full_used & rack_master), len(rack_empty)]})
-
     fig_rack_pie = px.pie(
         pie_df,
         names="Status",
@@ -794,16 +829,43 @@ elif selected_nav == "Missing":
 
 elif selected_nav == "Rack Discrepancies":
     st.subheader("Rack Discrepancies")
+
     if not discrepancy_df.empty:
+        # LOT filter
         lots = ["(All)"] + sorted([_lot_to_str(x) for x in discrepancy_df["CustomerLotReference"].dropna().unique()])
         sel_lot = st.selectbox("Filter by LOT", lots, index=0, key="rack_lot_filter")
         filt = discrepancy_df if sel_lot == "(All)" else discrepancy_df[discrepancy_df["CustomerLotReference"].apply(_lot_to_str) == sel_lot]
+
+        # Multi-Pallet Summary expander
+        with st.expander("▶ Multi‑Pallet Summary (by Location)"):
+            mp_only = filt[filt.get("Issue", "").eq("Multiple pallets in rack location")] if "Issue" in filt.columns else pd.DataFrame()
+            if not mp_only.empty:
+                # summary: Distinct pallet count + all pallet IDs per rack slot
+                summary_cnt = (
+                    mp_only.groupby("LocationName")["PalletId"]
+                    .nunique(dropna=True)
+                    .reset_index(name="DistinctPallets")
+                    .sort_values("DistinctPallets", ascending=False)
+                )
+                all_ids = (
+                    mp_only.groupby("LocationName")["PalletId"]
+                    .apply(lambda s: ", ".join(sorted({str(x).strip() for x in s if str(x).strip()})))
+                    .reset_index(name="AllPalletIDs")
+                )
+                mp_summary_tbl = summary_cnt.merge(all_ids, on="LocationName", how="left")
+                st.dataframe(mp_summary_tbl, use_container_width=True)
+            else:
+                st.info("No multi‑pallet rack locations in the current filter.")
+
+        # Table
         rack_display = ensure_core(filt, include_issue=True)
         st.dataframe(style_issue_red(maybe_limit(rack_display)), use_container_width=True)
 
+        # CSV
         csv_data = discrepancy_df.to_csv(index=False).encode("utf-8")
         st.download_button("Download Rack Discrepancies CSV", csv_data, "rack_discrepancies.csv", "text/csv")
 
+        # Fix by LOT
         st.markdown("### ✅ Fix discrepancy by LOT")
         lot_choices = sorted([_lot_to_str(x) for x in discrepancy_df["CustomerLotReference"].dropna().unique()])
         if lot_choices:
@@ -864,10 +926,8 @@ elif selected_nav == "Bulk Discrepancies":
             ] if c in df2.columns]
             grid_df = df2[show_cols].copy()
             grid_df["CustomerLotReference"] = grid_df["CustomerLotReference"].apply(_lot_to_str)
-
             quick_text = st.text_input("Quick filter (search all columns)", value="", key="bulk_aggrid_quickfilter")
             expand_all = st.toggle("Expand all groups", value=False, help="When on, all location groups load expanded by default.")
-
             gb = GridOptionsBuilder.from_dataframe(grid_df)
             gb.configure_default_column(resizable=True, filter=True, sortable=True, floatingFilter=True)
             gb.configure_column("LocationName", rowGroup=True, hide=True)
@@ -882,7 +942,6 @@ elif selected_nav == "Bulk Discrepancies":
             gb.configure_side_bar()
             if "Qty" in grid_df.columns:
                 gb.configure_column("Qty", aggFunc="sum")
-
             if JsCode is not None:
                 get_row_style = JsCode("""
                 function(params) {
@@ -893,12 +952,10 @@ elif selected_nav == "Bulk Discrepancies":
                 }
                 """)
                 gb.configure_grid_options(getRowStyle=get_row_style)
-
             gb.configure_grid_options(groupDefaultExpanded=(-1 if expand_all else 0),
                                       animateRows=True, enableRangeSelection=True,
                                       suppressAggFuncInHeader=False, domLayout="normal")
             grid_options = gb.build()
-
             grid_resp = AgGrid(
                 grid_df, gridOptions=grid_options,
                 update_mode=GridUpdateMode.SELECTION_CHANGED,
@@ -932,7 +989,6 @@ elif selected_nav == "Bulk Discrepancies":
         st.markdown("#### Flat view (all rows)")
         bulk_display = ensure_core(filt, include_issue=True)
         st.dataframe(style_issue_red(maybe_limit(bulk_display)), use_container_width=True)
-
         csv_data = bulk_df.to_csv(index=False).encode("utf-8")
         st.download_button("Download Bulk Discrepancies CSV", csv_data, "bulk_discrepancies.csv", "text/csv")
 
@@ -992,7 +1048,6 @@ elif selected_nav == "Trends":
         except Exception as e:
             st.error(f"Failed to read trend history: {e}")
             hist = pd.DataFrame()
-
         if not hist.empty:
             # Ensure datetime type and sort
             try:
@@ -1000,9 +1055,8 @@ elif selected_nav == "Trends":
             except Exception:
                 pass
             hist = hist.sort_values("Timestamp")
-
             # Controls
-            st.caption(f"Snapshots: **{len(hist)}**  •  File: {os.path.basename(TRENDS_FILE)}")
+            st.caption(f"Snapshots: **{len(hist)}** • File: {os.path.basename(TRENDS_FILE)}")
             with st.expander("Show trend table"):
                 st.dataframe(hist, use_container_width=True)
                 st.download_button("Download trend_history.csv", hist.to_csv(index=False).encode("utf-8"),
@@ -1054,7 +1108,6 @@ elif selected_nav == "Trends":
 elif selected_nav == "Self-Test":
     st.subheader("✅ Rule Self-Checks (Read-only)")
     problems = []
-
     if any(filtered_inventory_df["LocationName"].str.upper().str.startswith(("OB", "IB"))):
         problems.append("OB/IB locations leaked into filtered inventory.")
 
@@ -1068,7 +1121,6 @@ elif selected_nav == "Self-Test":
     s3 = filtered_inventory_df["LocationName"].astype(str)
     full_mask = (((~s3.str.endswith("01")) | s3.str.startswith("111")) & s3.str.isnumeric())
     fdf = filtered_inventory_df.loc[full_mask].copy()
-
     offenders = pd.DataFrame()
     not_flagged = pd.DataFrame()
     if not fdf.empty:
