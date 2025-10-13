@@ -995,6 +995,8 @@ elif selected_nav == "Self-Test":
                     show_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"] if c in not_flagged.columns]
                     st.dataframe(maybe_limit(not_flagged[show_cols].head(10)), use_container_width=True)
                 if st.button("Go to Rack Discrepancies"):
+    st.session_state["pending_nav"] = "Rack Discrepancies"
+    _rerun()
                     st.session_state["pending_nav"] = "Rack Discrepancies"; _rerun()
             else:
                 st.warning(f"⚠️ WARN — {len(offenders)} full-rack rows have Qty outside 6..15 (expected discrepancies, and all are flagged).")
@@ -1002,3 +1004,5 @@ elif selected_nav == "Self-Test":
                     show_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"] if c in offenders.columns]
                     st.dataframe(maybe_limit(offenders[show_cols].head(10)), use_container_width=True)
                 if st.button("Go to Rack Discrepancies"):
+    st.session_state["pending_nav"] = "Rack Discrepancies"
+    _rerun()
