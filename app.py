@@ -306,7 +306,7 @@ def get_partial_bins(df: pd.DataFrame) -> pd.DataFrame:
 def get_full_pallet_bins(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     s = df2["LocationName"].astype(str)
-    # FIX: ensure OR between conditions
+    # OR between conditions is required
     mask = ((~s.str.endswith("01")) | (s.str.startswith("111"))) & s.str.isnumeric() & df2["Qty"].between(6, 15)
     return df2.loc[mask].copy()
 
@@ -394,7 +394,6 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
 
     # Full rack issues (Qty outside 6..15 treated as partial needing move)
     s = df2["LocationName"].astype(str)
-    # FIX: ensure OR between conditions
     full_mask = ((~s.str.endswith("01")) | (s.str.startswith("111"))) & s.str.isnumeric()
     f_df = df2.loc[full_mask]
     if not f_df.empty:
@@ -524,15 +523,8 @@ def style_issue_red(df: pd.DataFrame):
 def maybe_limit(df: pd.DataFrame) -> pd.DataFrame:
     return df.head(1000) if st.session_state.get("fast_tables", False) else df
 
-# === NEW: robust LOT choices ===
+# === LOT choices utility (kept; harmless if unused) ===
 def build_lot_choices_from_df(df: pd.DataFrame, col: str = "CustomerLotReference", include_all: bool = True) -> list[str]:
-    """
-    Build LOT choices from a dataframe column:
-    - normalize values
-    - drop blanks
-    - dedupe + sort
-    - optionally include "(All)" at the top
-    """
     if df is None or df.empty or col not in df.columns:
         return ["(All)"] if include_all else []
     series = df[col].map(_lot_to_str)
@@ -793,7 +785,6 @@ elif selected_nav == "Missing":
 elif selected_nav == "Rack Discrepancies":
     st.subheader("Rack Discrepancies")
     if not discrepancy_df.empty:
-        # Filter by LOT (robust)
         lots = build_lot_choices_from_df(discrepancy_df, include_all=True)
         sel_lot = st.selectbox("Filter by LOT", lots, index=0, key="rack_lot_filter",
                                help="Only non-empty LOTs are shown. Use (All) to see every row.")
@@ -990,7 +981,7 @@ elif selected_nav == "Bulk Discrepancies":
 
 elif selected_nav == "Bulk Locations":
     st.subheader("Bulk Locations")
-    st.caption("Click a location to see pallet details for that slot.")
+    st.caption("Click a location, then use the dropdown to view pallets for that slot.")
     # High-contrast row highlight for over-capacity (GRID mode)
     st.markdown("""
     <style>
@@ -1000,8 +991,9 @@ elif selected_nav == "Bulk Locations":
     """, unsafe_allow_html=True)
 
     ui_mode_default_index = 1 if _AGGRID_AVAILABLE else 0
-    ui_mode = st.radio("View mode", ["Expanders", "Grid (expandable rows)"],
+    ui_mode = st.radio("View mode", ["Expanders", "Grid (select a location)"],
                        index=ui_mode_default_index, horizontal=True, key="bulk_loc_mode")
+
     search = st.text_input("Search location (optional)", value="", key="bulk_loc_search2")
     parent_df = bulk_locations_df.copy()
     if not parent_df.empty and search.strip():
@@ -1012,24 +1004,13 @@ elif selected_nav == "Bulk Locations":
             st.warning(f"{over_mask.sum()} location(s) exceed max allowed pallets. Highlighted in red.")
 
     if ui_mode.startswith("Grid") and _AGGRID_AVAILABLE and not parent_df.empty:
-        # Build detail rows from inventory for bulk zones only
-        inv_bulk = filtered_inventory_df[
-            filtered_inventory_df["LocationName"].astype(str).str[0].str.upper().isin(bulk_rules.keys())
-        ].copy()
-        disp_cols = [c for c in ["WarehouseSku", "CustomerLotReference", "PalletId", "Qty"] if c in inv_bulk.columns]
-        inv_bulk["CustomerLotReference"] = inv_bulk["CustomerLotReference"].apply(_lot_to_str)
-        inv_bulk["PalletId"] = inv_bulk["PalletId"].apply(normalize_whole_number)
-        detail_records_map = {}
-        for loc, g in inv_bulk.groupby("LocationName"):
-            detail_records_map[str(loc)] = ensure_core(g)[disp_cols].to_dict("records")
+        # Build grid of bulk locations (no enterprise features)
         show_cols = ["LocationName", "Zone", "PalletCount", "MaxAllowed", "EmptySlots"]
         grid_df = parent_df[show_cols].copy()
+
         gb = GridOptionsBuilder.from_dataframe(grid_df)
         gb.configure_default_column(resizable=True, filter=True, sortable=True, floatingFilter=True)
-        # 🔽 Master-Detail essentials
-        gb.configure_grid_options(masterDetail=True, keepDetailRows=True, detailRowHeight=240)
-        gb.configure_column("LocationName", headerName="Location", cellRenderer="agGroupCellRenderer", pinned="left", width=170)
-        # Strong row highlighting via class rule
+        # Highlight rows that exceed capacity
         if JsCode is not None:
             get_row_class = JsCode("""
             function(params) {
@@ -1042,44 +1023,71 @@ elif selected_nav == "Bulk Locations":
             gb.configure_grid_options(getRowClass=get_row_class)
         gb.configure_pagination(enabled=True, paginationAutoPageSize=False, paginationPageSize=50)
         gb.configure_side_bar()
+        # Single-select a location
+        gb.configure_selection("single", use_checkbox=True)
         grid_options = gb.build()
-        # Provide the detail renderer and selective "isRowMaster" logic
-        detail_defs = [{"field": c, "headerName": c, "flex": 1} for c in disp_cols]
-        grid_options["detailCellRendererParams"] = {
-            "detailGridOptions": {
-                "columnDefs": detail_defs,
-                "defaultColDef": {"sortable": True, "filter": True, "flex": 1}
-            },
-            "getDetailRowData": JsCode("""
-            function (params) {
-              const loc = (params.data && params.data.LocationName) ? params.data.LocationName.toString() : '';
-              const rows = params.context.detailMap[loc] || [];
-              params.successCallback(rows);
-            }
-            """)
-        }
-        grid_options["context"] = {"detailMap": detail_records_map}
-        if JsCode is not None:
-            grid_options["isRowMaster"] = JsCode("""
-            function(dataItem) {
-              if (!dataItem) return false;
-              const loc = dataItem.LocationName ? dataItem.LocationName.toString() : '';
-              const ctx = this && this.context ? this.context : null;
-              const rows = (ctx && ctx.detailMap && ctx.detailMap[loc]) ? ctx.detailMap[loc] : [];
-              return rows && rows.length > 0;
-            }
-            """)
-        AgGrid(
+
+        grid_resp = AgGrid(
             grid_df,
             gridOptions=grid_options,
             allow_unsafe_jscode=True,
-            update_mode=GridUpdateMode.NO_UPDATE,
+            update_mode=GridUpdateMode.SELECTION_CHANGED,
             fit_columns_on_grid_load=True,
             height=540,
             theme="streamlit"
         )
-        st.caption("Tip: Click the ▸ icon in the **Location** column to expand pallet details.")
+
+        sel_rows = pd.DataFrame(grid_resp.get("selected_rows", []))
+        if sel_rows.empty:
+            st.info("Select a location row above to view its pallets.")
+        else:
+            sel_loc = str(sel_rows.iloc[0]["LocationName"])
+            # Pull pallet rows for that location from inventory
+            inv_bulk = filtered_inventory_df[
+                filtered_inventory_df["LocationName"].astype(str) == sel_loc
+            ].copy()
+
+            if inv_bulk.empty:
+                st.warning(f"No pallets found for location {sel_loc}.")
+            else:
+                # Build a dropdown of pallets
+                inv_bulk["PalletId"] = inv_bulk["PalletId"].apply(normalize_whole_number)
+                inv_bulk["CustomerLotReference"] = inv_bulk["CustomerLotReference"].apply(_lot_to_str)
+
+                def _label(r):
+                    pid = r.get("PalletId", "") or "[blank]"
+                    sku = r.get("WarehouseSku", "") or "[no SKU]"
+                    lot = r.get("CustomerLotReference", "") or "[no LOT]"
+                    qty = r.get("Qty", 0)
+                    try:
+                        qty = int(qty)
+                    except Exception:
+                        pass
+                    return f"{pid} — SKU {sku} — LOT {lot} — Qty {qty}"
+
+                # Unique pallets by PalletId (fallback to row index if blank)
+                inv_bulk["_PID_KEY"] = inv_bulk["PalletId"].where(inv_bulk["PalletId"].astype(str).str.len() > 0,
+                                                                  inv_bulk.index.astype(str))
+                unique_rows = inv_bulk.drop_duplicates(subset=["_PID_KEY"])
+                choices = ["(All)"] + [ _label(r) for _, r in unique_rows.iterrows() ]
+                selected_label = st.selectbox(f"Pallets at {sel_loc}", choices, index=0, key=f"pallet_dd_{sel_loc}")
+
+                if selected_label == "(All)":
+                    show_df = inv_bulk
+                else:
+                    # Find the row that matches the selected label
+                    # build a quick map label -> _PID_KEY
+                    label_to_key = { _label(r): r["_PID_KEY"] for _, r in unique_rows.iterrows() }
+                    chosen_key = label_to_key.get(selected_label, None)
+                    if chosen_key is None:
+                        show_df = inv_bulk
+                    else:
+                        show_df = inv_bulk[inv_bulk["_PID_KEY"] == chosen_key]
+
+                st.dataframe(ensure_core(show_df), use_container_width=True)
+
     else:
+        # Expanders fallback (works without AgGrid)
         if parent_df.empty:
             st.info("No bulk locations found.")
         else:
@@ -1091,7 +1099,39 @@ elif selected_nav == "Bulk Locations":
                 header = f"{loc} — {int(r['PalletCount'])}/{int(r['MaxAllowed'])} (Empty {int(r['EmptySlots'])}){over_badge}"
                 with st.expander(header, expanded=False):
                     loc_rows = filtered_inventory_df[filtered_inventory_df["LocationName"].astype(str) == loc].copy()
-                    st.dataframe(ensure_core(loc_rows), use_container_width=True)
+                    # Build a dropdown here too
+                    if loc_rows.empty:
+                        st.info("No pallets in this location.")
+                    else:
+                        loc_rows["PalletId"] = loc_rows["PalletId"].apply(normalize_whole_number)
+                        loc_rows["CustomerLotReference"] = loc_rows["CustomerLotReference"].apply(_lot_to_str)
+
+                        def _label2(r):
+                            pid = r.get("PalletId", "") or "[blank]"
+                            sku = r.get("WarehouseSku", "") or "[no SKU]"
+                            lot = r.get("CustomerLotReference", "") or "[no LOT]"
+                            qty = r.get("Qty", 0)
+                            try:
+                                qty = int(qty)
+                            except Exception:
+                                pass
+                            return f"{pid} — SKU {sku} — LOT {lot} — Qty {qty}"
+
+                        loc_rows["_PID_KEY"] = loc_rows["PalletId"].where(loc_rows["PalletId"].astype(str).str.len() > 0,
+                                                                          loc_rows.index.astype(str))
+                        unique_rows2 = loc_rows.drop_duplicates(subset=["_PID_KEY"])
+                        choices2 = ["(All)"] + [ _label2(r) for _, r in unique_rows2.iterrows() ]
+                        selected_label2 = st.selectbox(f"Pallets at {loc}", choices2, index=0, key=f"pallet_dd_exp_{loc}")
+                        if selected_label2 == "(All)":
+                            show_df2 = loc_rows
+                        else:
+                            label_to_key2 = { _label2(r): r["_PID_KEY"] for _, r in unique_rows2.iterrows() }
+                            chosen_key2 = label_to_key2.get(selected_label2, None)
+                            if chosen_key2 is None:
+                                show_df2 = loc_rows
+                            else:
+                                show_df2 = loc_rows[loc_rows["_PID_KEY"] == chosen_key2]
+                        st.dataframe(ensure_core(show_df2), use_container_width=True)
 
 elif selected_nav == "Empty Bulk Locations":
     st.subheader("Empty Bulk Locations")
@@ -1162,7 +1202,6 @@ elif selected_nav == "Self-Test":
             problems.append("Some Partial Bins fail the 01/111/TUN/digit rule.")
 
     s3 = filtered_inventory_df["LocationName"].astype(str)
-    # FIX: ensure OR between conditions
     full_mask = ((~s3.str.endswith("01")) | s3.str.startswith("111")) & s3.str.isnumeric()
     fdf = filtered_inventory_df.loc[full_mask].copy()
     offenders = pd.DataFrame(); not_flagged = pd.DataFrame()
@@ -1215,3 +1254,4 @@ elif selected_nav == "Self-Test":
                     st.dataframe(maybe_limit(offenders[show_cols].head(10)), use_container_width=True)
                 if st.button("Go to Rack Discrepancies"):
                     st.session_state["pending_nav"] = "Rack Discrepancies"
+                    _rerun()
