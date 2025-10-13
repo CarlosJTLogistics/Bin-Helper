@@ -121,18 +121,33 @@ os.makedirs(LOG_DIR, exist_ok=True)
 # Store the action log in your logs folder and include Issue
 resolved_file = os.path.join(LOG_DIR, "resolved_discrepancies.csv")
 
-# ============== Cached Data Loading ==============
+# ============== Cached Data Loading (FIXED default sheet) ==============
 @st.cache_data(ttl=120, show_spinner=False)
-def _load_excel(path: str, sheet_name=None):
+def _load_excel(path: str, sheet_name=0):
+    """Load one sheet by default (sheet 0). Pass a sheet_name to target a specific sheet."""
     return pd.read_excel(path, sheet_name=sheet_name, engine="openpyxl")
 
 # --- LOAD DATA ---
 inventory_df = _load_excel(inventory_file)
-master_df = _load_excel(master_file, sheet_name="Master Locations")
+# Master: prefer explicit sheet, fallback to first if not present
+try:
+    master_df = _load_excel(master_file, sheet_name="Master Locations")
+except Exception:
+    master_df = _load_excel(master_file)
+    st.warning("Sheet 'Master Locations' not found; used the first sheet instead.")
 
-# --- DATA PREP (PRESERVED RULES) ---
-inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
-inventory_df["PalletCount"] = pd.to_numeric(inventory_df.get("PalletCount", 0), errors="coerce").fillna(0)
+# --- DATA PREP (PRESERVED RULES + HARDENED COLUMNS) ---
+def ensure_numeric_col(df: pd.DataFrame, col: str, default: float | int = 0):
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(default)
+    else:
+        df[col] = default
+
+ensure_numeric_col(inventory_df, "Qty", 0)
+ensure_numeric_col(inventory_df, "PalletCount", 0)
+
+if "LocationName" not in inventory_df.columns:
+    inventory_df["LocationName"] = ""
 inventory_df["LocationName"] = inventory_df["LocationName"].astype(str)
 
 # Exclude OB and IB globally
@@ -690,7 +705,6 @@ elif selected_nav == "Bulk Discrepancies":
                 animateRows=True,
                 enableRangeSelection=True,
                 suppressAggFuncInHeader=False,
-                # domLayout can be 'normal' for virtualization
                 domLayout="normal"
             )
             grid_options = gb.build()
