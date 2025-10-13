@@ -2,6 +2,7 @@
 import os
 import csv
 import re
+import time  # <-- for KPI animations
 from datetime import datetime
 import uuid
 import pandas as pd
@@ -101,6 +102,8 @@ def _clear_cache_and_rerun():
         st.cache_data.clear()
     except Exception:
         pass
+    # mark a new animation run id so KPIs animate after refresh
+    st.session_state["kpi_run_id"] = datetime.now().strftime("%H%M%S%f")
     _rerun()
 
 with st.sidebar:
@@ -117,6 +120,10 @@ with st.sidebar:
         index=0,
         help="Visual style for KPI metric cards"
     )
+
+    st.subheader("✨ Dashboard Animations")
+    st.toggle("Animate KPI counters", value=True, key="animate_kpis",
+              help="Counts smoothly animate on Dashboard load (lightweight).")
 
 # --- FILE PATHS ---
 inventory_file = "ON_HAND_INVENTORY.xlsx"
@@ -395,11 +402,12 @@ def maybe_limit(df: pd.DataFrame) -> pd.DataFrame:
         return df.head(1000)
     return df
 
-# --- KPI CARD CSS THEMES ---
+# --- KPI CARD CSS THEMES + Responsive CSS ---
 def _inject_card_css(style: str):
     """
     Injects a cooler visual style for st.metric cards without altering functionality.
     Styles: 'Neon Glow', 'Glassmorphism', 'Blueprint'
+    Also injects mobile-responsive CSS to stack columns and wrap nav on small screens.
     """
     common = """
 /* Base: keep layout tight */
@@ -419,12 +427,33 @@ div[data-testid="stMetric"] [data-testid="stMetricLabel"] {
 div[data-testid="stMetric"] [data-testid="stMetricValue"] {
   font-weight: 800;
 }
+
+/* Buttons micro-hover */
 .stButton>button {
   transition: transform .05s ease, box-shadow .2s ease;
 }
 .stButton>button:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 18px rgba(0,0,0,.18);
+}
+
+/* === Responsive: stack columns & wrap nav on small screens === */
+@media (max-width: 900px) {
+  /* Stack any columns (esp. KPI row) */
+  section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
+    width: 100% !important;
+    flex: 1 1 100% !important;
+    padding-bottom: 8px;
+  }
+  /* Wrap the horizontal radio nav neatly */
+  div[data-testid="stRadio"] div[role="radiogroup"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    justify-content: center;
+  }
+  /* Shrink table font slightly for compact view */
+  .stDataFrame, .stTable { font-size: 0.92rem; }
 }
 """
     neon = f"""
@@ -445,7 +474,6 @@ div[data-testid="stMetric"]:hover {{
     inset 0 0 12px rgba(31,119,180,.22);
 }}
 """
-
     glass = f"""
 /* === GLASSMORPHISM === */
 div[data-testid="stMetric"] {{
@@ -461,7 +489,6 @@ div[data-testid="stMetric"]:hover {{
   box-shadow: 0 14px 36px rgba(0,0,0,.12);
 }}
 """
-
     blueprint = f"""
 /* === BLUEPRINT === */
 div[data-testid="stMetric"] {{
@@ -479,10 +506,8 @@ div[data-testid="stMetric"]:hover {{
   box-shadow: inset 0 0 0 1px rgba(31,119,180,.45), 0 14px 28px rgba(0,0,0,.28);
 }}
 """
-
-    # Optional: emphasize "exception" cards (best-effort by position 5 & 6 on dashboard row)
+    # Exception accent (for Damages/Missing columns 5 & 6 on dashboard)
     exception_hint = f"""
-/* Exception accent (position-based, non-breaking) */
 section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(5) div[data-testid="stMetric"],
 section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] {{
   border-color: rgba(214,39,40,.5) !important;
@@ -496,7 +521,6 @@ section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-
   text-shadow: 0 0 10px rgba(214,39,40,.45) !important;
 }}
 """
-
     bundle = common
     if style == "Neon Glow":
         bundle += neon
@@ -528,52 +552,80 @@ except ValueError:
 selected_nav = st.radio("🔍 Navigate:", nav_options, index=_default_index, horizontal=True, key="nav")
 st.markdown("---")
 
+# --- KPI Animation Helper ---
+def _animate_metric(ph, label: str, value: int | float, duration_ms: int = 600, steps: int = 20):
+    """
+    Smoothly animates a metric value in the given placeholder.
+    Keeps CPU very light: ~20 DOM updates over ~0.6s.
+    """
+    try:
+        v_end = int(value)
+        if not st.session_state.get("animate_kpis", True) or v_end <= 0:
+            ph.metric(label, v_end)
+            return
+        steps = max(8, min(40, steps))
+        sleep_s = max(0.01, duration_ms / 1000.0 / steps)
+        for i in range(1, steps + 1):
+            v = int(round(v_end * i / steps))
+            ph.metric(label, v)
+            time.sleep(sleep_s)
+    except Exception:
+        ph.metric(label, value)
+
 # --- DASHBOARD VIEW (Charts remain Blue/Red) ---
 if selected_nav == "Dashboard":
     st.subheader("📊 Bin Helper Dashboard")
 
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    with col1:
-        st.metric("Empty Bins", len(empty_bins_view_df))
-        if st.button("View", key="btn_empty"):
-            st.session_state["pending_nav"] = "Empty Bins"; _rerun()
-    with col2:
-        st.metric("Empty Partial Bins", len(empty_partial_bins_df))
-        if st.button("View", key="btn_empty_partial"):
-            st.session_state["pending_nav"] = "Empty Partial Bins"; _rerun()
-    with col3:
-        st.metric("Partial Bins", len(partial_bins_df))
-        if st.button("View", key="btn_partial"):
-            st.session_state["pending_nav"] = "Partial Bins"; _rerun()
-    with col4:
-        st.metric("Full Pallet Bins", len(full_pallet_bins_df))
-        if st.button("View", key="btn_full"):
-            st.session_state["pending_nav"] = "Full Pallet Bins"; _rerun()
-    with col5:
-        st.metric("Damages", len(damages_df))
-        if st.button("View", key="btn_damage"):
-            st.session_state["pending_nav"] = "Damages"; _rerun()
-    with col6:
-        st.metric("Missing", len(missing_df))
-        if st.button("View", key="btn_missing"):
-            st.session_state["pending_nav"] = "Missing"; _rerun()
-
-    # --- Bin Status Distribution ---
-    kpi_data = {
-        "Category": ["Empty Bins", "Empty Partial Bins", "Partial Bins", "Full Pallet Bins", "Damages", "Missing"],
-        "Count": [
-            len(empty_bins_view_df),
-            len(empty_partial_bins_df),
-            len(partial_bins_df),
-            len(full_pallet_bins_df),
-            len(damages_df),
-            len(missing_df)
-        ],
+    # KPI values
+    kpi_vals = {
+        "Empty Bins": len(empty_bins_view_df),
+        "Empty Partial Bins": len(empty_partial_bins_df),
+        "Partial Bins": len(partial_bins_df),
+        "Full Pallet Bins": len(full_pallet_bins_df),
+        "Damages": len(damages_df),
+        "Missing": len(missing_df),
     }
-    kpi_df = pd.DataFrame(kpi_data)
+
+    # 6 KPI columns
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+
+    # Placeholders for animation
+    k1 = col1.empty(); k1_btn = col1.button("View", key="btn_empty")
+    k2 = col2.empty(); k2_btn = col2.button("View", key="btn_empty_partial")
+    k3 = col3.empty(); k3_btn = col3.button("View", key="btn_partial")
+    k4 = col4.empty(); k4_btn = col4.button("View", key="btn_full")
+    k5 = col5.empty(); k5_btn = col5.button("View", key="btn_damage")
+    k6 = col6.empty(); k6_btn = col6.button("View", key="btn_missing")
+
+    # Animate or render instantly
+    _animate_metric(k1, "Empty Bins", kpi_vals["Empty Bins"])
+    _animate_metric(k2, "Empty Partial Bins", kpi_vals["Empty Partial Bins"])
+    _animate_metric(k3, "Partial Bins", kpi_vals["Partial Bins"])
+    _animate_metric(k4, "Full Pallet Bins", kpi_vals["Full Pallet Bins"])
+    _animate_metric(k5, "Damages", kpi_vals["Damages"])
+    _animate_metric(k6, "Missing", kpi_vals["Missing"])
+
+    # Navigation via buttons (unchanged)
+    if k1_btn: st.session_state["pending_nav"] = "Empty Bins"; _rerun()
+    if k2_btn: st.session_state["pending_nav"] = "Empty Partial Bins"; _rerun()
+    if k3_btn: st.session_state["pending_nav"] = "Partial Bins"; _rerun()
+    if k4_btn: st.session_state["pending_nav"] = "Full Pallet Bins"; _rerun()
+    if k5_btn: st.session_state["pending_nav"] = "Damages"; _rerun()
+    if k6_btn: st.session_state["pending_nav"] = "Missing"; _rerun()
+
+    # --- Bin Status Distribution (2-color by group) ---
+    kpi_df = pd.DataFrame({
+        "Category": list(kpi_vals.keys()),
+        "Count": list(kpi_vals.values())
+    })
     kpi_df["Group"] = kpi_df["Category"].apply(lambda c: "Exceptions" if c in ["Damages", "Missing"] else "Bins")
+
     fig_kpi = px.bar(
-        kpi_df, x="Category", y="Count", color="Group", text="Count",
+        kpi_df,
+        x="Category",
+        y="Count",
+        color="Group",
+        text="Count",
         title="Bin Status Distribution",
         color_discrete_map={"Bins": BLUE, "Exceptions": RED},
     )
@@ -581,45 +633,61 @@ if selected_nav == "Dashboard":
     fig_kpi.update_layout(xaxis_title="", yaxis_title="Count", showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
     st.plotly_chart(fig_kpi, use_container_width=True)
 
-    # --- Racks: Full vs Empty (pie) ---
+    # --- Racks: Full vs Empty (pie) - Full=Blue, Empty=Red ---
     def is_rack_slot(loc: str) -> bool:
         s = str(loc)
         return s.isnumeric() and (((not s.endswith("01")) or s.startswith("111")))
+
     rack_master = {loc for loc in master_locations if is_rack_slot(loc)}
     rack_full_used = set(full_pallet_bins_df["LocationName"].astype(str).unique())
     rack_empty = rack_master - occupied_locations
+
     pie_df = pd.DataFrame({"Status": ["Full", "Empty"],
                            "Locations": [len(rack_full_used & rack_master), len(rack_empty)]})
+
     fig_rack_pie = px.pie(
-        pie_df, names="Status", values="Locations",
+        pie_df,
+        names="Status",
+        values="Locations",
         title="Racks: Full vs Empty (unique slots)",
-        color="Status", color_discrete_map={"Full": BLUE, "Empty": RED},
+        color="Status",
+        color_discrete_map={"Full": BLUE, "Empty": RED},
     )
     fig_rack_pie.update_layout(showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
     st.plotly_chart(fig_rack_pie, use_container_width=True)
 
-    # --- Bulk Zones: Used vs Empty (stacked bar) ---
+    # --- Bulk Zones: Used vs Empty (stacked bar) - Used=Blue, Empty=Red ---
     if not bulk_locations_df.empty:
         bulk_zone = bulk_locations_df.groupby("Zone").agg(
             Used=("PalletCount", "sum"),
             Capacity=("MaxAllowed", "sum")
         ).reset_index()
         bulk_zone["Empty"] = (bulk_zone["Capacity"] - bulk_zone["Used"]).clip(lower=0)
-        bulk_stack = bulk_zone.melt(id_vars="Zone", value_vars=["Used", "Empty"], var_name="Type", value_name="Count")
+        bulk_stack = bulk_zone.melt(
+            id_vars="Zone", value_vars=["Used", "Empty"], var_name="Type", value_name="Count"
+        )
         fig_bulk = px.bar(
-            bulk_stack, x="Zone", y="Count", color="Type", barmode="stack",
+            bulk_stack,
+            x="Zone",
+            y="Count",
+            color="Type",
+            barmode="stack",
             title="Bulk Zones: Used vs Empty Capacity",
             color_discrete_map={"Used": BLUE, "Empty": RED},
         )
         fig_bulk.update_layout(xaxis_title="Zone", yaxis_title="Pallets", showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
         st.plotly_chart(fig_bulk, use_container_width=True)
 
-    # --- Damages vs Missing ---
+    # --- Damages vs Missing (bar) - Damages=Red, Missing=Blue ---
     dm_df = pd.DataFrame({"Status": ["Damages", "Missing"], "Count": [len(damages_df), len(missing_df)]})
     fig_dm = px.bar(
-        dm_df, x="Status", y="Count", text="Count",
+        dm_df,
+        x="Status",
+        y="Count",
+        text="Count",
         title="Damages vs Missing",
-        color="Status", color_discrete_map={"Damages": RED, "Missing": BLUE},
+        color="Status",
+        color_discrete_map={"Damages": RED, "Missing": BLUE},
     )
     fig_dm.update_traces(textposition="outside")
     fig_dm.update_layout(xaxis_title="", yaxis_title="Count", showlegend=False, margin=dict(t=60, b=40, l=10, r=10))
