@@ -105,7 +105,7 @@ os.makedirs(LOG_DIR, exist_ok=True)
 DATA_DIR = os.path.join(os.path.dirname(LOG_DIR), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 resolved_file = os.path.join(LOG_DIR, "resolved_discrepancies.csv")
-TRENDS_FILE = os.path.join(LOG_DIR, "trend_history.csv")  # <- new persistent trend log
+TRENDS_FILE = os.path.join(LOG_DIR, "trend_history.csv")  # <- persistent trend log
 
 # --- default files (still supported) ---
 DEFAULT_INVENTORY_FILE = "ON_HAND_INVENTORY.xlsx"
@@ -269,13 +269,17 @@ def get_empty_partial_bins(master_locs: set, occupied_locs: set) -> pd.DataFrame
     empty_partial = sorted(partial_candidates - set(occupied_locs))
     return pd.DataFrame({"LocationName": empty_partial})
 
-# --- NEW: Multi-pallet-in-rack detection ---
-def _find_multi_pallet_in_rack(df: pd.DataFrame):
+# --- NEW: Multi-pallet rule for ALL rack locations (full + partial) ---
+def _find_multi_pallet_all_racks(df: pd.DataFrame):
     """
     Returns (summary_df, details_df)
+
     - summary_df: LocationName | DistinctPallets
     - details_df: core columns + Issue + DistinctPallets for violating rack locations
-    Rack is defined as numeric location and ((not endswith "01") OR startswith "111")
+
+    Rack types:
+      * Partial rack: numeric, endswith "01", NOT starting with "111"
+      * Full rack: numeric, and (NOT endswith "01" OR startswith "111")
     """
     df2 = exclude_damage_missing(df).copy()
     df2["LocationName"] = df2["LocationName"].astype(str).str.strip()
@@ -285,26 +289,39 @@ def _find_multi_pallet_in_rack(df: pd.DataFrame):
         df2["PalletId"] = ""
 
     s = df2["LocationName"].astype(str)
-    rack_mask = (s.str.isnumeric()) & ((~s.str.endswith("01")) | (s.str.startswith("111")))
-    rack_df = df2.loc[rack_mask].copy()
+    is_numeric = s.str.isnumeric()
+    is_partial = is_numeric & s.str.endswith("01") & ~s.str.startswith("111")
+    is_full = is_numeric & ((~s.str.endswith("01")) | s.str.startswith("111"))
 
+    # Only numeric rack slots (covers both partial and full definitions)
+    rack_df = df2[is_numeric].copy()
     if rack_df.empty:
         return pd.DataFrame(columns=["LocationName", "DistinctPallets"]), pd.DataFrame()
 
-    # Count distinct pallets per rack slot
+    # Count distinct pallets per slot
     grp = (
         rack_df.groupby("LocationName")["PalletId"]
         .nunique(dropna=True)
         .reset_index(name="DistinctPallets")
     )
-    viol_locs = grp[grp["DistinctPallets"] > 1]["LocationName"]
-    if viol_locs.empty:
+    viol = grp[grp["DistinctPallets"] > 1]
+    if viol.empty:
         return grp.iloc[0:0], pd.DataFrame()
 
+    viol_locs = set(viol["LocationName"])
     details = rack_df[rack_df["LocationName"].isin(viol_locs)].copy()
-    details["Issue"] = "Multiple pallets in rack location"
-    details = details.merge(grp, on="LocationName", how="left")
-    return grp[grp["DistinctPallets"] > 1].sort_values("DistinctPallets", ascending=False), details
+
+    # Assign issue text per rack type (partial vs full)
+    loc_series = details["LocationName"].astype(str)
+    details["Issue"] = [
+        "Multiple pallets in partial bin"
+        if (loc.endswith("01") and not loc.startswith("111"))
+        else "Multiple pallets in rack location"
+        for loc in loc_series
+    ]
+
+    details = details.merge(viol, on="LocationName", how="left")
+    return viol.sort_values("DistinctPallets", ascending=False), details
 
 # --- BUILD VIEWS (PRESERVED) ---
 empty_bins_view_df = pd.DataFrame({
@@ -353,7 +370,7 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             rec["Issue"] = issue
             results.append(rec)
 
-    # Full rack errors
+    # Full rack errors (Qty outside 6..15)
     s = df2["LocationName"].astype(str)
     full_mask = (((~s.str.endswith("01")) | (s.str.startswith("111"))) & s.str.isnumeric())
     f_df = df2.loc[full_mask]
@@ -364,12 +381,19 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             rec["Issue"] = "Partial Pallet needs to be moved to Partial Location"
             results.append(rec)
 
-    # NEW: Multi-pallet per rack slot
-    mp_summary, mp_details = _find_multi_pallet_in_rack(df2)
+    # NEW: Multi-pallet per slot for ALL racks (full + partial) using distinct PalletId
+    mp_summary, mp_details = _find_multi_pallet_all_racks(df2)
     if not mp_details.empty:
         results += mp_details.to_dict("records")
 
-    return pd.DataFrame(results)
+    out = pd.DataFrame(results)
+
+    # De-duplicate rows if the same (Location / Pallet / SKU / LOT / Issue) appears twice
+    if not out.empty:
+        keep_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Issue"] if c in out.columns]
+        out = out.drop_duplicates(subset=keep_cols)
+
+    return out
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
@@ -504,6 +528,7 @@ def _inject_card_css(style: str):
     Injects a cooler visual style for st.metric cards without altering functionality.
     Styles: 'Neon Glow', 'Glassmorphism', 'Blueprint'
     Also injects mobile-responsive CSS to stack columns and wrap nav on small screens.
+    NOTE: Avoid f-strings here to keep raw CSS braces { } literal.
     """
     common = """
 div[data-testid="stMetric"] {
@@ -528,36 +553,36 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] { font-weight: 800; }
   .stDataFrame, .stTable { font-size: 0.92rem; }
 }
 """
-    neon = f"""
+    neon = """
 /* NEON GLOW */
-div[data-testid="stMetric"] {{
+div[data-testid="stMetric"] {
   color: #e8f0ff;
   background: radial-gradient(120% 120% at 0% 0%, #0b1220 0%, #101a2e 55%, #0b1220 100%);
   border: 1px solid rgba(31,119,180, .35);
   box-shadow: 0 0 12px rgba(31,119,180, .35), inset 0 0 10px rgba(31,119,180, .15);
-}}
-div[data-testid="stMetric"] [data-testid="stMetricLabel"] {{ color: rgba(200,220,255,.9); }}
-div[data-testid="stMetric"] [data-testid="stMetricValue"] {{ color: {BLUE}; text-shadow: 0 0 12px rgba(31,119,180,.5); }}
-div[data-testid="stMetric"]:hover {{
+}
+div[data-testid="stMetric"] [data-testid="stMetricLabel"] { color: rgba(200,220,255,.9); }
+div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: __BLUE__; text-shadow: 0 0 12px rgba(31,119,180,.5); }
+div[data-testid="stMetric"]:hover {
   box-shadow: 0 0 18px rgba(31,119,180,.55), inset 0 0 12px rgba(31,119,180,.22);
-}}
+}
 """
-    glass = f"""
+    glass = """
 /* GLASSMORPHISM */
-div[data-testid="stMetric"] {{
+div[data-testid="stMetric"] {
   color: #0e1730;
   background: linear-gradient(160deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,.25) 100%);
   border: 1px solid rgba(15,35,65,.15);
   box-shadow: 0 10px 30px rgba(0,0,0,.08);
   backdrop-filter: blur(10px);
-}}
-div[data-testid="stMetric"] [data-testid="stMetricLabel"] {{ color: rgba(14,23,48,.8); }}
-div[data-testid="stMetric"] [data-testid="stMetricValue"] {{ color: {BLUE}; }}
+}
+div[data-testid="stMetric"] [data-testid="stMetricLabel"] { color: rgba(14,23,48,.8); }
+div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: __BLUE__; }
 div[data-testid="stMetric"]:hover { box-shadow: 0 14px 36px rgba(0,0,0,.12); }
 """
-    blueprint = f"""
+    blueprint = """
 /* BLUEPRINT */
-div[data-testid="stMetric"] {{
+div[data-testid="stMetric"] {
   color: #d7e9ff;
   background:
   linear-gradient(#0b1f33 1px, transparent 1px) 0 0/100% 22px,
@@ -565,24 +590,24 @@ div[data-testid="stMetric"] {{
   linear-gradient(160deg, #07233e 0%, #0a2949 60%, #061a2d 100%);
   border: 1px dashed rgba(120,170,220,.45);
   box-shadow: inset 0 0 0 1px rgba(31,119,180,.25), 0 10px 24px rgba(0,0,0,.22);
-}}
-div[data-testid="stMetric"] [data-testid="stMetricLabel"] {{ color: #b7d1f3; }}
-div[data-testid="stMetric"] [data-testid="stMetricValue"] {{ color: {BLUE}; text-shadow: 0 0 8px rgba(31,119,180,.45); }}
-div[data-testid="stMetric"]:hover {{
+}
+div[data-testid="stMetric"] [data-testid="stMetricLabel"] { color: #b7d1f3; }
+div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: __BLUE__; text-shadow: 0 0 8px rgba(31,119,180,.45); }
+div[data-testid="stMetric"]:hover {
   box-shadow: inset 0 0 0 1px rgba(31,119,180,.45), 0 14px 28px rgba(0,0,0,.28);
-}}
+}
 """
-    exception_hint = f"""
+    exception_hint = """
 /* Exception accent for Damages/Missing (columns 5 & 6) */
 section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(5) div[data-testid="stMetric"],
-section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] {{
+section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] {
   border-color: rgba(214,39,40,.5) !important;
   box-shadow: 0 0 12px rgba(214,39,40,.45), inset 0 0 10px rgba(214,39,40,.18) !important;
-}}
+}
 section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(5) div[data-testid="stMetric"] [data-testid="stMetricValue"],
-section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
-  color: {RED} !important; text-shadow: 0 0 10px rgba(214,39,40,.45) !important;
-}}
+section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+  color: __RED__ !important; text-shadow: 0 0 10px rgba(214,39,40,.45) !important;
+}
 """
     bundle = common
     if style == "Neon Glow":
@@ -592,6 +617,8 @@ section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-
     elif style == "Blueprint":
         bundle += blueprint
     bundle += exception_hint
+
+    bundle = bundle.replace("__BLUE__", BLUE).replace("__RED__", RED)
     st.markdown(f"<style>{bundle}</style>", unsafe_allow_html=True)
 
 # Inject the chosen card style
@@ -721,6 +748,7 @@ if selected_nav == "Dashboard":
     if k2_btn: st.session_state["pending_nav"] = "Empty Partial Bins"; _rerun()
     if k3_btn: st.session_state["pending_nav"] = "Partial Bins"; _rerun()
     if k4_btn: st.session_state["pending_nav"] = "Full Pallet Bins"; _rerun()
+    if k5_btn: st.session_store = {}
     if k5_btn: st.session_state["pending_nav"] = "Damages"; _rerun()
     if k6_btn: st.session_state["pending_nav"] = "Missing"; _rerun()
 
@@ -838,7 +866,7 @@ elif selected_nav == "Rack Discrepancies":
 
         # Multi-Pallet Summary expander
         with st.expander("▶ Multi‑Pallet Summary (by Location)"):
-            mp_only = filt[filt.get("Issue", "").eq("Multiple pallets in rack location")] if "Issue" in filt.columns else pd.DataFrame()
+            mp_only = filt[filt.get("Issue", "").eq("Multiple pallets in rack location") | filt.get("Issue", "").eq("Multiple pallets in partial bin")] if "Issue" in filt.columns else pd.DataFrame()
             if not mp_only.empty:
                 # summary: Distinct pallet count + all pallet IDs per rack slot
                 summary_cnt = (
@@ -1037,7 +1065,7 @@ elif selected_nav == "Empty Bulk Locations":
     st.subheader("Empty Bulk Locations")
     st.dataframe(maybe_limit(empty_bulk_locations_df), use_container_width=True)
 
-# --- TRENDS (NEW) ---
+# --- TRENDS ---
 elif selected_nav == "Trends":
     st.subheader("📈 Trends Over Time")
     if not os.path.isfile(TRENDS_FILE):
@@ -1171,4 +1199,3 @@ elif selected_nav == "Self-Test":
                     st.dataframe(maybe_limit(offenders[show_cols].head(10)), use_container_width=True)
                 if st.button("Go to Rack Discrepancies"):
                     st.session_state["pending_nav"] = "Rack Discrepancies"
-                    _rerun()
