@@ -78,10 +78,10 @@ def show_banner():
         with col_a:
             data = None
             for u in [
-                "https://assets10.lottiefiles.com/packages/lf20_9kmmv9.json",  # forklift
-                "https://assets2.lottiefiles.com/packages/lf20_1pxqjqps.json",  # barcode boxes
-                "https://assets9.lottiefiles.com/packages/lf20_wnqlfojb.json",  # logistics
-                "https://assets10.lottiefiles.com/packages/lf20_j1adxtyb.json",  # fallback
+                "https://assets10.lottiefiles.com/packages/lf20_9kmmv9.json",
+                "https://assets2.lottiefiles.com/packages/lf20_1pxqjqps.json",
+                "https://assets9.lottiefiles.com/packages/lf20_wnqlfojb.json",
+                "https://assets10.lottiefiles.com/packages/lf20_j1adxtyb.json",
             ]:
                 data = _load_lottie(u)
                 if data:
@@ -98,19 +98,10 @@ Fast, visual lookups for **Empty**, **Partial**, **Full**, **Damages**, and **Mi
 """,
                 unsafe_allow_html=True
             )
-
 show_banner()
 
 # ===== SAFEGUARD: robust path resolution & file append =====
 def _resolve_writable_dir(preferred: str | None, purpose: str = "logs") -> tuple[str, bool]:
-    """
-    Try multiple candidates; return first writable directory and a flag if we had to fallback.
-    Order:
-    1) BIN_HELPER_LOG_DIR env (if set)
-    2) preferred
-    3) ./<purpose> next to app.py
-    4) OS temp dir /tmp/bin-helper-<purpose>
-    """
     candidates = []
     env_override = os.environ.get("BIN_HELPER_LOG_DIR")
     if env_override:
@@ -127,11 +118,9 @@ def _resolve_writable_dir(preferred: str | None, purpose: str = "logs") -> tuple
             with open(test_path, "w", encoding="utf-8") as f:
                 f.write("ok")
             os.remove(test_path)
-            # writable
             return d, (d != preferred)
         except Exception:
             continue
-    # last resort: current workdir (best effort)
     d = os.getcwd()
     try:
         test_path = os.path.join(d, ".write_test")
@@ -143,11 +132,6 @@ def _resolve_writable_dir(preferred: str | None, purpose: str = "logs") -> tuple
         return d, True
 
 def _safe_append_csv(path: str, header: list[str], row: list) -> tuple[bool, str, str]:
-    """
-    Append a CSV row; create file and header if missing.
-    If write fails, fallback to a safe dir and try again.
-    Returns (success, used_path, error_message_if_any)
-    """
     def _try_write(p: str) -> tuple[bool, str]:
         os.makedirs(os.path.dirname(p), exist_ok=True)
         file_exists = os.path.isfile(p)
@@ -157,12 +141,10 @@ def _safe_append_csv(path: str, header: list[str], row: list) -> tuple[bool, str
                 w.writerow(header)
             w.writerow(row)
         return True, p
-
     try:
         ok, used = _try_write(path)
         return True, used, ""
     except Exception as e:
-        # fallback to a writable logs dir near app.py or temp
         fb_dir, _ = _resolve_writable_dir(None, purpose="logs")
         fb_path = os.path.join(fb_dir, os.path.basename(path))
         try:
@@ -171,7 +153,7 @@ def _safe_append_csv(path: str, header: list[str], row: list) -> tuple[bool, str
         except Exception as e2:
             return False, path, f"Primary write failed: {e}; Fallback failed: {e2}"
 
-# ===== Paths (preferred) =====
+# ===== Paths =====
 PREFERRED_LOG_DIR = r"C:\Users\carlos.pacheco.MYA-LOGISTICS\OneDrive - JT Logistics\bin-helper\logs"
 LOG_DIR, LOG_FALLBACK_USED = _resolve_writable_dir(PREFERRED_LOG_DIR, purpose="logs")
 DATA_DIR, DATA_FALLBACK_USED = _resolve_writable_dir(os.path.join(os.path.dirname(LOG_DIR), "data"), purpose="data")
@@ -262,23 +244,21 @@ except Exception:
     master_df = _load_excel(master_file)
     st.warning("Sheet 'Master Locations' not found; used the first sheet instead.")
 
-# ===== Normalization: force LOT & PalletId to whole numeric strings =====
+# ===== Normalization =====
 def normalize_whole_number(val) -> str:
-    """Return digits-only string without leading zeros (e.g., '9062716'). Empty if no digits."""
     try:
         if pd.isna(val):
             return ""
     except Exception:
         pass
     s = str(val).strip()
-    if re.fullmatch(r"\d+(\.0+)?", s):  # Excel '9062716.0'
+    if re.fullmatch(r"\d+(\.0+)?", s):
         s = s.split(".")[0]
     else:
-        s = re.sub(r"\D", "", s)  # keep digits only
+        s = re.sub(r"\D", "", s)
     s = s.lstrip("0")
     return s if s else ""
 
-# Ensure numeric columns exist
 def ensure_numeric_col(df: pd.DataFrame, col: str, default: float | int = 0):
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(default)
@@ -288,13 +268,10 @@ def ensure_numeric_col(df: pd.DataFrame, col: str, default: float | int = 0):
 ensure_numeric_col(inventory_df, "Qty", 0)
 ensure_numeric_col(inventory_df, "PalletCount", 0)
 
-# Ensure key text cols exist
 for c in ["LocationName", "PalletId", "CustomerLotReference", "WarehouseSku"]:
     if c not in inventory_df.columns:
         inventory_df[c] = ""
 inventory_df["LocationName"] = inventory_df["LocationName"].astype(str)
-
-# **Apply normalization** for PalletId & LOT now, once
 inventory_df["PalletId"] = inventory_df["PalletId"].apply(normalize_whole_number)
 inventory_df["CustomerLotReference"] = inventory_df["CustomerLotReference"].apply(normalize_whole_number)
 
@@ -305,7 +282,6 @@ def exclude_damage_missing(df: pd.DataFrame) -> pd.DataFrame:
 filtered_inventory_df = exclude_damage_missing(inventory_df)
 occupied_locations = set(filtered_inventory_df["LocationName"].dropna().astype(str).unique())
 
-# Master list extract
 def extract_master_locations(df: pd.DataFrame) -> set:
     for c in df.columns:
         if "location" in str(c).lower():
@@ -345,7 +321,6 @@ def get_empty_partial_bins(master_locs: set, occupied_locs: set) -> pd.DataFrame
     empty_partial = sorted(partial_candidates - set(occupied_locs))
     return pd.DataFrame({"LocationName": empty_partial})
 
-# Multi-pallet rule for ALL rack locations (full + partial) using normalized PalletId
 def _find_multi_pallet_all_racks(df: pd.DataFrame):
     df2 = exclude_damage_missing(df).copy()
     df2["LocationName"] = df2["LocationName"].astype(str).str.strip()
@@ -404,12 +379,10 @@ def analyze_bulk_locations_grouped(df: pd.DataFrame) -> pd.DataFrame:
 
 bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
 
-# ===== Rack discrepancies (enhanced) =====
+# ===== Rack discrepancies =====
 def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     results = []
-
-    # Partial errors
     p_df = get_partial_bins(df2)
     if not p_df.empty:
         pe = p_df[(p_df["Qty"] > 5) | (p_df["PalletCount"] > 1)]
@@ -417,8 +390,6 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             issue = "Qty too high for partial bin" if row["Qty"] > 5 else "Multiple pallets in partial bin"
             rec = row.to_dict(); rec["Issue"] = issue
             results.append(rec)
-
-    # Full rack qty errors
     s = df2["LocationName"].astype(str)
     full_mask = ((~s.str.endswith("01")) | (s.str.startswith("111"))) & s.str.isnumeric()
     f_df = df2.loc[full_mask]
@@ -428,12 +399,9 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             rec = row.to_dict()
             rec["Issue"] = "Partial Pallet needs to be moved to Partial Location"
             results.append(rec)
-
-    # Multi-pallet
     _, mp_details = _find_multi_pallet_all_racks(df2)
     if not mp_details.empty:
         results += mp_details.to_dict("records")
-
     out = pd.DataFrame(results)
     if not out.empty:
         keep_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Issue"] if c in out.columns]
@@ -464,7 +432,7 @@ for _, row in location_counts.iterrows():
 bulk_locations_df = pd.DataFrame(bulk_locations)
 empty_bulk_locations_df = pd.DataFrame(empty_bulk_locations)
 
-# ===== Logging (SAFE APPEND) =====
+# ===== Logging =====
 def _row_key(row: dict, discrepancy_type: str) -> str:
     fields = [
         str(row.get("LocationName", "")),
@@ -508,7 +476,6 @@ def read_action_log() -> pd.DataFrame:
     try:
         if os.path.isfile(resolved_file):
             return pd.read_csv(resolved_file)
-        # If preferred file doesn’t exist but fallback was used, try that too
         fb_dir, _ = _resolve_writable_dir(None, purpose="logs")
         fb_path = os.path.join(fb_dir, os.path.basename(resolved_file))
         if os.path.isfile(fb_path):
@@ -550,7 +517,7 @@ def style_issue_red(df: pd.DataFrame):
 def maybe_limit(df: pd.DataFrame) -> pd.DataFrame:
     return df.head(1000) if st.session_state.get("fast_tables", False) else df
 
-# ===== KPI Card CSS (no f-strings in CSS) =====
+# ===== KPI Card CSS =====
 def _inject_card_css(style: str):
     common = """
 div[data-testid="stMetric"] {
@@ -688,7 +655,6 @@ def _append_trend_snapshot(kpis: dict, src_path: str):
         last_hash = str(hist.iloc[-1].get("FileHash", ""))
         if file_hash and file_hash == last_hash:
             return False, TRENDS_FILE, ""
-    # SAFEGUARD: write with fallback
     header = list(row.keys())
     csv_row = [row[h] for h in header]
     ok, used_path, err = _safe_append_csv(TRENDS_FILE, header, csv_row)
@@ -735,7 +701,7 @@ if selected_nav == "Dashboard":
     if k5_btn: st.session_state["pending_nav"] = "Damages"; _rerun()
     if k6_btn: st.session_state["pending_nav"] = "Missing"; _rerun()
 
-    # Bin Status Distribution
+    # Bar charts, pies, etc. (unchanged) ...
     kpi_df = pd.DataFrame({"Category": list(kpi_vals.keys()), "Count": list(kpi_vals.values())})
     kpi_df["Group"] = kpi_df["Category"].apply(lambda c: "Exceptions" if c in ["Damages", "Missing"] else "Bins")
     fig_kpi = px.bar(kpi_df, x="Category", y="Count", color="Group", text="Count",
@@ -744,7 +710,6 @@ if selected_nav == "Dashboard":
     fig_kpi.update_layout(xaxis_title="", yaxis_title="Count", showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
     st.plotly_chart(fig_kpi, use_container_width=True)
 
-    # Racks Full vs Empty
     def is_rack_slot(loc: str) -> bool:
         s = str(loc)
         return s.isnumeric() and (((not s.endswith("01")) or s.startswith("111")))
@@ -758,8 +723,7 @@ if selected_nav == "Dashboard":
     fig_rack_pie.update_layout(showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
     st.plotly_chart(fig_rack_pie, use_container_width=True)
 
-    # Bulk Zones
-    if not bulk_locations_df.empty:
+    if not pd.DataFrame(bulk_locations_df).empty:
         bulk_zone = bulk_locations_df.groupby("Zone").agg(Used=("PalletCount", "sum"), Capacity=("MaxAllowed", "sum")).reset_index()
         bulk_zone["Empty"] = (bulk_zone["Capacity"] - bulk_zone["Used"]).clip(lower=0)
         bulk_stack = bulk_zone.melt(id_vars="Zone", value_vars=["Used", "Empty"], var_name="Type", value_name="Count")
@@ -768,7 +732,6 @@ if selected_nav == "Dashboard":
         fig_bulk.update_layout(xaxis_title="Zone", yaxis_title="Pallets", showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
         st.plotly_chart(fig_bulk, use_container_width=True)
 
-    # Damages vs Missing
     dm_df = pd.DataFrame({"Status": ["Damages", "Missing"], "Count": [len(damages_df), len(missing_df)]})
     fig_dm = px.bar(dm_df, x="Status", y="Count", text="Count", title="Damages vs Missing",
                     color="Status", color_discrete_map={"Damages": RED, "Missing": BLUE})
@@ -999,9 +962,17 @@ elif selected_nav == "Bulk Locations":
     st.subheader("Bulk Locations")
     st.caption("Click a location to see pallet details for that slot.")
 
-    # Search/filter on parent list
+    # High-contrast row highlight for over-capacity (GRID mode)
+    st.markdown("""
+    <style>
+      .ag-theme-streamlit .ag-row.overCapRow { background-color:#ffe3e6 !important; }
+      .ag-theme-streamlit .ag-row.overCapRow .ag-cell { color:#7f1d1d; font-weight:600; }
+    </style>
+    """, unsafe_allow_html=True)
+
     ui_mode_default_index = 1 if _AGGRID_AVAILABLE else 0
-    ui_mode = st.radio("View mode", ["Expanders", "Grid (expandable rows)"], index=ui_mode_default_index, horizontal=True, key="bulk_loc_mode")
+    ui_mode = st.radio("View mode", ["Expanders", "Grid (expandable rows)"],
+                       index=ui_mode_default_index, horizontal=True, key="bulk_loc_mode")
     search = st.text_input("Search location (optional)", value="", key="bulk_loc_search2")
 
     parent_df = bulk_locations_df.copy()
@@ -1011,17 +982,19 @@ elif selected_nav == "Bulk Locations":
     if not parent_df.empty:
         over_mask = parent_df["PalletCount"] > parent_df["MaxAllowed"]
         if over_mask.any():
-            st.warning(f"{over_mask.sum()} location(s) exceed max allowed pallets. They will be highlighted.")
+            st.warning(f"{over_mask.sum()} location(s) exceed max allowed pallets. Highlighted in red.")
 
     if ui_mode.startswith("Grid") and _AGGRID_AVAILABLE and not parent_df.empty:
-        # Build detail map from inventory for bulk zones only
-        inv_bulk = filtered_inventory_df[filtered_inventory_df["LocationName"].astype(str).str[0].str.upper().isin(bulk_rules.keys())].copy()
-        # Normalize display cols
+        # Build detail rows from inventory for bulk zones only
+        inv_bulk = filtered_inventory_df[
+            filtered_inventory_df["LocationName"].astype(str).str[0].str.upper().isin(bulk_rules.keys())
+        ].copy()
+
         disp_cols = [c for c in ["WarehouseSku", "CustomerLotReference", "PalletId", "Qty"] if c in inv_bulk.columns]
         inv_bulk["CustomerLotReference"] = inv_bulk["CustomerLotReference"].apply(_lot_to_str)
         inv_bulk["PalletId"] = inv_bulk["PalletId"].apply(normalize_whole_number)
 
-        detail_records_map: dict[str, list[dict]] = {}
+        detail_records_map = {}
         for loc, g in inv_bulk.groupby("LocationName"):
             detail_records_map[str(loc)] = ensure_core(g)[disp_cols].to_dict("records")
 
@@ -1030,22 +1003,32 @@ elif selected_nav == "Bulk Locations":
 
         gb = GridOptionsBuilder.from_dataframe(grid_df)
         gb.configure_default_column(resizable=True, filter=True, sortable=True, floatingFilter=True)
-        gb.configure_grid_options(masterDetail=True, keepDetailRows=True, detailRowHeight=220)
-        # Style: over capacity
+
+        # 🔽 Master-Detail essentials: enable and provide a visible group cell renderer
+        gb.configure_grid_options(masterDetail=True, keepDetailRows=True, detailRowHeight=240)
+        gb.configure_column("LocationName", headerName="Location", cellRenderer="agGroupCellRenderer", pinned="left", width=170)
+
+        # Strong row highlighting via class rule
         if JsCode is not None:
-            row_style = JsCode("""
+            get_row_class = JsCode("""
                 function(params) {
                     if (params.data && (params.data.PalletCount > params.data.MaxAllowed)) {
-                        return {'background-color':'#fff0f0'};
+                        return 'overCapRow';
                     }
                     return null;
                 }
             """)
-            gb.configure_grid_options(getRowStyle=row_style)
+            gb.configure_grid_options(getRowClass=get_row_class)
+
         gb.configure_pagination(enabled=True, paginationAutoPageSize=False, paginationPageSize=50)
-        gb.configure_selection("single", use_checkbox=True)
+        gb.configure_side_bar()
+
+        # ⚠️ No checkboxes here so the expand icon remains easy to click
+        # (intentionally not calling gb.configure_selection with checkboxes)
 
         grid_options = gb.build()
+
+        # Provide the detail renderer and selective "isRowMaster" logic
         detail_defs = [{"field": c, "headerName": c, "flex": 1} for c in disp_cols]
         grid_options["detailCellRendererParams"] = {
             "detailGridOptions": {
@@ -1062,29 +1045,40 @@ elif selected_nav == "Bulk Locations":
         }
         grid_options["context"] = {"detailMap": detail_records_map}
 
+        if JsCode is not None:
+            grid_options["isRowMaster"] = JsCode("""
+                function(dataItem) {
+                    if (!dataItem) return false;
+                    const loc = dataItem.LocationName ? dataItem.LocationName.toString() : '';
+                    const ctx = this && this.context ? this.context : null;
+                    const rows = (ctx && ctx.detailMap && ctx.detailMap[loc]) ? ctx.detailMap[loc] : [];
+                    return rows && rows.length > 0;
+                }
+            """)
+
         AgGrid(
             grid_df,
             gridOptions=grid_options,
             allow_unsafe_jscode=True,
             update_mode=GridUpdateMode.NO_UPDATE,
             fit_columns_on_grid_load=True,
-            height=520,
+            height=540,
             theme="streamlit"
         )
-        st.caption("Tip: Click the ▸ icon at the left of a row to expand pallet details.")
+        st.caption("Tip: Click the ▸ icon in the **Location** column to expand pallet details.")
 
     else:
-        # Native expanders fallback / simple view
         if parent_df.empty:
             st.info("No bulk locations found.")
         else:
             df_show = parent_df.sort_values(["Zone", "LocationName"])
             for _, r in df_show.iterrows():
                 loc = str(r["LocationName"])
-                header = f"{loc} — {int(r['PalletCount'])}/{int(r['MaxAllowed'])} (Empty {int(r['EmptySlots'])})"
+                over_by = int(r["PalletCount"] - r["MaxAllowed"])
+                over_badge = f' <span style="color:#b00020;font-weight:700;">❗ OVER {over_by}</span>' if over_by > 0 else ""
+                header = f"{loc} — {int(r['PalletCount'])}/{int(r['MaxAllowed'])} (Empty {int(r['EmptySlots'])}){over_badge}"
                 with st.expander(header, expanded=False):
                     loc_rows = filtered_inventory_df[filtered_inventory_df["LocationName"].astype(str) == loc].copy()
-                    # Show core pallet rows for this location
                     st.dataframe(ensure_core(loc_rows), use_container_width=True)
 
 elif selected_nav == "Empty Bulk Locations":
@@ -1208,3 +1202,4 @@ elif selected_nav == "Self-Test":
                     st.dataframe(maybe_limit(offenders[show_cols].head(10)), use_container_width=True)
                 if st.button("Go to Rack Discrepancies"):
                     st.session_state["pending_nav"] = "Rack Discrepancies"
+                    _rerun()
