@@ -13,12 +13,14 @@ import requests
 # Try AgGrid; fall back gracefully if not installed
 try:
     from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
+    from st_aggrid.shared import JsCode
     _AGGRID_AVAILABLE = True
 except Exception:
     _AGGRID_AVAILABLE = False
     AgGrid = None
     GridOptionsBuilder = None
     GridUpdateMode = None
+    JsCode = None
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Bin Helper", layout="wide")
@@ -93,6 +95,21 @@ def show_banner():
 # ---- Persistent banner on every tab ----
 show_banner()
 
+# ============== Performance Sidebar ==============
+def _clear_cache_and_rerun():
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
+    _rerun()
+
+with st.sidebar:
+    st.subheader("⚡ Performance")
+    st.toggle("Fast tables (limit to 1000 rows)", value=False, key="fast_tables",
+              help="Speed up plain tables by rendering only the first 1,000 rows.")
+    st.button("🔄 Refresh Data", help="Clear cached data and reload from Excel files.",
+              on_click=_clear_cache_and_rerun)
+
 # --- FILE PATHS ---
 inventory_file = "ON_HAND_INVENTORY.xlsx"
 master_file = "Empty Bin Formula.xlsx"
@@ -104,9 +121,14 @@ os.makedirs(LOG_DIR, exist_ok=True)
 # Store the action log in your logs folder and include Issue
 resolved_file = os.path.join(LOG_DIR, "resolved_discrepancies.csv")
 
+# ============== Cached Data Loading ==============
+@st.cache_data(ttl=120, show_spinner=False)
+def _load_excel(path: str, sheet_name=None):
+    return pd.read_excel(path, sheet_name=sheet_name, engine="openpyxl")
+
 # --- LOAD DATA ---
-inventory_df = pd.read_excel(inventory_file, engine="openpyxl")
-master_df = pd.read_excel(master_file, sheet_name="Master Locations", engine="openpyxl")
+inventory_df = _load_excel(inventory_file)
+master_df = _load_excel(master_file, sheet_name="Master Locations")
 
 # --- DATA PREP (PRESERVED RULES) ---
 inventory_df["Qty"] = pd.to_numeric(inventory_df.get("Qty", 0), errors="coerce").fillna(0)
@@ -347,6 +369,38 @@ def style_issue_red(df: pd.DataFrame):
         return df.style.set_properties(subset=["Issue"], **{"color": "red", "font-weight": "bold"})
     return df
 
+def maybe_limit(df: pd.DataFrame) -> pd.DataFrame:
+    """Limit rows in plain dataframes when Fast Tables is enabled."""
+    if st.session_state.get("fast_tables", False):
+        return df.head(1000)
+    return df
+
+# --- MICRO-ANIMATIONS (CSS) ---
+st.markdown("""
+<style>
+/* Subtle hover on KPI metric cards */
+div[data-testid="stMetric"] {
+  background: #f8fbff;
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid #e6eef7;
+  transition: box-shadow .2s ease, transform .08s ease;
+}
+div[data-testid="stMetric"]:hover {
+  box-shadow: 0 6px 18px rgba(0,0,0,.08);
+  transform: translateY(-1px);
+}
+/* Buttons micro-hover */
+.stButton>button {
+  transition: transform .05s ease, box-shadow .2s ease;
+}
+.stButton>button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0,0,0,.12);
+}
+</style>
+""", unsafe_allow_html=True)
+
 # --- NAVIGATION (safe default + pending_nav pattern) ---
 nav_options = [
     "Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins",
@@ -365,7 +419,7 @@ except ValueError:
 selected_nav = st.radio("🔍 Navigate:", nav_options, index=_default_index, horizontal=True, key="nav")
 st.markdown("---")
 
-# --- DASHBOARD VIEW (updated charts with Blue/Red) ---
+# --- DASHBOARD VIEW (Blue/Red charts retained) ---
 if selected_nav == "Dashboard":
     st.subheader("📊 Bin Helper Dashboard")
 
@@ -487,30 +541,30 @@ if selected_nav == "Dashboard":
 elif selected_nav == "Empty Bins":
     st.subheader("Empty Bins")
     display = ensure_core(empty_bins_view_df.assign(WarehouseSku="", PalletId="", CustomerLotReference="", Qty=""))
-    st.dataframe(display, use_container_width=True)
+    st.dataframe(maybe_limit(display), use_container_width=True)
 
 elif selected_nav == "Empty Partial Bins":
     st.subheader("Empty Partial Bins")
     display = ensure_core(empty_partial_bins_df.assign(WarehouseSku="", PalletId="", CustomerLotReference="", Qty=""))
-    st.dataframe(display, use_container_width=True)
+    st.dataframe(maybe_limit(display), use_container_width=True)
 
 elif selected_nav == "Partial Bins":
     st.subheader("Partial Bins")
-    st.dataframe(ensure_core(partial_bins_df), use_container_width=True)
+    st.dataframe(maybe_limit(ensure_core(partial_bins_df)), use_container_width=True)
 
 elif selected_nav == "Full Pallet Bins":
     st.subheader("Full Pallet Bins")
-    st.dataframe(ensure_core(full_pallet_bins_df), use_container_width=True)
+    st.dataframe(maybe_limit(ensure_core(full_pallet_bins_df)), use_container_width=True)
 
 elif selected_nav == "Damages":
     st.subheader("Damaged Pallets")
-    st.dataframe(ensure_core(damages_df), use_container_width=True)
+    st.dataframe(maybe_limit(ensure_core(damages_df)), use_container_width=True)
 
 elif selected_nav == "Missing":
     st.subheader("Missing Pallets")
-    st.dataframe(ensure_core(missing_df), use_container_width=True)
+    st.dataframe(maybe_limit(ensure_core(missing_df)), use_container_width=True)
 
-# --- DISCREPANCIES (unchanged logic) ---
+# --- DISCREPANCIES (unchanged logic + micro-interactions) ---
 elif selected_nav == "Rack Discrepancies":
     st.subheader("Rack Discrepancies")
     if not discrepancy_df.empty:
@@ -518,7 +572,7 @@ elif selected_nav == "Rack Discrepancies":
         sel_lot = st.selectbox("Filter by LOT", lots, index=0, key="rack_lot_filter")
         filt = discrepancy_df if sel_lot == "(All)" else discrepancy_df[discrepancy_df["CustomerLotReference"].apply(_lot_to_str) == sel_lot]
         rack_display = ensure_core(filt, include_issue=True)
-        st.dataframe(style_issue_red(rack_display), use_container_width=True)
+        st.dataframe(style_issue_red(maybe_limit(rack_display)), use_container_width=True)
 
         csv_data = discrepancy_df.to_csv(index=False).encode("utf-8")
         st.download_button("Download Rack Discrepancies CSV", csv_data, "rack_discrepancies.csv", "text/csv")
@@ -532,12 +586,16 @@ elif selected_nav == "Rack Discrepancies":
                 rows_to_fix = discrepancy_df[discrepancy_df["CustomerLotReference"].apply(_lot_to_str) == chosen_lot]
                 batch_id = log_batch(rows_to_fix, note, chosen_lot, "Rack", action="RESOLVE")
                 st.success(f"Resolved {len(rows_to_fix)} rack discrepancy row(s) for LOT {chosen_lot}. BatchId={batch_id}")
+                # Micro-interaction: success lottie
+                data = _load_lottie("https://assets10.lottiefiles.com/packages/lf20_jbrw3hcz.json")
+                if data:
+                    st_lottie(data, height=90, key=f"rack_fix_success_{batch_id}", loop=False, speed=1.2)
 
         with st.expander("Recent discrepancy actions (Rack) & Undo"):
             log_df = read_action_log()
             if not log_df.empty:
                 rack_log = log_df[log_df["DiscrepancyType"] == "Rack"].sort_values("Timestamp", ascending=False).head(20)
-                st.dataframe(rack_log, use_container_width=True)
+                st.dataframe(maybe_limit(rack_log), use_container_width=True)
                 if not rack_log.empty and st.button("Undo last Rack RESOLVE batch"):
                     last_resolve = log_df[(log_df["DiscrepancyType"] == "Rack") & (log_df["Action"] == "RESOLVE")]
                     if not last_resolve.empty:
@@ -546,6 +604,9 @@ elif selected_nav == "Rack Discrepancies":
                         for _, r in rows.iterrows():
                             log_action(r.to_dict(), f"UNDO of batch {last_batch}", r.get("SelectedLOT", ""), "Rack", "UNDO", str(last_batch))
                         st.success(f"UNDO recorded for batch {last_batch} ({len(rows)} row(s)).")
+                        data = _load_lottie("https://assets10.lottiefiles.com/packages/lf20_jbrw3hcz.json")
+                        if data:
+                            st_lottie(data, height=90, key=f"rack_undo_success_{last_batch}", loop=False, speed=1.2)
                     else:
                         st.info("No RESOLVE actions to undo for Rack.")
             else:
@@ -568,7 +629,7 @@ elif selected_nav == "Bulk Discrepancies":
             df2 = df2[df2["LocationName"].astype(str).str.contains(loc_search.strip(), case=False, na=False)]
 
         # =======================
-        # NEW: AgGrid grouped table
+        # ENHANCED: AgGrid grouped table (performance + UX)
         # =======================
         st.markdown("#### Grouped by Location (AgGrid)")
         if not _AGGRID_AVAILABLE:
@@ -586,18 +647,52 @@ elif selected_nav == "Bulk Discrepancies":
             grid_df = df2[show_cols].copy()
             grid_df["CustomerLotReference"] = grid_df["CustomerLotReference"].apply(_lot_to_str)
 
+            # Quick filter
+            quick_text = st.text_input("Quick filter (search all columns)", value="", key="bulk_aggrid_quickfilter")
+
             # Expand/collapse control
             expand_all = st.toggle("Expand all groups", value=False, help="When on, all location groups load expanded by default.")
+
             gb = GridOptionsBuilder.from_dataframe(grid_df)
             gb.configure_default_column(resizable=True, filter=True, sortable=True, floatingFilter=True)
             gb.configure_column("LocationName", rowGroup=True, hide=True)
+
+            # Pinned columns and emphasis
+            if "WarehouseSku" in grid_df.columns:
+                gb.configure_column("WarehouseSku", pinned="left")
+            if "Qty" in grid_df.columns:
+                gb.configure_column("Qty", pinned="right")
+            if "Issue" in grid_df.columns:
+                gb.configure_column("Issue", cellStyle={"color": RED, "fontWeight": "bold"})
+
             gb.configure_selection("multiple", use_checkbox=True, groupSelectsChildren=True, groupSelectsFiltered=True)
-            gb.configure_pagination(enabled=True, paginationAutoPageSize=False, paginationPageSize=50)
+            gb.configure_pagination(enabled=True, paginationAutoPageSize=False, paginationPageSize=100)
             gb.configure_side_bar()  # show filters panel
+
             # Aggregate Qty at group level
             if "Qty" in grid_df.columns:
                 gb.configure_column("Qty", aggFunc="sum")
-            gb.configure_grid_options(groupDefaultExpanded=(-1 if expand_all else 0))
+
+            # Row highlighting when Issue exists
+            if JsCode is not None:
+                get_row_style = JsCode("""
+                function(params) {
+                  if (params.data && params.data.Issue && params.data.Issue.length > 0) {
+                    return { 'background-color': '#fff0f0' };
+                  }
+                  return null;
+                }
+                """)
+                gb.configure_grid_options(getRowStyle=get_row_style)
+
+            gb.configure_grid_options(
+                groupDefaultExpanded=(-1 if expand_all else 0),
+                animateRows=True,
+                enableRangeSelection=True,
+                suppressAggFuncInHeader=False,
+                # domLayout can be 'normal' for virtualization
+                domLayout="normal"
+            )
             grid_options = gb.build()
 
             grid_resp = AgGrid(
@@ -606,7 +701,9 @@ elif selected_nav == "Bulk Discrepancies":
                 update_mode=GridUpdateMode.SELECTION_CHANGED,
                 allow_unsafe_jscode=True,
                 fit_columns_on_grid_load=True,
-                height=480
+                height=500,
+                theme="streamlit",
+                quickFilterText=quick_text
             )
             sel_rows = pd.DataFrame(grid_resp.get("selected_rows", []))
             st.caption(f"Selected rows: {len(sel_rows)}")
@@ -629,11 +726,14 @@ elif selected_nav == "Bulk Discrepancies":
                             sel_rows[req] = ""
                     batch_id = log_batch(sel_rows, note, selected_lot_value, "Bulk", action="RESOLVE")
                     st.success(f"Logged fix for {len(sel_rows)} row(s). BatchId={batch_id}")
+                    data = _load_lottie("https://assets10.lottiefiles.com/packages/lf20_jbrw3hcz.json")
+                    if data:
+                        st_lottie(data, height=90, key=f"bulk_fix_success_{batch_id}", loop=False, speed=1.2)
 
         # ---- Flat view (preserved) + CSV ----
         st.markdown("#### Flat view (all rows)")
         bulk_display = ensure_core(filt, include_issue=True)
-        st.dataframe(style_issue_red(bulk_display), use_container_width=True)
+        st.dataframe(style_issue_red(maybe_limit(bulk_display)), use_container_width=True)
 
         csv_data = bulk_df.to_csv(index=False).encode("utf-8")
         st.download_button("Download Bulk Discrepancies CSV", csv_data, "bulk_discrepancies.csv", "text/csv")
@@ -648,13 +748,16 @@ elif selected_nav == "Bulk Discrepancies":
                 rows_to_fix = bulk_df[bulk_df["CustomerLotReference"].apply(_lot_to_str) == chosen_lot]
                 batch_id = log_batch(rows_to_fix, note, chosen_lot, "Bulk", action="RESOLVE")
                 st.success(f"Resolved {len(rows_to_fix)} bulk discrepancy row(s) for LOT {chosen_lot}. BatchId={batch_id}")
+                data = _load_lottie("https://assets10.lottiefiles.com/packages/lf20_jbrw3hcz.json")
+                if data:
+                    st_lottie(data, height=90, key=f"bulk_lot_fix_success_{batch_id}", loop=False, speed=1.2)
 
         # ---- Recent actions + Undo (preserved) ----
         with st.expander("Recent discrepancy actions (Bulk) & Undo"):
             log_df = read_action_log()
             if not log_df.empty:
                 bulk_log = log_df[log_df["DiscrepancyType"] == "Bulk"].sort_values("Timestamp", ascending=False).head(20)
-                st.dataframe(bulk_log, use_container_width=True)
+                st.dataframe(maybe_limit(bulk_log), use_container_width=True)
                 if not bulk_log.empty and st.button("Undo last Bulk RESOLVE batch"):
                     last_resolve = log_df[(log_df["DiscrepancyType"] == "Bulk") & (log_df["Action"] == "RESOLVE")]
                     if not last_resolve.empty:
@@ -663,6 +766,9 @@ elif selected_nav == "Bulk Discrepancies":
                         for _, r in rows.iterrows():
                             log_action(r.to_dict(), f"UNDO of batch {last_batch}", r.get("SelectedLOT",""), "Bulk", "UNDO", str(last_batch))
                         st.success(f"UNDO recorded for batch {last_batch} ({len(rows)} row(s)).")
+                        data = _load_lottie("https://assets10.lottiefiles.com/packages/lf20_jbrw3hcz.json")
+                        if data:
+                            st_lottie(data, height=90, key=f"bulk_undo_success_{last_batch}", loop=False, speed=1.2)
                     else:
                         st.info("No RESOLVE actions to undo for Bulk.")
             else:
@@ -672,11 +778,11 @@ elif selected_nav == "Bulk Discrepancies":
 
 elif selected_nav == "Bulk Locations":
     st.subheader("Bulk Locations")
-    st.dataframe(bulk_locations_df, use_container_width=True)
+    st.dataframe(maybe_limit(bulk_locations_df), use_container_width=True)
 
 elif selected_nav == "Empty Bulk Locations":
     st.subheader("Empty Bulk Locations")
-    st.dataframe(empty_bulk_locations_df, use_container_width=True)
+    st.dataframe(maybe_limit(empty_bulk_locations_df), use_container_width=True)
 
 # --- SELF-TEST (unchanged logic; minor nav buttons) ---
 elif selected_nav == "Self-Test":
@@ -736,7 +842,7 @@ elif selected_nav == "Self-Test":
                 st.error(f"❌ FAIL — {len(not_flagged)} full-rack offenders are NOT shown in Rack Discrepancies (possible regression).")
                 with st.expander("Show un-flagged offenders (top 10)"):
                     show_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"] if c in not_flagged.columns]
-                    st.dataframe(not_flagged[show_cols].head(10), use_container_width=True)
+                    st.dataframe(maybe_limit(not_flagged[show_cols].head(10)), use_container_width=True)
                 if st.button("Go to Rack Discrepancies"):
                     st.session_state["pending_nav"] = "Rack Discrepancies"
                     _rerun()
@@ -744,7 +850,6 @@ elif selected_nav == "Self-Test":
                 st.warning(f"⚠️ WARN — {len(offenders)} full-rack rows have Qty outside 6..15 (expected discrepancies, and all are flagged).")
                 with st.expander("Show sample offenders (top 10)"):
                     show_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Qty"] if c in offenders.columns]
-                    st.dataframe(offenders[show_cols].head(10), use_container_width=True)
+                    st.dataframe(maybe_limit(offenders[show_cols].head(10)), use_container_width=True)
                 if st.button("Go to Rack Discrepancies"):
                     st.session_state["pending_nav"] = "Rack Discrepancies"
-                    _rerun()
