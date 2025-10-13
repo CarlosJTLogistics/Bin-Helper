@@ -671,7 +671,11 @@ def _append_trend_snapshot(kpis: dict, src_path: str):
 
 if st.session_state.get("pending_trend_record", False):
     took = _append_trend_snapshot(_current_kpis(), inventory_file)
-    st.success("📈 Trend snapshot recorded.") if took else st.info("Trend snapshot skipped (same file as last snapshot).")
+    # 🔧 FIX: avoid bare expression that returns a DeltaGenerator
+    if took:
+        st.success("📈 Trend snapshot recorded.")
+    else:
+        st.info("Trend snapshot skipped (same file as last snapshot).")
     st.session_state["pending_trend_record"] = False
 
 # ===== Dashboard =====
