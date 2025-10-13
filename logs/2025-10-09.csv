@@ -1,0 +1,7 @@
+﻿,Timestamp,Action,BatchId,DiscrepancyType,RowKey,LocationName,PalletId,WarehouseSku,CustomerLotReference,Qty,Issue,Note,SelectedLOT
+0,2025-10-09 19:33:16,RESOLVE,20251009193316375730,Bulk,"H004
+8304169646
+G60CS000562
+9062618
+15
+Bulk",H004,8304169646,G60CS000562,9062618,15,Exceeds max allowed: 5 > 4,Pallet was located at Location 11800803. I moved it here now.,9062618
