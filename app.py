@@ -8,7 +8,6 @@ import hashlib  # for file hash (trend de-dup)
 import tempfile  # SAFEGUARD: fallback dirs
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, Dict, List, Union
-
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -99,7 +98,6 @@ Fast, visual lookups for **Empty**, **Partial**, **Full**, **Damages**, and **Mi
 """,
                 unsafe_allow_html=True
             )
-
 show_banner()
 
 # ===== SAFEGUARD: robust path resolution & file append =====
@@ -250,7 +248,29 @@ except Exception:
     st.warning("Sheet 'Master Locations' not found; used the first sheet instead.")
 
 # ===== Normalization =====
-def normalize_whole_number(val) -> str:
+def normalize_lot_number(val) -> str:
+    """Numeric-only, strip non-digits and leading zeros; keep empty if none."""
+    try:
+        if pd.isna(val):
+            return ""
+    except Exception:
+        pass
+    s = str(val).strip()
+    # Accept float-like integers (e.g., '123.0')
+    if re.fullmatch(r"\d+(\.0+)?", s):
+        s = s.split(".")[0]
+    else:
+        s = re.sub(r"\D", "", s)
+    s = s.lstrip("0")
+    return s if s else ""
+
+def normalize_pallet_id(val) -> str:
+    """
+    Preserve alphanumeric Pallet IDs (e.g., 'JTL00496').
+    - Trim whitespace.
+    - If value is pure integer-like (e.g., '123.0'), coerce to '123'.
+    - Otherwise, keep as-is (do NOT strip letters or leading zeros embedded in alphanumerics).
+    """
     try:
         if pd.isna(val):
             return ""
@@ -258,11 +278,10 @@ def normalize_whole_number(val) -> str:
         pass
     s = str(val).strip()
     if re.fullmatch(r"\d+(\.0+)?", s):
+        # Pure numeric → canonicalize without decimals
         s = s.split(".")[0]
-    else:
-        s = re.sub(r"\D", "", s)
-    s = s.lstrip("0")
-    return s if s else ""
+    # else: keep exactly as typed (after trimming)
+    return s
 
 def ensure_numeric_col(df: pd.DataFrame, col: str, default: Union[float, int] = 0):
     if col in df.columns:
@@ -275,9 +294,12 @@ ensure_numeric_col(inventory_df, "PalletCount", 0)
 for c in ["LocationName", "PalletId", "CustomerLotReference", "WarehouseSku"]:
     if c not in inventory_df.columns:
         inventory_df[c] = ""
+
 inventory_df["LocationName"] = inventory_df["LocationName"].astype(str)
-inventory_df["PalletId"] = inventory_df["PalletId"].apply(normalize_whole_number)
-inventory_df["CustomerLotReference"] = inventory_df["CustomerLotReference"].apply(normalize_whole_number)
+# IMPORTANT: preserve alphanumeric Pallet IDs
+inventory_df["PalletId"] = inventory_df["PalletId"].apply(normalize_pallet_id)
+# LOT remains numeric-only
+inventory_df["CustomerLotReference"] = inventory_df["CustomerLotReference"].apply(normalize_lot_number)
 
 # ===== Rules / helpers =====
 def exclude_damage_missing(df: pd.DataFrame) -> pd.DataFrame:
@@ -349,7 +371,6 @@ def _find_multi_pallet_all_racks(df: pd.DataFrame):
 
 # ===== Config: bulk capacity (19) =====
 DEFAULT_BULK_RULES = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
-
 def load_config() -> dict:
     cfg = {"bulk_rules": DEFAULT_BULK_RULES.copy()}
     try:
@@ -414,10 +435,12 @@ def ensure_core(df: pd.DataFrame, include_issue: bool = False) -> pd.DataFrame:
     for c in CORE_COLS:
         if c not in out.columns:
             out[c] = ""
+    # IMPORTANT: keep PalletId alphanumeric
     if "PalletId" in out.columns:
-        out["PalletId"] = out["PalletId"].apply(normalize_whole_number)
+        out["PalletId"] = out["PalletId"].apply(normalize_pallet_id)
     if "CustomerLotReference" in out.columns:
-        out["CustomerLotReference"] = out["CustomerLotReference"].apply(normalize_whole_number)
+        out["CustomerLotReference"] = out["CustomerLotReference"].apply(normalize_lot_number)
+
     cols = CORE_COLS.copy()
     if include_issue and "Issue" in out.columns:
         cols += ["Issue"]
@@ -426,7 +449,7 @@ def ensure_core(df: pd.DataFrame, include_issue: bool = False) -> pd.DataFrame:
     cols = [c for c in cols if c in out.columns]
     return out[cols]
 
-def _lot_to_str(x): return normalize_whole_number(x)
+def _lot_to_str(x): return normalize_lot_number(x)
 
 def maybe_limit(df: pd.DataFrame) -> pd.DataFrame:
     return df.head(1000) if st.session_state.get("fast_tables", False) else df
@@ -439,7 +462,7 @@ for loc, g in filtered_inventory_df.groupby(filtered_inventory_df["LocationName"
 # Location -> unique pallet choice labels + key map (used in Bulk Locations)
 def _mk_pallet_labels(df: pd.DataFrame):
     df = df.copy()
-    df["PalletId"] = df["PalletId"].apply(normalize_whole_number)
+    df["PalletId"] = df["PalletId"].apply(normalize_pallet_id)
     df["CustomerLotReference"] = df["CustomerLotReference"].apply(_lot_to_str)
 
     def _label(r):
@@ -453,7 +476,7 @@ def _mk_pallet_labels(df: pd.DataFrame):
             pass
         return f"{pid} — SKU {sku} — LOT {lot} — Qty {qty}"
 
-    # key = pallet id if present else row index
+    # key = PalletId if present else row index
     df["_PID_KEY"] = df["PalletId"].where(df["PalletId"].astype(str).str.len() > 0, df.index.astype(str))
     uniq = df.drop_duplicates(subset=["_PID_KEY"])
     labels = [ _label(r) for _, r in uniq.iterrows() ]
@@ -496,7 +519,7 @@ def _resolved_has_reason() -> bool:
         if os.path.isfile(resolved_file):
             with open(resolved_file, "r", encoding="utf-8") as f:
                 first = f.readline().strip()
-            return "Reason" in first.split(",")
+                return "Reason" in first.split(",")
     except Exception:
         pass
     return False
@@ -586,7 +609,6 @@ bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
 def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     results = []
-
     # Partial bin issues
     p_df = get_partial_bins(df2)
     if not p_df.empty:
@@ -595,7 +617,6 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             issue = "Qty too high for partial bin" if row["Qty"] > 5 else "Multiple pallets in partial bin"
             rec = row.to_dict(); rec["Issue"] = issue
             results.append(rec)
-
     # Full rack issues
     s = df2["LocationName"].astype(str)
     full_mask = ((~s.str.endswith("01")) | (s.str.startswith("111"))) & s.str.isnumeric()
@@ -606,7 +627,6 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             rec = row.to_dict()
             rec["Issue"] = "Partial Pallet needs to be moved to Partial Location"
             results.append(rec)
-
     # Multi-pallet in racks
     _, mp_details = _find_multi_pallet_all_racks(df2)
     if not mp_details.empty:
@@ -623,20 +643,24 @@ discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 # ===== (7) Duplicate Pallets (PalletId in >1 Location) =====
 def build_duplicate_pallets(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     base = df.copy()
-    base["PalletId"] = base["PalletId"].apply(normalize_whole_number)
-    grp = base.groupby("PalletId")["LocationName"].nunique().reset_index(name="DistinctLocations")
-    dups = grp[(grp["PalletId"].astype(str).str.len() > 0) & (grp["DistinctLocations"] > 1)].sort_values("DistinctLocations", ascending=False)
+    # Keep original PalletId for display; add a case-insensitive grouping key
+    base["PalletId"] = base["PalletId"].apply(normalize_pallet_id)
+    base["PalletId_norm"] = base["PalletId"].astype(str).str.strip().str.upper()
+    grp = base.groupby("PalletId_norm")["LocationName"].nunique().reset_index(name="DistinctLocations")
+    dups = grp[(grp["PalletId_norm"].astype(str).str.len() > 0) & (grp["DistinctLocations"] > 1)].sort_values("DistinctLocations", ascending=False)
     if dups.empty:
-        return dups, pd.DataFrame()
-    dup_ids = set(dups["PalletId"])
-    details = base[base["PalletId"].isin(dup_ids)].copy()
+        return dups.rename(columns={"PalletId_norm": "PalletId"}), pd.DataFrame()
+    dup_ids = set(dups["PalletId_norm"])
+    details = base[base["PalletId_norm"].isin(dup_ids)].copy()
+    # For the summary, present the normalized key as PalletId (uppercased), to avoid case duplicates
+    dups = dups.rename(columns={"PalletId_norm": "PalletId"})
     return dups, ensure_core(details)
 
 dups_summary_df, dups_detail_df = build_duplicate_pallets(filtered_inventory_df)
 
 # ===== KPI Card CSS & extras =====
 def _inject_card_css(style: str):
-    common = """
+    common = """ 
 div[data-testid="stMetric"] {
   border-radius: 12px;
   padding: 12px 14px;
@@ -691,9 +715,9 @@ div[data-testid="stMetric"]:hover { box-shadow: 0 14px 36px rgba(0,0,0,.12); }
 div[data-testid="stMetric"] {
   color: #d7e9ff;
   background:
-    linear-gradient(#0b1f33 1px, transparent 1px) 0 0/100% 22px,
-    linear-gradient(90deg, #0b1f33 1px, transparent 1px) 0 0/22px 100%,
-    linear-gradient(160deg, #07233e 0%, #0a2949 60%, #061a2d 100%);
+  linear-gradient(#0b1f33 1px, transparent 1px) 0 0/100% 22px,
+  linear-gradient(90deg, #0b1f33 1px, transparent 1px) 0 0/22px 100%,
+  linear-gradient(160deg, #07233e 0%, #0a2949 60%, #061a2d 100%);
   border: 1px dashed rgba(120,170,220,.45);
   box-shadow: inset 0 0 0 1px rgba(31,119,180,.25), 0 10px 24px rgba(0,0,0,.22);
 }
@@ -764,13 +788,17 @@ def _handle_quick_jump():
     if not q:
         st.session_state.jump_intent = {}
         return
-    q_norm = normalize_whole_number(q)
 
-    # Try Pallet ID first
-    match_rows = filtered_inventory_df[filtered_inventory_df["PalletId"].apply(normalize_whole_number) == q_norm]
+    # Try Pallet ID (case-insensitive, preserve alphanumerics)
+    q_pid = q.upper()
+    try:
+        pid_series = filtered_inventory_df["PalletId"].astype(str).str.strip().str.upper()
+    except Exception:
+        pid_series = pd.Series([], dtype=str)
+    match_rows = filtered_inventory_df[pid_series == q_pid]
     if not match_rows.empty:
         loc = str(match_rows.iloc[0]["LocationName"])
-        st.session_state.jump_intent = {"type": "pallet", "location": loc, "pallet_id": q_norm}
+        st.session_state.jump_intent = {"type": "pallet", "location": loc, "pallet_id": q}
         st.session_state["pending_nav"] = "Bulk Locations" if loc and loc[0].upper() in bulk_rules else "Rack Discrepancies"
         _rerun(); return
 
@@ -781,9 +809,9 @@ def _handle_quick_jump():
         _rerun(); return
 
     # Fallback: numeric q might be a location like '11400804'
-    if q_norm in LOC_INDEX:
-        st.session_state.jump_intent = {"type": "location", "location": q_norm}
-        st.session_state["pending_nav"] = "Bulk Locations" if q_norm and q_norm[0].upper() in bulk_rules else "Rack Discrepancies"
+    if q.isnumeric() and q in LOC_INDEX:
+        st.session_state.jump_intent = {"type": "location", "location": q}
+        st.session_state["pending_nav"] = "Bulk Locations" if q and q[0].upper() in bulk_rules else "Rack Discrepancies"
         _rerun(); return
 
     # If not found, keep the text (no nav)
@@ -796,7 +824,7 @@ st.text_input(
     "Quick Jump (scan or type Pallet ID or Location and press Enter)",
     value="",
     key="quick_jump_text",
-    placeholder="e.g., 9062716 or A123 or 11400804",
+    placeholder="e.g., JTL00496 or A123 or 11400804",
     on_change=_handle_quick_jump
 )
 st.markdown("---")
@@ -840,7 +868,6 @@ def _kpi_deltas(hist: pd.DataFrame, now: dict) -> Dict[str, dict]:
                 yday = ydf2.iloc[-1]
     except Exception:
         pass
-
     for k in now:
         try:
             if last is not None and k in last:
@@ -862,7 +889,7 @@ def _delta_combo_text(vs_last, vs_yday):
         parts.append(f"{_delta_text(vs_last)} vs last")
     if vs_yday is not None:
         parts.append(f"{_delta_text(vs_yday)} vs 24h")
-    return "  |  ".join(parts) if parts else None
+    return "  \n".join(parts) if parts else None
 
 # Append trend snapshot if requested
 def _append_trend_snapshot(kpis: dict, src_path: str):
@@ -910,7 +937,7 @@ def _animate_metric(ph, label: str, value: Union[int, float], delta_text: Option
         ph.metric(label, value, delta=delta_text)
 
 def _kpi_label(base: str, icon: str, alert: bool = False) -> str:
-    return f"{icon} {base}" + ("  🔴" if alert else "")
+    return f"{icon} {base}" + (" 🔴" if alert else "")
 
 # ===== Dashboard =====
 if selected_nav == "Dashboard":
@@ -923,11 +950,11 @@ if selected_nav == "Dashboard":
         "Damages": len(damages_df),
         "Missing": len(missing_df),
     }
+
     # (11) Compute deltas
     hist = _read_trends()
     now = _current_kpis()
     deltas = _kpi_deltas(hist, now)
-
     def _dx(key_name):
         # map display -> trend key
         m = {
@@ -942,21 +969,21 @@ if selected_nav == "Dashboard":
         return _delta_combo_text(deltas[k]["vs_last"], deltas[k]["vs_yday"])
 
     # Labels with icons + alert dots for exceptions if > 0
-    LBL_EMPTY      = _kpi_label("Empty Bins", "📦")
+    LBL_EMPTY = _kpi_label("Empty Bins", "📦")
     LBL_EMPTY_PART = _kpi_label("Empty Partial Bins", "🧩")
-    LBL_PARTIAL    = _kpi_label("Partial Bins", "📉")
-    LBL_FULL       = _kpi_label("Full Pallet Bins", "🧱")
-    LBL_DAMAGE     = _kpi_label("Damages", "🛑", alert=(kpi_vals["Damages"] > 0))
-    LBL_MISSING    = _kpi_label("Missing", "🚫", alert=(kpi_vals["Missing"] > 0))
+    LBL_PARTIAL = _kpi_label("Partial Bins", "📉")
+    LBL_FULL = _kpi_label("Full Pallet Bins", "🧱")
+    LBL_DAMAGE = _kpi_label("Damages", "🛑", alert=(kpi_vals["Damages"] > 0))
+    LBL_MISSING = _kpi_label("Missing", "🚫", alert=(kpi_vals["Missing"] > 0))
 
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     k1 = col1.empty(); k2 = col2.empty(); k3 = col3.empty(); k4 = col4.empty(); k5 = col5.empty(); k6 = col6.empty()
-    _animate_metric(k1, LBL_EMPTY,      kpi_vals["Empty Bins"],          delta_text=_dx("Empty Bins"))
-    _animate_metric(k2, LBL_EMPTY_PART, kpi_vals["Empty Partial Bins"],  delta_text=_dx("Empty Partial Bins"))
-    _animate_metric(k3, LBL_PARTIAL,    kpi_vals["Partial Bins"],        delta_text=_dx("Partial Bins"))
-    _animate_metric(k4, LBL_FULL,       kpi_vals["Full Pallet Bins"],    delta_text=_dx("Full Pallet Bins"))
-    _animate_metric(k5, LBL_DAMAGE,     kpi_vals["Damages"],             delta_text=_dx("Damages"))
-    _animate_metric(k6, LBL_MISSING,    kpi_vals["Missing"],             delta_text=_dx("Missing"))
+    _animate_metric(k1, LBL_EMPTY, kpi_vals["Empty Bins"], delta_text=_dx("Empty Bins"))
+    _animate_metric(k2, LBL_EMPTY_PART, kpi_vals["Empty Partial Bins"], delta_text=_dx("Empty Partial Bins"))
+    _animate_metric(k3, LBL_PARTIAL, kpi_vals["Partial Bins"], delta_text=_dx("Partial Bins"))
+    _animate_metric(k4, LBL_FULL, kpi_vals["Full Pallet Bins"], delta_text=_dx("Full Pallet Bins"))
+    _animate_metric(k5, LBL_DAMAGE, kpi_vals["Damages"], delta_text=_dx("Damages"))
+    _animate_metric(k6, LBL_MISSING, kpi_vals["Missing"], delta_text=_dx("Missing"))
 
     # KPI view buttons
     if col1.button("View", key="btn_empty"): st.session_state["pending_nav"] = "Empty Bins"; _rerun()
@@ -979,6 +1006,7 @@ if selected_nav == "Dashboard":
     def is_rack_slot(loc: str) -> bool:
         s = str(loc)
         return s.isnumeric() and (((not s.endswith("01")) or s.startswith("111")))
+
     rack_master = {loc for loc in master_locations if is_rack_slot(loc)}
     rack_full_used = set(full_pallet_bins_df["LocationName"].astype(str).unique())
     rack_empty = rack_master - occupied_locations
@@ -989,11 +1017,10 @@ if selected_nav == "Dashboard":
     fig_rack_pie.update_layout(showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
     st.plotly_chart(fig_rack_pie, use_container_width=True)
 
-    # Bulk zone stacked (Used vs Empty) + Heat with % labels + Drill-down buttons
+    # Bulk zone stacked + heat + drill-down
     if not pd.DataFrame(bulk_locations_df).empty:
         bulk_zone = bulk_locations_df.groupby("Zone").agg(Used=("PalletCount", "sum"), Capacity=("MaxAllowed", "sum")).reset_index()
         bulk_zone["Empty"] = (bulk_zone["Capacity"] - bulk_zone["Used"]).clip(lower=0)
-
         bulk_stack = bulk_zone.melt(id_vars="Zone", value_vars=["Used", "Empty"], var_name="Type", value_name="Count")
         fig_bulk = px.bar(bulk_stack, x="Zone", y="Count", color="Type", barmode="stack",
                           title="Bulk Zones: Used vs Empty Capacity", color_discrete_map={"Used": BLUE, "Empty": RED})
@@ -1010,15 +1037,14 @@ if selected_nav == "Dashboard":
         fig_heat.update_traces(marker_line_color="rgba(0,0,0,0.2)", marker_line_width=1, textposition="outside",
                                hovertemplate="Zone %{x}<br>Used: %{customdata[0]}<br>Capacity: %{customdata[1]}<br>Util: %{y:.0%}")
         fig_heat.update_layout(yaxis_tickformat=".0%", coloraxis_showscale=False, margin=dict(t=60, b=40, l=10, r=10))
-        # attach custom data for better tooltips
         fig_heat.update_traces(customdata=bulk_zone[["Used","Capacity"]].values)
         st.plotly_chart(fig_heat, use_container_width=True)
 
-        # Drill-down buttons per zone (filter Bulk Locations)
+        # Drill-down buttons per zone
         st.markdown("**Drill down by Zone:**")
         cols = st.columns(len(bulk_zone))
         for i, r in enumerate(bulk_zone.itertuples(index=False)):
-            label = f"Zone {r.Zone}  ({int(r.Used)}/{int(r.Capacity)})"
+            label = f"Zone {r.Zone} ({int(r.Used)}/{int(r.Capacity)})"
             if cols[i].button(label, key=f"zone_btn_{r.Zone}"):
                 st.session_state["bulk_loc_search2"] = str(r.Zone)  # pre-fill search with the zone letter
                 st.session_state["pending_nav"] = "Bulk Locations"
@@ -1069,7 +1095,7 @@ elif selected_nav == "Rack Discrepancies":
                 )
                 all_ids = (
                     mp_only.groupby("LocationName")["PalletId"]
-                    .apply(lambda s: ", ".join(sorted({normalize_whole_number(x) for x in s if normalize_whole_number(x)})))
+                    .apply(lambda s: ", ".join(sorted({normalize_pallet_id(x) for x in s if normalize_pallet_id(x)})))
                     .reset_index(name="AllPalletIDs")
                 )
                 mp_summary_tbl = summary_cnt.merge(all_ids, on="LocationName", how="left")
@@ -1129,6 +1155,7 @@ elif selected_nav == "Bulk Discrepancies":
         lots = ["(All)"] + sorted([_lot_to_str(x) for x in bulk_df["CustomerLotReference"].dropna().unique() if _lot_to_str(x)])
         sel_lot = st.selectbox("Filter by LOT", lots, index=0, key="bulk_lot_filter", help="Only non-empty LOTs are shown. Use (All) to see every row.")
         filt = bulk_df if sel_lot == "(All)" else bulk_df[bulk_df["CustomerLotReference"].map(_lot_to_str) == sel_lot]
+
         loc_search = st.text_input("Search location (optional)", value="", key="bulk_loc_search")
         df2 = filt.copy()
         if loc_search.strip():
@@ -1146,6 +1173,7 @@ elif selected_nav == "Bulk Discrepancies":
             show_cols = [c for c in ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty", "Issue"] if c in df2.columns]
             grid_df = df2[show_cols].copy()
             grid_df["CustomerLotReference"] = grid_df["CustomerLotReference"].apply(_lot_to_str)
+
             quick_text = st.text_input("Quick filter (search all columns)", value="", key="bulk_aggrid_quickfilter")
             expand_all = st.toggle("Expand all groups", value=False)
 
@@ -1162,10 +1190,10 @@ elif selected_nav == "Bulk Discrepancies":
             if JsCode is not None:
                 get_row_style = JsCode("""
                 function(params) {
-                    if (params.data && params.data.Issue && params.data.Issue.length > 0) {
-                        return { 'background-color': '#fff0f0' };
-                    }
-                    return null;
+                  if (params.data && params.data.Issue && params.data.Issue.length > 0) {
+                    return { 'background-color': '#fff0f0' };
+                  }
+                  return null;
                 }
                 """)
                 gb.configure_grid_options(getRowStyle=get_row_style)
@@ -1176,13 +1204,11 @@ elif selected_nav == "Bulk Discrepancies":
             grid_resp = AgGrid(grid_df, gridOptions=grid_options, update_mode=GridUpdateMode.SELECTION_CHANGED,
                                allow_unsafe_jscode=True, fit_columns_on_grid_load=True, height=500,
                                theme="streamlit", quickFilterText=quick_text)
-
             # Remove skeleton once rendered
             skel_ph.empty()
 
             sel_rows = pd.DataFrame(grid_resp.get("selected_rows", []))
             st.caption(f"Selected rows: {len(sel_rows)}")
-
             with st.expander("Log Fix for selected rows"):
                 reasons = ["Relocated", "Consolidated", "Data correction", "Damaged pull-down", "Other"]
                 reason = st.selectbox("Reason", reasons, index=0, key="bulk_sel_reason")
@@ -1244,6 +1270,7 @@ elif selected_nav == "Bulk Locations":
     ui_mode_default_index = 1 if _AGGRID_AVAILABLE else 0
     ui_mode = st.radio("View mode", ["Expanders", "Grid (select a location)"],
                        index=ui_mode_default_index, horizontal=True, key="bulk_loc_mode")
+
     search = st.text_input("Search location (optional)", value=st.session_state.get("bulk_loc_search2", ""), key="bulk_loc_search2")
 
     parent_df = bulk_locations_df.copy()
@@ -1268,7 +1295,8 @@ elif selected_nav == "Bulk Locations":
         default_index = 0
         if preselect_pallet:
             for i, lab in enumerate(labels, start=1):
-                if preselect_pallet in lab:
+                # Match by PalletId substring in the label; case-insensitive
+                if preselect_pallet.upper() in lab.upper():
                     default_index = i; break
         selected_label = st.selectbox(f"Pallets at {loc}", choices, index=default_index, key=f"{key_prefix}pallet_dd_{loc}")
         if selected_label == "(All)":
@@ -1292,10 +1320,10 @@ elif selected_nav == "Bulk Locations":
         if JsCode is not None:
             get_row_class = JsCode("""
             function(params) {
-                if (params.data && (params.data.PalletCount > params.data.MaxAllowed)) {
-                    return 'overCapRow';
-                }
-                return null;
+              if (params.data && (params.data.PalletCount > params.data.MaxAllowed)) {
+                return 'overCapRow';
+              }
+              return null;
             }
             """)
             gb.configure_grid_options(getRowClass=get_row_class)
@@ -1305,7 +1333,6 @@ elif selected_nav == "Bulk Locations":
         grid_options = gb.build()
         grid_resp = AgGrid(grid_df, gridOptions=grid_options, update_mode=GridUpdateMode.SELECTION_CHANGED,
                            allow_unsafe_jscode=True, fit_columns_on_grid_load=True, height=540, theme="streamlit")
-
         # Remove skeleton once rendered
         skel_ph.empty()
 
@@ -1348,11 +1375,11 @@ elif selected_nav == "Duplicate Pallets":
     else:
         st.write("Summary (PalletId with count of distinct locations):")
         render_lazy_df(dups_summary_df, key="dup_summary")
-        # Select a PalletId to see details & log
+        # Select a PalletId (normalized) to see details & log
         opt = ["(Select)"] + dups_summary_df["PalletId"].astype(str).tolist()
-        sel_pid = st.selectbox("Choose a duplicate Pallet ID", opt, index=0)
-        if sel_pid != "(Select)":
-            det = dups_detail_df[dups_detail_df["PalletId"].astype(str) == str(sel_pid)]
+        sel_pid_norm = st.selectbox("Choose a duplicate Pallet ID", opt, index=0)
+        if sel_pid_norm != "(Select)":
+            det = dups_detail_df[dups_detail_df["PalletId"].astype(str).str.strip().str.upper() == sel_pid_norm]
             render_lazy_df(det.sort_values("LocationName"), key="dup_detail")
             with st.expander("Log Fix for this Pallet ID"):
                 reasons = ["Relocated", "Consolidated", "Data correction", "Damaged pull-down", "Other"]
@@ -1360,7 +1387,7 @@ elif selected_nav == "Duplicate Pallets":
                 note = st.text_input("Note (optional)", key="dup_fix_note")
                 if st.button("Log Fix for this Pallet ID"):
                     batch_id, used_path = log_batch(det, note, selected_lot="", discrepancy_type="Duplicate", action="RESOLVE", reason=reason)
-                    st.success(f"Logged fix for PalletId {sel_pid} across {det['LocationName'].nunique()} locations.")
+                    st.success(f"Logged fix for PalletId {sel_pid_norm} across {det['LocationName'].nunique()} locations.")
                     st.caption(f"📝 Logged to: `{used_path}` • BatchId={batch_id}")
 
 elif selected_nav == "Trends":
@@ -1380,10 +1407,13 @@ elif selected_nav == "Trends":
                 pass
             hist = hist.sort_values("Timestamp")
             st.caption(f"Snapshots: **{len(hist)}** • File: {os.path.basename(TRENDS_FILE)}")
+
             with st.expander("Show trend table"):
                 render_lazy_df(hist, key="trend_table", page_size=400)
-                st.download_button("Download trend_history.csv", hist.to_csv(index=False).encode("utf-8"),
-                                   "trend_history.csv", "text/csv")
+
+            st.download_button("Download trend_history.csv", hist.to_csv(index=False).encode("utf-8"),
+                               "trend_history.csv", "text/csv")
+
             req_bins = ["EmptyBins", "EmptyPartialBins", "PartialBins", "FullPalletBins"]
             if all(c in hist.columns for c in req_bins):
                 bins_long = hist.melt(id_vars=["Timestamp"], value_vars=req_bins, var_name="Series", value_name="Count")
@@ -1398,6 +1428,7 @@ elif selected_nav == "Trends":
                 fig_bins.update_traces(mode="lines+markers")
                 fig_bins.update_layout(showlegend=True, margin=dict(t=60, b=40, l=10, r=10))
                 st.plotly_chart(fig_bins, use_container_width=True)
+
             req_exc = ["Damages", "Missing"]
             if all(c in hist.columns for c in req_exc):
                 exc_long = hist.melt(id_vars=["Timestamp"], value_vars=req_exc, var_name="Status", value_name="Count")
@@ -1418,10 +1449,8 @@ elif selected_nav == "Config":
 
     # Current rules (with defaults if file missing)
     cur = _config.get("bulk_rules", DEFAULT_BULK_RULES).copy()
-
     zones = list(DEFAULT_BULK_RULES.keys())  # ['A'..'I']
     cols = st.columns(len(zones))
-
     new_rules = {}
     for i, z in enumerate(zones):
         with cols[i]:
@@ -1433,7 +1462,6 @@ elif selected_nav == "Config":
                 step=1,
                 key=f"cfg_{z}"
             )
-
     save_col, apply_col = st.columns([1, 3])
     with save_col:
         if st.button("💾 Save", type="primary", use_container_width=True, key="cfg_save"):
@@ -1461,7 +1489,6 @@ elif selected_nav == "Config":
 elif selected_nav == "Self-Test":
     st.subheader("🧪 Self‑Test / Diagnostics")
     c1, c2 = st.columns([2, 3])
-
     with c1:
         st.markdown("**Paths & Folders**")
         st.write("- Logs folder:", LOG_DIR)
@@ -1469,12 +1496,10 @@ elif selected_nav == "Self-Test":
         st.write("- Config file:", CONFIG_FILE)
         st.write("- Resolved actions log:", resolved_file)
         st.write("- Trends history:", TRENDS_FILE)
-
         if LOG_FALLBACK_USED:
             st.warning("Using fallback log folder (preferred path not writable).")
         else:
             st.success("Writing to preferred log folder or env override.")
-
         st.markdown("**Environment override**")
         st.code(os.environ.get("BIN_HELPER_LOG_DIR", "(not set)"))
 
@@ -1496,6 +1521,18 @@ elif selected_nav == "Self-Test":
             st.success("No duplicate pallets detected.")
         else:
             st.warning(f"Duplicate pallet IDs found: {len(dups_summary_df)}")
+
+        st.markdown("**Pallet ID Audit (alphanumeric)**")
+        try:
+            pid_series = inventory_df["PalletId"].astype(str)
+            has_letters = pid_series.str.contains(r"[A-Za-z]", na=False)
+            count_alpha = int(has_letters.sum())
+            st.write(f"- Pallet IDs with letters: **{count_alpha}**")
+            if count_alpha > 0:
+                sample_alpha = inventory_df[has_letters][["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference"]].head(25)
+                render_lazy_df(ensure_core(sample_alpha), key="pallet_alpha_sample")
+        except Exception:
+            st.info("Pallet ID audit skipped (no PalletId column or parsing error).")
 
     st.markdown("———")
     st.caption("Tip: If deploying on Streamlit Cloud, set a secret `BIN_HELPER_LOG_DIR` to `/mount/src/bin-helper/logs` to keep logs persistent.")
