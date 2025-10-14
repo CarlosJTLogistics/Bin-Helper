@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 import os
 import csv
 import re
@@ -8,7 +8,6 @@ import hashlib  # for file hash (trend de-dup)
 import tempfile  # SAFEGUARD: fallback dirs
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, Dict, List, Union
-
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -143,7 +142,6 @@ def _safe_append_csv(path: str, header: List[str], row: List) -> Tuple[bool, str
                 w.writerow(header)
             w.writerow(row)
         return True, p
-
     try:
         ok, used = _try_write(path)
         return True, used, ""
@@ -666,6 +664,197 @@ def build_duplicate_pallets(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFram
 
 dups_summary_df, dups_detail_df = build_duplicate_pallets(filtered_inventory_df)
 
+# ===== Natural Language Query (Ask Bin Helper) =====
+from dataclasses import dataclass
+from dataclasses import dataclass
+
+@dataclass
+class NLQResult:
+    df: pd.DataFrame
+    explanation: str
+    warning: str = ""
+
+def _num_from_text(s: str) -> List[int]:
+    return [int(x) for x in re.findall(r"\d+", s or "")]
+
+def parse_comparator(q: str):
+    ql = (q or "").lower()
+    # between X and Y
+    m_between = re.search(r"between\s+(\d+)\s+and\s+(\d+)", ql)
+    if m_between:
+        a, b = int(m_between.group(1)), int(m_between.group(2))
+        lo, hi = min(a, b), max(a, b)
+        return ("between", lo, hi)
+    # <= like "or less", "at most", "≤"
+    if re.search(r"or\s+less|at\s+most|<=|≤", ql):
+        nums = _num_from_text(ql)
+        return ("le", max(nums or [0]))
+    # >= like "or more", "at least", "≥"
+    if re.search(r"or\s+more|at\s+least|>=|≥", ql):
+        nums = _num_from_text(ql)
+        return ("ge", max(nums or [0]))
+    # = exactly
+    if re.search(r"\bexactly\b|\bequal(?:s)?\s+to\b|==", ql):
+        nums = _num_from_text(ql)
+        return ("eq", nums[0] if nums else 0)
+    # plain "with N" -> equality by default
+    nums = _num_from_text(ql)
+    if nums:
+        return ("eq", nums[0])
+    return (None, None)
+
+def parse_nl_query(q: str) -> NLQResult:
+    ql = (q or "").strip().lower()
+    if not ql:
+        return NLQResult(pd.DataFrame(), "Type something like: 'show me bulk locations with 5 pallets or less'.")
+
+    # --- BULK domain ---
+    if "bulk" in ql:
+        df = bulk_locations_df.copy()
+        # empty slot(s) intent
+        if "empty slot" in ql or "empty slots" in ql or "available" in ql:
+            cmp = parse_comparator(ql)
+            if cmp[0] == "between":
+                _, lo, hi = cmp
+                df = df[(df["EmptySlots"] >= lo) & (df["EmptySlots"] <= hi)]
+                return NLQResult(df, f"Bulk locations with EmptySlots between {lo} and {hi}.")
+            elif cmp[0] == "le":
+                _, n = cmp
+                df = df[df["EmptySlots"] <= n]
+                return NLQResult(df, f"Bulk locations with EmptySlots ≤ {n}.")
+            elif cmp[0] == "ge":
+                _, n = cmp
+                df = df[df["EmptySlots"] >= n]
+                return NLQResult(df, f"Bulk locations with EmptySlots ≥ {n}.")
+            elif cmp[0] == "eq":
+                _, n = cmp
+                df = df[df["EmptySlots"] == n]
+                return NLQResult(df, f"Bulk locations with EmptySlots == {n}.")
+            else:
+                df = df[df["EmptySlots"] >= 1]
+                return NLQResult(df, "Bulk locations with at least 1 EmptySlot.")
+        # default: "with N pallets" -> PalletCount
+        cmp = parse_comparator(ql)
+        if cmp[0] == "between":
+            _, lo, hi = cmp
+            df = df[(df["PalletCount"] >= lo) & (df["PalletCount"] <= hi)]
+            return NLQResult(df, f"Bulk locations with PalletCount between {lo} and {hi}.")
+        elif cmp[0] == "le":
+            _, n = cmp
+            df = df[df["PalletCount"] <= n]
+            return NLQResult(df, f"Bulk locations with PalletCount ≤ {n}.")
+        elif cmp[0] == "ge":
+            _, n = cmp
+            df = df[df["PalletCount"] >= n]
+            return NLQResult(df, f"Bulk locations with PalletCount ≥ {n}.")
+        elif cmp[0] == "eq":
+            _, n = cmp
+            df = df[df["PalletCount"] == n]
+            return NLQResult(df, f"Bulk locations with PalletCount == {n}.")
+        else:
+            return NLQResult(df, "All bulk locations.")
+
+    # --- DUPLICATES ---
+    if "duplicate" in ql or "duplicates" in ql:
+        m_pid = re.search(r"(?:pallet|pallet id)\s+([A-Za-z0-9\-]+)", q or "", re.IGNORECASE)
+        if m_pid:
+            pid_norm = m_pid.group(1).strip().upper()
+            det = dups_detail_df[dups_detail_df["PalletId"].astype(str).str.strip().str.upper() == pid_norm]
+            return NLQResult(ensure_core(det), f"Duplicate detail for PalletId {pid_norm}.")
+        return NLQResult(dups_summary_df.copy(), "Duplicate pallet summary (PalletId with distinct location count).")
+
+    # --- PARTIAL / FULL / RACK MULTI-PALLET ---
+    if "partial bin" in ql or "partial bins" in ql or "partial" in ql:
+        df = ensure_core(partial_bins_df)
+        m = re.search(r"aisle\s+(\d{3})", ql)
+        if m:
+            prefix = m.group(1)
+            df = df[df["LocationName"].astype(str).str.startswith(prefix)]
+            return NLQResult(df, f"Partial bins in aisle {prefix}.")
+        return NLQResult(df, "All partial bins.")
+    if "full" in ql and "bin" in ql:
+        return NLQResult(ensure_core(full_pallet_bins_df), "Full pallet bins.")
+    if "rack" in ql and ("multiple" in ql or "more than one" in ql or ">1" in ql):
+        viol_summary, details = _find_multi_pallet_all_racks(filtered_inventory_df)
+        if details is None or details.empty:
+            return NLQResult(pd.DataFrame(), "No rack locations with multiple pallets.")
+        return NLQResult(ensure_core(details, include_issue=True), "Rack locations with multiple pallets (detail).")
+
+    # --- DAMAGES / MISSING ---
+    if "damage" in ql or "damaged" in ql:
+        return NLQResult(ensure_core(damages_df), "Damaged pallets.")
+    if "missing" in ql:
+        return NLQResult(ensure_core(missing_df), "Missing pallets.")
+
+    # --- Pallet / LOT / SKU / Location queries ---
+    m_pid = re.search(r"(?:pallet|pallet id)\s+([A-Za-z0-9\-]+)", q or "", re.IGNORECASE)
+    if m_pid:
+        pid = normalize_pallet_id(m_pid.group(1))
+        base = ensure_core(filtered_inventory_df)
+        df = base[base["PalletId"].astype(str).str.strip().str.upper() == pid.strip().upper()]
+        return NLQResult(df, f'Where is pallet "{pid}"?')
+
+    m_lot = re.search(r"(?:lot|lot number)\s+(\d+)", q or "", re.IGNORECASE)
+    if m_lot:
+        lot = normalize_lot_number(m_lot.group(1))
+        base = ensure_core(filtered_inventory_df)
+        df = base[base["CustomerLotReference"].astype(str).str.contains(lot, case=False, na=False)]
+        return NLQResult(df, f'Rows for LOT Number "{lot}".')
+
+    m_sku = re.search(r"(?:sku)\s+([A-Za-z0-9\-]+)", q or "", re.IGNORECASE)
+    if m_sku:
+        sku = m_sku.group(1)
+        base = ensure_core(filtered_inventory_df)
+        df = base[base["WarehouseSku"].astype(str).str.contains(sku, case=False, na=False)]
+        return NLQResult(df, f'Rows for SKU containing "{sku}".')
+
+    m_loc = re.search(r"(?:location|bin)\s+(?:contains|like)\s+([A-Za-z0-9\-]+)", q or "", re.IGNORECASE)
+    if m_loc:
+        frag = m_loc.group(1)
+        base = ensure_core(filtered_inventory_df)
+        df = base[base["LocationName"].astype(str).str.contains(frag, case=False, na=False)]
+        return NLQResult(df, f'Rows where Location contains "{frag}".')
+
+    # Fallback: try direct location or global contains search
+    base = ensure_core(filtered_inventory_df)
+    guess = (q or "").strip()
+    if guess in LOC_INDEX:
+        return NLQResult(LOC_INDEX[guess], f"Rows for location {guess}.")
+    frag = re.escape(guess)
+    mask = (
+        base["LocationName"].astype(str).str.contains(frag, case=False, na=False) |
+        base["PalletId"].astype(str).str.contains(frag, case=False, na=False) |
+        base["WarehouseSku"].astype(str).str.contains(frag, case=False, na=False) |
+        base["CustomerLotReference"].astype(str).str.contains(normalize_lot_number(guess), case=False, na=False)
+    )
+    df = base[mask]
+    return NLQResult(df, f'Fallback search across Location, PalletId, SKU, LOT for "{guess}".')
+
+def page_ask_bin_helper():
+    st.subheader("🧠 Ask Bin Helper (Beta)")
+    st.caption("Type natural requests like: 'show me bulk locations with 5 pallets or less', 'bulk with at least 1 empty slot', 'find pallet JTL00496', 'find lot 9062716', 'partial bins in aisle 114', 'duplicates for pallet JTL00496'.")
+
+    ex1, ex2, ex3, ex4 = st.columns(4)
+    if ex1.button("Bulk ≤ 5 pallets"): st.session_state["ask_nlq"] = "show me bulk locations with 5 pallets or less"
+    if ex2.button("Bulk ≥ 1 empty slot"): st.session_state["ask_nlq"] = "bulk locations with at least 1 empty slot"
+    if ex3.button("Find pallet JTL00496"): st.session_state["ask_nlq"] = "find pallet JTL00496"
+    if ex4.button("Partial in aisle 114"): st.session_state["ask_nlq"] = "partial bins in aisle 114"
+
+    q = st.text_input("Your request", value=st.session_state.get("ask_nlq", ""), placeholder='e.g., "show me bulk locations with 5 pallets or less"')
+    if q.strip():
+        res = parse_nl_query(q)
+        st.markdown(f"**Understood:** {res.explanation}")
+        if res.warning:
+            st.warning(res.warning)
+        if res.df is None or res.df.empty:
+            st.info("No rows found for this query.")
+        else:
+            cols = set(res.df.columns.str.lower())
+            maybe_inv = {"locationname","warehousesku","palletid","customerlotreference"}.issubset(cols)
+            show_df = ensure_core(res.df) if maybe_inv else res.df
+            render_lazy_df(show_df, key="ask_results", use_core=False)
+            st.download_button("Download results (CSV)", show_df.to_csv(index=False).encode("utf-8"),
+                               file_name="ask-bin-helper-results.csv", mime="text/csv")
 # ===== KPI Card CSS & extras =====
 def _inject_card_css(style: str):
     common = """
@@ -779,9 +968,11 @@ def show_skeleton(n_rows: int = 8):
 nav_options = [
     "Dashboard", "Empty Bins", "Full Pallet Bins", "Empty Partial Bins",
     "Partial Bins", "Damages", "Missing",
-    # NEW integrated page:
+    # Integrated discrepancies page:
     "Discrepancies (All)",
-    # Removed the dedicated "Duplicate Pallets" page (kept inside Discrepancies)
+    # NEW natural-language page:
+    "Ask Bin Helper (Beta)",
+    # Standalone "Duplicate Pallets" page REMOVED (duplicates live inside Discrepancies)
     "Bulk Locations", "Empty Bulk Locations", "Trends", "Config", "Self-Test"
 ]
 _default_nav = st.session_state.get("nav", "Dashboard")
@@ -808,7 +999,6 @@ def _handle_quick_jump():
     if not match_rows.empty:
         loc = str(match_rows.iloc[0]["LocationName"])
         st.session_state.jump_intent = {"type": "pallet", "location": loc, "pallet_id": q}
-        # Bulk → Bulk Locations; Rack → Discrepancies (All)
         st.session_state["pending_nav"] = "Bulk Locations" if loc and loc[0].upper() in bulk_rules else "Discrepancies (All)"
         _rerun(); return
     # Try Location
@@ -833,7 +1023,7 @@ st.text_input(
 )
 st.markdown("---")
 
-# ===== (11) Trends: deltas for KPIs =====
+# ===== Trends helpers (deltas for KPIs) =====
 def _read_trends() -> pd.DataFrame:
     if not os.path.isfile(TRENDS_FILE):
         return pd.DataFrame()
@@ -894,52 +1084,6 @@ def _delta_combo_text(vs_last, vs_yday):
     if vs_yday is not None:
         parts.append(f"{_delta_text(vs_yday)} vs 24h")
     return " \n".join(parts) if parts else None
-# Append trend snapshot if requested
-def _append_trend_snapshot(kpis: dict, src_path: str):
-    os.makedirs(os.path.dirname(TRENDS_FILE), exist_ok=True)
-    file_hash = _file_md5(src_path) if src_path else ""
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    row = {"Timestamp": ts, "FileName": os.path.basename(src_path) if src_path else "", "FileHash": file_hash, **kpis}
-    exists = os.path.isfile(TRENDS_FILE)
-    try:
-        hist = pd.read_csv(TRENDS_FILE) if exists else pd.DataFrame()
-    except Exception:
-        hist = pd.DataFrame()
-    if not hist.empty and "FileHash" in hist.columns:
-        last_hash = str(hist.iloc[-1].get("FileHash", ""))
-        if file_hash and file_hash == last_hash:
-            return False, TRENDS_FILE, ""
-    header = list(row.keys())
-    csv_row = [row[h] for h in header]
-    ok, used_path, err = _safe_append_csv(TRENDS_FILE, header, csv_row)
-    return ok, used_path, err
-
-if st.session_state.get("pending_trend_record", False):
-    took, used_path, err = _append_trend_snapshot(_current_kpis(), inventory_file)
-    if took:
-        st.success(f"📈 Trend snapshot recorded → `{used_path}`")
-        if err: st.info(f"(Used fallback) {err}")
-    else:
-        st.info("Trend snapshot skipped (same file as last snapshot).")
-    st.session_state["pending_trend_record"] = False
-# ===== KPI helper with delta support =====
-def _animate_metric(ph, label: str, value: Union[int, float], delta_text: Optional[str] = None, duration_ms: int = 600, steps: int = 20):
-    try:
-        v_end = int(value)
-        if not st.session_state.get("animate_kpis", True) or v_end <= 0:
-            ph.metric(label, v_end, delta=delta_text); return
-        steps = max(8, min(40, steps))
-        sleep_s = max(0.01, duration_ms / 1000.0 / steps)
-        for i in range(1, steps + 1):
-            v = int(round(v_end * i / steps))
-            ph.metric(label, v)
-            time.sleep(sleep_s)
-        ph.metric(label, v_end, delta=delta_text)
-    except Exception:
-        ph.metric(label, value, delta=delta_text)
-
-def _kpi_label(base: str, icon: str, alert: bool = False) -> str:
-    return f"{icon} {base}" + (" 🔴" if alert else "")
 
 # ======= Page renderers for discrepancies (embedded) =======
 def page_rack_discrepancies(embed_key: str = "rack"):
@@ -1012,7 +1156,7 @@ def page_rack_discrepancies(embed_key: str = "rack"):
             else:
                 st.info("No actions logged yet.")
 
-        # NEW: Download Fix Log here too
+        # Download Fix Log here too
         st.markdown("#### Fix Log")
         download_fix_log_button(where_key=f"{embed_key}_rack_fixlog")
 
@@ -1122,7 +1266,6 @@ function(params) {
 
     else:
         st.info("No bulk discrepancies found.")
-
 # ===== Dashboard =====
 if selected_nav == "Dashboard":
     st.subheader("📊 Bin Helper Dashboard")
@@ -1152,12 +1295,12 @@ if selected_nav == "Dashboard":
         k = m[key_name]
         return _delta_combo_text(deltas[k]["vs_last"], deltas[k]["vs_yday"])
 
-    LBL_EMPTY = _kpi_label("Empty Bins", "📦")
-    LBL_EMPTY_PART = _kpi_label("Empty Partial Bins", "🪩")
-    LBL_PARTIAL = _kpi_label("Partial Bins", "📉")
-    LBL_FULL = _kpi_label("Full Pallet Bins", "🧱")
-    LBL_DAMAGE = _kpi_label("Damages", "🛑", alert=(kpi_vals["Damages"] > 0))
-    LBL_MISSING = _kpi_label("Missing", "🚫", alert=(kpi_vals["Missing"] > 0))
+    LBL_EMPTY = "📦 Empty Bins"
+    LBL_EMPTY_PART = "🪩 Empty Partial Bins"
+    LBL_PARTIAL = "📉 Partial Bins"
+    LBL_FULL = "🧱 Full Pallet Bins"
+    LBL_DAMAGE = "🛑 Damages" + (" 🔴" if kpi_vals["Damages"] > 0 else "")
+    LBL_MISSING = "🚫 Missing" + (" 🔴" if kpi_vals["Missing"] > 0 else "")
 
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     k1 = col1.empty(); k2 = col2.empty(); k3 = col3.empty(); k4 = col4.empty(); k5 = col5.empty(); k6 = col6.empty()
@@ -1212,18 +1355,13 @@ if selected_nav == "Dashboard":
     cA, cB = st.columns([1, 1])
     with cA:
         st.markdown("#### Inventory Composition")
-        # Build counts by category (Rack/Bulk/Special)
         s_all = inventory_df["LocationName"].astype(str)
         is_rack = s_all.str.isnumeric()
         is_bulk = s_all.str[0].str.upper().isin(bulk_rules.keys())
         is_special = s_all.str.upper().isin(["DAMAGE", "IBDAMAGE", "MISSING"])
         comp = pd.DataFrame({
             "Category": ["Rack", "Bulk", "Special"],
-            "Count": [
-                int(is_rack.sum()),
-                int(is_bulk.sum()),
-                int(is_special.sum()),
-            ]
+            "Count": [int(is_rack.sum()), int(is_bulk.sum()), int(is_special.sum())]
         })
         fig_comp = px.pie(comp, values="Count", names="Category",
                           color="Category",
@@ -1248,7 +1386,6 @@ if selected_nav == "Dashboard":
     if partial_bins_df.empty:
         st.info("No partial bins in current data.")
     else:
-        # Aisle = first 3 characters for numeric rack codes (e.g., AAA in AAA BBB CC)
         loc_series = partial_bins_df["LocationName"].astype(str)
         aisles = loc_series.where(loc_series.str.len() >= 3, None).str[:3]
         aisle_counts = aisles.value_counts().reset_index()
@@ -1316,7 +1453,7 @@ if selected_nav == "Dashboard":
         st.caption("Results")
         render_lazy_df(maybe_limit(df_show), key="search_center", use_core=False)
 
-    # --- Recent Fix Actions feed ---
+    # Recent Fix Actions feed
     with st.expander("🕘 Recent Actions (last 20)"):
         log_df = read_action_log()
         if log_df.empty:
@@ -1351,21 +1488,16 @@ elif selected_nav == "Missing":
     st.subheader("Missing Pallets")
     render_lazy_df(ensure_core(missing_df), key="missing")
 
-# ===== NEW: Integrated discrepancies page =====
 elif selected_nav == "Discrepancies (All)":
     st.subheader("🚧 Discrepancies — All")
-
-    # Global fix log download at top
     with st.expander("Fix Log (All)"):
         download_fix_log_button(where_key="all_fixlog")
-
     t1, t2, t3 = st.tabs(["Rack", "Bulk", "Duplicate"])
     with t1:
         page_rack_discrepancies(embed_key="rack_all")
     with t2:
         page_bulk_discrepancies(embed_key="bulk_all")
     with t3:
-        # duplicate tab uses its own renderer inline
         st.subheader("Duplicate Pallets (same Pallet ID in multiple locations)")
         if dups_summary_df.empty:
             st.success("No duplicate pallets found. ✅")
@@ -1385,6 +1517,9 @@ elif selected_nav == "Discrepancies (All)":
                         batch_id, used_path = log_batch(det, note, selected_lot="", discrepancy_type="Duplicate", action="RESOLVE", reason=reason)
                         st.success(f"Logged fix for PalletId {sel_pid_norm} across {det['LocationName'].nunique()} locations.")
                         st.caption(f"📝 Logged to: `{used_path}` • BatchId={batch_id}")
+
+elif selected_nav == "Ask Bin Helper (Beta)":
+    page_ask_bin_helper()
 
 elif selected_nav == "Bulk Locations":
     st.subheader("Bulk Locations")
@@ -1489,7 +1624,6 @@ function(params) {
             st.markdown("#### Jump Result")
             _render_location_detail(jump["location"], preselect_pallet=jump.get("pallet_id"), key_prefix="jump2_")
 
-    # NEW: Fix Log here as well
     with st.expander("Fix Log"):
         download_fix_log_button(where_key="bulk_locations_fixlog")
 
@@ -1605,5 +1739,3 @@ elif selected_nav == "Self-Test":
             st.info("Pallet ID audit skipped (no PalletId column or parsing error).")
         st.markdown("———")
         st.caption("Tip: If deploying on Streamlit Cloud, set a secret `BIN_HELPER_LOG_DIR` to `/mount/src/bin-helper/logs` to keep logs persistent.")
-
-
