@@ -1040,7 +1040,7 @@ def page_bulk_discrepancies(embed_key: str = "bulk"):
                     lots_sel = set(sel_rows["CustomerLotReference"].apply(_lot_to_str).tolist())
                     if len(lots_sel) == 1: selected_lot_value = list(lots_sel)[0]
                 st.write(f"Selected LOT (auto): **{selected_lot_value}**")
-                if st.button("Log Fix for selected row(s)", disabled=sel_rows.empty, key=f"{embed_key}_logfix_sel}"):
+                if st.button("Log Fix for selected row(s)", disabled=sel_rows.empty, key=f"{embed_key}_logfix_sel"
                     for req in ["LocationName","PalletId","WarehouseSku","CustomerLotReference","Qty","Issue"]:
                         if req not in sel_rows.columns: sel_rows[req] = ""
                     batch_id, used_path = log_batch(sel_rows, note, selected_lot_value, "Bulk", action="RESOLVE", reason=reason)
