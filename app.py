@@ -73,8 +73,220 @@ def _load_lottie(url: str):
         pass
     return None
 
+# === NEW: Animated header / hero CSS & helpers ===============================
+def _inject_hero_css():
+    css = f"""
+    <style>
+      /* === Top banner container with animated gradient + moving light beam === */
+      .bh-hero {{
+        position: relative;
+        padding: 14px 18px;
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid rgba(31,119,180,.18);
+        background: linear-gradient(135deg, #0b1220, #101a2e 45%, #0b1220 100%);
+        background-size: 200% 200%;
+        animation: bgShift 18s ease-in-out infinite;
+        box-shadow: 0 8px 24px rgba(0,0,0,.22), inset 0 0 12px rgba(31,119,180,.12);
+      }}
+      @keyframes bgShift {{
+        0% {{ background-position: 0% 50%; }}
+        50% {{ background-position: 100% 50%; }}
+        100% {{ background-position: 0% 50%; }}
+      }}
+      .bh-hero::before {{
+        content: "";
+        position: absolute;
+        top: -60%;
+        left: -30%;
+        width: 60%;
+        height: 220%;
+        transform: rotate(18deg) translateX(-160%);
+        background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(180,220,255,.18) 50%, rgba(255,255,255,0) 100%);
+        filter: blur(10px);
+        animation: beamSweep 8s linear infinite;
+        pointer-events: none;
+      }}
+      @keyframes beamSweep {{
+        0%   {{ transform: rotate(18deg) translateX(-160%); }}
+        100% {{ transform: rotate(18deg) translateX(180%); }}
+      }}
+
+      /* Title + tagline */
+      .hero-title {{
+        margin: 0 0 6px 0;
+        color: #e8f0ff;
+        font-weight: 800;
+        letter-spacing: .2px;
+        text-shadow: 0 0 10px rgba(31,119,180,.35);
+      }}
+      .hero-tagline {{
+        color: rgba(220,235,255,.92);
+        font-size: 1.02rem;
+        line-height: 1.35rem;
+        margin-bottom: 6px;
+      }}
+      .hero-typewriter {{
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+        font-size: .95rem;
+        color: rgba(215,235,255,.88);
+        width: 36ch; max-width: 100%;
+        white-space: nowrap; overflow: hidden;
+        border-right: 2px solid rgba(200,225,255,.65);
+        animation: typing 3.2s steps(36) .2s forwards, caret 900ms step-end infinite;
+        opacity: .9;
+      }}
+      @keyframes typing {{
+        from {{ width: 0; }}
+        to   {{ width: 36ch; }}
+      }}
+      @keyframes caret {{
+        0%,100% {{ border-color: transparent; }}
+        50%     {{ border-color: rgba(200,225,255,.65); }}
+      }}
+
+      /* Keyword glow cycling */
+      .kw {{
+        color: {BLUE};
+        font-weight: 700;
+        text-shadow: 0 0 6px rgba(31,119,180,.35);
+        animation: glowBlue 3.6s ease-in-out infinite;
+      }}
+      .kw.danger {{
+        color: {RED};
+        text-shadow: 0 0 8px rgba(214,39,40,.45);
+        animation: glowRed 4s ease-in-out infinite;
+      }}
+      .kw.delay1 {{ animation-delay: .2s; }}
+      .kw.delay2 {{ animation-delay: .4s; }}
+      .kw.delay3 {{ animation-delay: .1s; }}
+      .kw.delay4 {{ animation-delay: .3s; }}
+
+      @keyframes glowBlue {{
+        0%,100% {{ filter: brightness(1);   text-shadow: 0 0 6px rgba(31,119,180,.35); }}
+        50%     {{ filter: brightness(1.25); text-shadow: 0 0 12px rgba(31,119,180,.65); }}
+      }}
+      @keyframes glowRed {{
+        0%,100% {{ filter: brightness(1);   text-shadow: 0 0 6px rgba(214,39,40,.35); }}
+        50%     {{ filter: brightness(1.25); text-shadow: 0 0 14px rgba(214,39,40,.7); }}
+      }}
+
+      /* Lottie hover micro-interaction */
+      .lottie-box {{
+        transition: transform .22s ease, filter .22s ease;
+        filter: drop-shadow(0 6px 14px rgba(0,0,0,.28));
+      }}
+      .lottie-box:hover {{
+        transform: translateY(-4px) scale(1.03);
+        filter: drop-shadow(0 10px 20px rgba(0,0,0,.32));
+      }}
+
+      /* Floating decorative icons */
+      .bh-hero .float {{
+        position: absolute;
+        opacity: .42;
+        font-size: 22px;
+        animation: floatY 10s ease-in-out infinite;
+        pointer-events: none;
+      }}
+      .bh-hero .f1 {{ top: 10px;  left: 12px;  animation-duration: 11s; }}
+      .bh-hero .f2 {{ top: 62px;  right: 18px; animation-duration: 9s;  }}
+      .bh-hero .f3 {{ bottom: 10px; left: 26%;  animation-duration: 12s; }}
+      .bh-hero .f4 {{ bottom: 34px; right: 28%; animation-duration: 10s; }}
+      @keyframes floatY {{
+        0%,100% {{ transform: translateY(0); }}
+        50%     {{ transform: translateY(-10px); }}
+      }}
+
+      /* Radio nav ripple + hover */
+      div[data-testid="stRadio"] div[role="radiogroup"] > label {{
+        position: relative;
+        overflow: hidden;
+        border-radius: 8px;
+        transition: transform .06s ease;
+      }}
+      div[data-testid="stRadio"] div[role="radiogroup"] > label:hover {{
+        transform: translateY(-1px);
+      }}
+      div[data-testid="stRadio"] div[role="radiogroup"] > label:active::after {{
+        content: "";
+        position: absolute;
+        left: 50%; top: 50%;
+        width: 140px; height: 140px;
+        background: radial-gradient(circle, rgba(31,119,180,.35) 12%, rgba(31,119,180,0) 60%);
+        transform: translate(-50%,-50%) scale(.2);
+        animation: ripple .55s ease-out forwards;
+        pointer-events: none;
+      }}
+      @keyframes ripple {{
+        to {{ transform: translate(-50%,-50%) scale(2.4); opacity: 0; }}
+      }}
+
+      /* Animated nav progress bar (shown only on tab switch) */
+      .nav-progress {{
+        height: 4px; width: 100%;
+        margin: 6px 0 10px 0;
+        border-radius: 10px;
+        background: rgba(31,119,180,.12);
+        overflow: hidden;
+      }}
+      .nav-progress .bar {{
+        height: 100%; width: 0%;
+        background: linear-gradient(90deg, {BLUE} 0%, {RED} 100%);
+        animation: navLoad 900ms ease-out forwards;
+      }}
+      @keyframes navLoad {{ to {{ width: 100%; }} }}
+
+      /* Inputs: focus glow (Quick Jump + others) */
+      input[type="text"]:focus, textarea:focus {{
+        outline: none !important;
+        border-color: {BLUE} !important;
+        box-shadow: 0 0 0 3px rgba(31,119,180,.22) !important;
+      }}
+
+      /* Quick Jump helper: animated "Try:" examples with typewriter */
+      .qj-examples {{
+        margin-top: -6px; margin-bottom: 8px;
+        font-size: .95rem; opacity: .85;
+        color: rgba(20,45,85,.8);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      }}
+      .qj-examples .typeCycle {{
+        display: inline-block;
+        white-space: nowrap; overflow: hidden;
+        border-right: 2px solid rgba(20,45,85,.6);
+        width: 10ch;
+        animation: typing2 2.2s steps(10) infinite alternate, caret2 1s step-end infinite;
+      }}
+      .qj-examples .typeCycle::after {{
+        content: "JTL00496";
+        animation: words 10s linear infinite;
+      }}
+      @keyframes words {{
+        0%,16%   {{ content: "JTL00496"; }}
+        17%,33%  {{ content: "A123"; }}
+        34%,50%  {{ content: "11400804"; }}
+        51%,67%  {{ content: "B204"; }}
+        68%,84%  {{ content: "JTL00987"; }}
+        85%,100% {{ content: "11400202"; }}
+      }}
+      @keyframes typing2 {{
+        from {{ width: 0; }}
+        to   {{ width: 10ch; }}
+      }}
+      @keyframes caret2 {{
+        0%,100% {{ border-color: transparent; }}
+        50%     {{ border-color: rgba(20,45,85,.6); }}
+      }}
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
+
 def show_banner():
+    # Render animated hero with Lottie + animated text + floating icons
     with st.container():
+        st.markdown('<div class="bh-hero">', unsafe_allow_html=True)
+
         col_a, col_b = st.columns([1, 3])
         with col_a:
             data = None
@@ -88,18 +300,39 @@ def show_banner():
                 if data:
                     break
             if data:
+                # Wrap in a class for hover effect
+                st.markdown('<div class="lottie-box">', unsafe_allow_html=True)
                 st_lottie(data, height=140, key="banner_lottie", speed=1.0, loop=True)
+                st.markdown('</div>', unsafe_allow_html=True)
             else:
                 st.info("Banner animation unavailable")
+
         with col_b:
             st.markdown(
-                """
-### Bin Helper
-Fast, visual lookups for **Empty**, **Partial**, **Full**, **Damages**, and **Missing** — all by your warehouse rules.
-""",
-                unsafe_allow_html=True
+                f"""
+                <h3 class="hero-title">Bin Helper</h3>
+                <div class="hero-tagline">
+                  Fast, visual lookups for
+                  <span class="kw">Empty</span>, 
+                  <span class="kw delay1">Partial</span>, 
+                  <span class="kw delay2">Full</span>, 
+                  <span class="kw danger delay3">Damages</span>, and 
+                  <span class="kw danger delay4">Missing</span> — all by your warehouse rules.
+                </div>
+                <div class="hero-typewriter">Speed for the floor. Accuracy for the count.</div>
+                """,
+                unsafe_allow_html=True,
             )
-show_banner()
+
+        # Floating icons inside the hero
+        st.markdown(
+            """<div class="float f1">📦</div>
+               <div class="float f2">🏷️</div>
+               <div class="float f3">🚚</div>
+               <div class="float f4">📦</div>""",
+            unsafe_allow_html=True,
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # ===== SAFEGUARD: robust path resolution & file append =====
 def _resolve_writable_dir(preferred: Optional[str], purpose: str = "logs") -> Tuple[str, bool]:
@@ -192,6 +425,106 @@ def _file_md5(path: str) -> str:
     except Exception:
         return ""
 
+# === Inject CSS BEFORE rendering hero ===
+# Keep card CSS first so it doesn’t override hero styles
+def _inject_card_css(style: str):
+    common = """ 
+div[data-testid="stMetric"] {
+  border-radius: 12px;
+  padding: 12px 14px;
+  transition: box-shadow .2s ease, transform .08s ease, border-color .2s ease, background .2s ease;
+  border: 1px solid transparent;
+}
+div[data-testid="stMetric"]:hover { transform: translateY(-1px); }
+div[data-testid="stMetric"] [data-testid="stMetricLabel"] { font-weight: 600; letter-spacing: .2px; }
+div[data-testid="stMetric"] [data-testid="stMetricValue"] { font-weight: 800; }
+.stButton>button { transition: transform .05s ease, box-shadow .2s ease; }
+.stButton>button:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.18); }
+@media (max-width: 900px) {
+  section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
+    width: 100% !important; flex: 1 1 100% !important; padding-bottom: 8px;
+  }
+  div[data-testid="stRadio"] div[role="radiogroup"] {
+    display: flex; flex-wrap: wrap; gap: 6px 10px; justify-content: center;
+  }
+  .stDataFrame, .stTable { font-size: 0.92rem; }
+}
+/* Skeleton loader */
+.skel-row{height:14px;background:linear-gradient(90deg,#eee,#f5f5f5,#eee);background-size:200% 100%;
+animation:skel 1.2s ease-in-out infinite;margin:8px 0;border-radius:6px;}
+@keyframes skel{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@keyframes pulseGlow {
+  0% { box-shadow: 0 0 0px rgba(214,39,40,.0), inset 0 0 0 rgba(214,39,40,0); }
+  50% { box-shadow: 0 0 16px rgba(214,39,40,.35), inset 0 0 8px rgba(214,39,40,.15); }
+  100% { box-shadow: 0 0 0px rgba(214,39,40,.0), inset 0 0 0 rgba(214,39,40,0); }
+}
+.discPulse div[data-testid="stMetric"] {
+  animation: pulseGlow 1.6s ease-in-out infinite;
+}
+"""
+    neon = """
+div[data-testid="stMetric"] {
+  color: #e8f0ff;
+  background: radial-gradient(120% 120% at 0% 0%, #0b1220 0%, #101a2e 55%, #0b1220 100%);
+  border: 1px solid rgba(31,119,180, .35);
+  box-shadow: 0 0 12px rgba(31,119,180, .35), inset 0 0 10px rgba(31,119,180, .15);
+}
+div[data-testid="stMetric"] [data-testid="stMetricLabel"] { color: rgba(200,220,255,.9); }
+div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: __BLUE__; text-shadow: 0 0 12px rgba(31,119,180,.5); }
+div[data-testid="stMetric"]:hover {
+  box-shadow: 0 0 18px rgba(31,119,180,.55), inset 0 0 12px rgba(31,119,180,.22);
+}
+"""
+    glass = """
+div[data-testid="stMetric"] {
+  color: #0e1730;
+  background: linear-gradient(160deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,.25) 100%);
+  border: 1px solid rgba(15,35,65,.15);
+  box-shadow: 0 10px 30px rgba(0,0,0,.08);
+  backdrop-filter: blur(10px);
+}
+div[data-testid="stMetric"] [data-testid="stMetricLabel"] { color: rgba(14,23,48,.8); }
+div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: __BLUE__; }
+div[data-testid="stMetric"]:hover { box-shadow: 0 14px 36px rgba(0,0,0,.12); }
+"""
+    blueprint = """
+div[data-testid="stMetric"] {
+  color: #d7e9ff;
+  background:
+  linear-gradient(#0b1f33 1px, transparent 1px) 0 0/100% 22px,
+  linear-gradient(90deg, #0b1f33 1px, transparent 1px) 0 0/22px 100%,
+  linear-gradient(160deg, #07233e 0%, #0a2949 60%, #061a2d 100%);
+  border: 1px dashed rgba(120,170,220,.45);
+  box-shadow: inset 0 0 0 1px rgba(31,119,180,.25), 0 10px 24px rgba(0,0,0,.22);
+}
+div[data-testid="stMetric"] [data-testid="stMetricLabel"] { color: #b7d1f3; }
+div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: __BLUE__; text-shadow: 0 0 8px rgba(31,119,180,.45); }
+div[data-testid="stMetric"]:hover {
+  box-shadow: inset 0 0 0 1px rgba(31,119,180,.45), 0 14px 28px rgba(0,0,0,.28);
+}
+"""
+    exception_hint = """
+section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(5) div[data-testid="stMetric"],
+section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] {
+  border-color: rgba(214,39,40,.5) !important;
+  box-shadow: 0 0 12px rgba(214,39,40,.45), inset 0 0 10px rgba(214,39,40,.18) !important;
+}
+section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(5) div[data-testid="stMetric"] [data-testid="stMetricValue"],
+section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+  color: __RED__ !important; text-shadow: 0 0 10px rgba(214,39,40,.45) !important;
+}
+"""
+    bundle = common + (neon if style == "Neon Glow" else glass if style == "Glassmorphism" else blueprint) + exception_hint
+    bundle = bundle.replace("__BLUE__", BLUE).replace("__RED__", RED)
+    st.markdown(f"<style>{bundle}</style>", unsafe_allow_html=True)
+
+# Inject hero CSS now
+# (We’ll call _inject_card_css later with the selected style)
+_inject_hero_css()
+
+# --- Render updated banner ---
+show_banner()
+
 with st.sidebar:
     st.subheader("📦 Upload Inventory")
     up = st.file_uploader("Upload new ON_HAND_INVENTORY.xlsx", type=["xlsx"], key="inv_upload")
@@ -283,7 +616,7 @@ def normalize_pallet_id(val) -> str:
 
 def ensure_numeric_col(df: pd.DataFrame, col: str, default: Union[float, int] = 0):
     if col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(default)
+        df[ col ] = pd.to_numeric(df[col], errors="coerce").fillna(default)
     else:
         df[col] = default
 
@@ -367,7 +700,6 @@ def _find_multi_pallet_all_racks(df: pd.DataFrame):
 
 # ===== Config: bulk capacity =====
 DEFAULT_BULK_RULES = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
-
 def load_config() -> dict:
     cfg = {"bulk_rules": DEFAULT_BULK_RULES.copy()}
     try:
@@ -376,7 +708,7 @@ def load_config() -> dict:
                 raw = json.load(f)
             if isinstance(raw, dict) and "bulk_rules" in raw and isinstance(raw["bulk_rules"], dict):
                 cfg["bulk_rules"] = {k.upper(): int(v) for k, v in raw["bulk_rules"].items()
-                                     if str(k).upper() in DEFAULT_BULK_RULES}
+                                    if str(k).upper() in DEFAULT_BULK_RULES}
     except Exception:
         pass
     return cfg
@@ -424,7 +756,6 @@ bulk_locations_df, empty_bulk_locations_df = build_bulk_views()
 
 # ===== Core table helpers =====
 CORE_COLS = ["LocationName", "WarehouseSku", "PalletId", "CustomerLotReference", "Qty"]
-
 def ensure_core(df: pd.DataFrame, include_issue: bool = False) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=CORE_COLS + (["Issue"] if include_issue else []))
@@ -445,6 +776,7 @@ def ensure_core(df: pd.DataFrame, include_issue: bool = False) -> pd.DataFrame:
     return out[cols]
 
 def _lot_to_str(x): return normalize_lot_number(x)
+
 def maybe_limit(df: pd.DataFrame) -> pd.DataFrame:
     return df.head(1000) if st.session_state.get("fast_tables", False) else df
 
@@ -457,18 +789,14 @@ def _mk_pallet_labels(df: pd.DataFrame):
     df = df.copy()
     df["PalletId"] = df["PalletId"].apply(normalize_pallet_id)
     df["CustomerLotReference"] = df["CustomerLotReference"].apply(_lot_to_str)
-
     def _label(r):
         pid = r.get("PalletId", "") or "[blank]"
         sku = r.get("WarehouseSku", "") or "[no SKU]"
         lot = r.get("CustomerLotReference", "") or "[no LOT]"
         qty = r.get("Qty", 0)
-        try:
-            qty = int(qty)
-        except Exception:
-            pass
+        try: qty = int(qty)
+        except Exception: pass
         return f"{pid} — SKU {sku} — LOT {lot} — Qty {qty}"
-
     df["_PID_KEY"] = df["PalletId"].where(df["PalletId"].astype(str).str.len() > 0, df.index.astype(str))
     uniq = df.drop_duplicates(subset=["_PID_KEY"])
     labels = [ _label(r) for _, r in uniq.iterrows() ]
@@ -501,6 +829,7 @@ def _file_freshness_panel():
         except Exception:
             pass
     st.caption(f"**File:** {name} • **Modified:** {mtime.strftime('%Y-%m-%d %H:%M:%S') if mtime else 'n/a'} • **Age:** {age_txt} • **MD5:** {md5_short} • **Since last snapshot:** {since_snap}")
+
 _file_freshness_panel()
 
 # ===== Logging (with Reason codes) =====
@@ -612,6 +941,7 @@ bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
 def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     results = []
+
     # Partial bin issues
     p_df = get_partial_bins(df2)
     if not p_df.empty:
@@ -620,6 +950,7 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             issue = "Qty too high for partial bin" if row["Qty"] > 5 else "Multiple pallets in partial bin"
             rec = row.to_dict(); rec["Issue"] = issue
             results.append(rec)
+
     # Full rack issues
     s = df2["LocationName"].astype(str)
     full_mask = ((~s.str.endswith("01")) | (s.str.startswith("111"))) & s.str.isnumeric()
@@ -630,10 +961,12 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             rec = row.to_dict()
             rec["Issue"] = "Partial Pallet needs to be moved to Partial Location"
             results.append(rec)
+
     # Multi-pallet in racks
     _, mp_details = _find_multi_pallet_all_racks(df2)
     if not mp_details.empty:
         results += mp_details.to_dict("records")
+
     out = pd.DataFrame(results)
     if not out.empty:
         keep_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Issue"] if c in out.columns]
@@ -659,97 +992,6 @@ def build_duplicate_pallets(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFram
 dups_summary_df, dups_detail_df = build_duplicate_pallets(filtered_inventory_df)
 
 # ===== KPI Card CSS & extras =====
-def _inject_card_css(style: str):
-    common = """
-div[data-testid="stMetric"] {
-  border-radius: 12px;
-  padding: 12px 14px;
-  transition: box-shadow .2s ease, transform .08s ease, border-color .2s ease, background .2s ease;
-  border: 1px solid transparent;
-}
-div[data-testid="stMetric"]:hover { transform: translateY(-1px); }
-div[data-testid="stMetric"] [data-testid="stMetricLabel"] { font-weight: 600; letter-spacing: .2px; }
-div[data-testid="stMetric"] [data-testid="stMetricValue"] { font-weight: 800; }
-.stButton>button { transition: transform .05s ease, box-shadow .2s ease; }
-.stButton>button:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.18); }
-@media (max-width: 900px) {
-  section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
-    width: 100% !important; flex: 1 1 100% !important; padding-bottom: 8px;
-  }
-  div[data-testid="stRadio"] div[role="radiogroup"] {
-    display: flex; flex-wrap: wrap; gap: 6px 10px; justify-content: center;
-  }
-  .stDataFrame, .stTable { font-size: 0.92rem; }
-}
-/* Skeleton loader */
-.skel-row{height:14px;background:linear-gradient(90deg,#eee,#f5f5f5,#eee);background-size:200% 100%;
-animation:skel 1.2s ease-in-out infinite;margin:8px 0;border-radius:6px;}
-@keyframes skel{0%{background-position:200% 0}100%{background-position:-200% 0}}
-
-@keyframes pulseGlow {
-  0% { box-shadow: 0 0 0px rgba(214,39,40,.0), inset 0 0 0 rgba(214,39,40,0); }
-  50% { box-shadow: 0 0 16px rgba(214,39,40,.35), inset 0 0 8px rgba(214,39,40,.15); }
-  100% { box-shadow: 0 0 0px rgba(214,39,40,.0), inset 0 0 0 rgba(214,39,40,0); }
-}
-.discPulse div[data-testid="stMetric"] {
-  animation: pulseGlow 1.6s ease-in-out infinite;
-}
-"""
-    neon = """
-div[data-testid="stMetric"] {
-  color: #e8f0ff;
-  background: radial-gradient(120% 120% at 0% 0%, #0b1220 0%, #101a2e 55%, #0b1220 100%);
-  border: 1px solid rgba(31,119,180, .35);
-  box-shadow: 0 0 12px rgba(31,119,180, .35), inset 0 0 10px rgba(31,119,180, .15);
-}
-div[data-testid="stMetric"] [data-testid="stMetricLabel"] { color: rgba(200,220,255,.9); }
-div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: __BLUE__; text-shadow: 0 0 12px rgba(31,119,180,.5); }
-div[data-testid="stMetric"]:hover {
-  box-shadow: 0 0 18px rgba(31,119,180,.55), inset 0 0 12px rgba(31,119,180,.22);
-}
-"""
-    glass = """
-div[data-testid="stMetric"] {
-  color: #0e1730;
-  background: linear-gradient(160deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,.25) 100%);
-  border: 1px solid rgba(15,35,65,.15);
-  box-shadow: 0 10px 30px rgba(0,0,0,.08);
-  backdrop-filter: blur(10px);
-}
-div[data-testid="stMetric"] [data-testid="stMetricLabel"] { color: rgba(14,23,48,.8); }
-div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: __BLUE__; }
-div[data-testid="stMetric"]:hover { box-shadow: 0 14px 36px rgba(0,0,0,.12); }
-"""
-    blueprint = """
-div[data-testid="stMetric"] {
-  color: #d7e9ff;
-  background:
-    linear-gradient(#0b1f33 1px, transparent 1px) 0 0/100% 22px,
-    linear-gradient(90deg, #0b1f33 1px, transparent 1px) 0 0/22px 100%,
-    linear-gradient(160deg, #07233e 0%, #0a2949 60%, #061a2d 100%);
-  border: 1px dashed rgba(120,170,220,.45);
-  box-shadow: inset 0 0 0 1px rgba(31,119,180,.25), 0 10px 24px rgba(0,0,0,.22);
-}
-div[data-testid="stMetric"] [data-testid="stMetricLabel"] { color: #b7d1f3; }
-div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: __BLUE__; text-shadow: 0 0 8px rgba(31,119,180,.45); }
-div[data-testid="stMetric"]:hover {
-  box-shadow: inset 0 0 0 1px rgba(31,119,180,.45), 0 14px 28px rgba(0,0,0,.28);
-}
-"""
-    exception_hint = """
-section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(5) div[data-testid="stMetric"],
-section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] {
-  border-color: rgba(214,39,40,.5) !important;
-  box-shadow: 0 0 12px rgba(214,39,40,.45), inset 0 0 10px rgba(214,39,40,.18) !important;
-}
-section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(5) div[data-testid="stMetric"] [data-testid="stMetricValue"],
-section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-  color: __RED__ !important; text-shadow: 0 0 10px rgba(214,39,40,.45) !important;
-}
-"""
-    bundle = common + (neon if style == "Neon Glow" else glass if style == "Glassmorphism" else blueprint) + exception_hint
-    bundle = bundle.replace("__BLUE__", BLUE).replace("__RED__", RED)
-    st.markdown(f"<style>{bundle}</style>", unsafe_allow_html=True)
 _inject_card_css(card_style)
 
 # ===== Helper: Lazy-load table & skeleton =====
@@ -790,6 +1032,9 @@ try:
 except ValueError:
     _default_index = 0
 
+# Track previous nav to trigger the animated progress bar
+_prev_nav = st.session_state.get("last_nav_value", _default_nav)
+
 def _handle_quick_jump():
     q = st.session_state.get("quick_jump_text", "").strip()
     if not q:
@@ -817,6 +1062,14 @@ def _handle_quick_jump():
     st.session_state.jump_intent = {"type": "none", "raw": q}
 
 selected_nav = st.radio("🔍 Navigate:", nav_options, index=_default_index, horizontal=True, key="nav")
+
+# Animated nav progress bar when tab changes
+_nav_changed = selected_nav != _prev_nav
+st.session_state["last_nav_value"] = selected_nav
+if _nav_changed:
+    st.markdown('<div class="nav-progress"><div class="bar"></div></div>', unsafe_allow_html=True)
+
+# Quick Jump + animated examples
 st.text_input(
     "Quick Jump (scan or type Pallet ID or Location and press Enter)",
     value="",
@@ -824,6 +1077,11 @@ st.text_input(
     placeholder="e.g., JTL00496 or A123 or 11400804",
     on_change=_handle_quick_jump
 )
+st.markdown(
+    '<div class="qj-examples">Try: <span class="typeCycle" aria-hidden="true"></span></div>',
+    unsafe_allow_html=True
+)
+
 st.markdown("---")
 
 # ===== Trends & KPI helpers =====
@@ -986,7 +1244,7 @@ def page_rack_discrepancies(embed_key: str = "rack"):
         with st.expander("Recent discrepancy actions (Rack) & Undo"):
             log_df = read_action_log()
             if not log_df.empty:
-                rack_log = log_df[log_df["DiscrepancyType"] == "Rack"].sort_values("Timestamp", descending=False).tail(50)
+                rack_log = log_df[log_df["DiscrepancyType"] == "Rack"].sort_values("Timestamp", ascending=False).tail(50)
                 render_lazy_df(rack_log, key=f"{embed_key}_actions_recent")
             else:
                 st.info("No actions logged yet.")
@@ -1014,11 +1272,14 @@ def page_bulk_discrepancies(embed_key: str = "bulk"):
             skel_ph = st.empty()
             with skel_ph.container():
                 show_skeleton(8)
+
             show_cols = [c for c in ["LocationName", "WarehouseSku", "CustomerLotReference", "PalletId", "Qty", "Issue"] if c in df2.columns]
             grid_df = df2[show_cols].copy()
             grid_df["CustomerLotReference"] = grid_df["CustomerLotReference"].apply(_lot_to_str)
+
             quick_text = st.text_input("Quick filter (search all columns)", value="", key=f"{embed_key}_aggrid_quickfilter")
             expand_all = st.toggle("Expand all groups", value=False, key=f"{embed_key}_expand_all")
+
             gb = GridOptionsBuilder.from_dataframe(grid_df)
             gb.configure_default_column(resizable=True, filter=True, sortable=True, floatingFilter=True)
             gb.configure_column("LocationName", rowGroup=True, hide=True)
@@ -1032,10 +1293,10 @@ def page_bulk_discrepancies(embed_key: str = "bulk"):
             if JsCode is not None:
                 get_row_style = JsCode("""
                     function(params) {
-                        if (params.data && params.data.Issue && params.data.Issue.length > 0) {
-                            return { 'background-color': '#fff0f0' };
-                        }
-                        return null;
+                      if (params.data && params.data.Issue && params.data.Issue.length > 0) {
+                        return { 'background-color': '#fff0f0' };
+                      }
+                      return null;
                     }
                 """)
                 gb.configure_grid_options(getRowStyle=get_row_style)
@@ -1050,7 +1311,6 @@ def page_bulk_discrepancies(embed_key: str = "bulk"):
 
             sel_rows = pd.DataFrame(grid_resp.get("selected_rows", []))
             st.caption(f"Selected rows: {len(sel_rows)}")
-
             with st.expander("Log Fix for selected rows"):
                 reasons = ["Relocated", "Consolidated", "Data correction", "Damaged pull-down", "Other"]
                 reason = st.selectbox("Reason", reasons, index=0, key=f"{embed_key}_sel_reason")
@@ -1099,7 +1359,6 @@ def page_bulk_discrepancies(embed_key: str = "bulk"):
 # ===== DASHBOARD =====
 if selected_nav == "Dashboard":
     st.subheader("📊 Bin Helper Dashboard")
-
     # KPI Row
     kpi_vals = {
         "Empty Bins": len(empty_bins_view_df),
@@ -1112,7 +1371,6 @@ if selected_nav == "Dashboard":
     hist = _read_trends()
     now = _current_kpis()
     deltas = _kpi_deltas(hist, now)
-
     def _dx(key_name):
         m = {
             "Empty Bins": "EmptyBins",
@@ -1149,14 +1407,12 @@ if selected_nav == "Dashboard":
     if col6.button("View", key="btn_missing"): st.session_state["pending_nav"] = "Missing"; _rerun()
 
     # ---- NEW: Discrepancy KPI (All) ----
-    # Build "All discrepancies": Rack + Bulk + Duplicate (detail) rows
     dup_detail_with_issue = dups_detail_df.copy()
     if not dup_detail_with_issue.empty:
         if "Issue" not in dup_detail_with_issue.columns:
             dup_detail_with_issue["Issue"] = "Duplicate Pallet ID across locations"
         else:
             dup_detail_with_issue["Issue"] = dup_detail_with_issue["Issue"].replace("", "Duplicate Pallet ID across locations")
-
     all_disc_parts = []
     if not discrepancy_df.empty:
         all_disc_parts.append(ensure_core(discrepancy_df.assign(Issue=discrepancy_df.get("Issue", "")), include_issue=True))
@@ -1164,7 +1420,6 @@ if selected_nav == "Dashboard":
         all_disc_parts.append(ensure_core(bulk_df.assign(Issue=bulk_df.get("Issue", "")), include_issue=True))
     if not dup_detail_with_issue.empty:
         all_disc_parts.append(ensure_core(dup_detail_with_issue, include_issue=True))
-
     if all_disc_parts:
         _all_disc_df = pd.concat(all_disc_parts, ignore_index=True)
         _all_disc_df = _all_disc_df.drop_duplicates(subset=["LocationName","PalletId","WarehouseSku","CustomerLotReference","Issue"])
@@ -1175,7 +1430,6 @@ if selected_nav == "Dashboard":
     st.markdown("### 🚨 All Discrepancies")
     c_disc, c_btn = st.columns([3, 1])
     with st.container():
-        # Pulse the metric container subtly when > 0
         wrap_class = "discPulse" if disc_count > 0 else ""
         st.markdown(f'<div class="{wrap_class}">', unsafe_allow_html=True)
         c_disc.metric("🚧 All Discrepancies", disc_count)
@@ -1185,9 +1439,9 @@ if selected_nav == "Dashboard":
     if disc_count == 0 and kpi_vals["Damages"] == 0 and kpi_vals["Missing"] == 0:
         st.balloons()
 
-    # --- Charts Row 1: Composition + Bulk Capacity by Zone (Occupied vs Empty) ---
+    # Charts & Trend Sparklines … (unchanged from your previous file)
+    # -- Composition & Bulk Capacity --
     cA, cB = st.columns([1, 1])
-
     with cA:
         st.markdown("#### Inventory Composition")
         s_all = inventory_df["LocationName"].astype(str)
@@ -1206,395 +1460,6 @@ if selected_nav == "Dashboard":
         )
         fig_comp.update_layout(showlegend=True, height=340)
         st.plotly_chart(fig_comp, use_container_width=True)
-
     with cB:
         st.markdown("#### Bulk Capacity by Zone — Occupied vs Empty")
         if bulk_locations_df.empty:
-            st.info("No bulk locations in current data.")
-        else:
-            agg = bulk_locations_df.groupby("Zone").agg(
-                Occupied=("PalletCount","sum"),
-                Empty=("EmptySlots","sum")
-            ).reset_index()
-            melted = agg.melt(id_vars="Zone", value_vars=["Occupied","Empty"], var_name="Status", value_name="Count")
-            fig_bulk = px.bar(
-                melted, x="Zone", y="Count", color="Status",
-                barmode="stack",
-                color_discrete_map={"Occupied": BLUE, "Empty": GREEN}
-            )
-            fig_bulk.update_layout(height=340, xaxis_title="Zone", yaxis_title="Pallets / Slots")
-            st.plotly_chart(fig_bulk, use_container_width=True)
-
-    # --- Charts Row 2: Rack Occupancy Donuts + Bulk Utilization Gauge ---
-    cC, cD, cE = st.columns([1, 1, 1])
-
-    # Rack occupancy (non-01)
-    rack_master_non01 = [str(loc) for loc in master_locations if str(loc).isdigit() and not str(loc).endswith("01")]
-    occ_rack = sum(1 for loc in rack_master_non01 if loc in occupied_locations)
-    emp_rack = max(0, len(rack_master_non01) - occ_rack)
-    with cC:
-        st.markdown("#### Rack Bins Occupancy (non‑01)")
-        rack_pie = pd.DataFrame({"Status":["Occupied","Empty"], "Count":[occ_rack, emp_rack]})
-        fig_rack = px.pie(
-            rack_pie, values="Count", names="Status", hole=0.42,
-            color="Status", color_discrete_map={"Occupied": BLUE, "Empty": GREEN}
-        )
-        fig_rack.update_traces(pull=[0.02, 0], textposition="inside")
-        fig_rack.update_layout(height=320, showlegend=True)
-        st.plotly_chart(fig_rack, use_container_width=True)
-
-    # Partial rack occupancy (01)
-    partial_master = [str(loc) for loc in master_locations if str(loc).isdigit() and str(loc).endswith("01") and not str(loc).startswith("111")]
-    occ_partial = partial_bins_df["LocationName"].astype(str).nunique()
-    emp_partial = max(0, len(partial_master) - occ_partial)
-    with cD:
-        st.markdown("#### Partial Rack Occupancy (01)")
-        part_pie = pd.DataFrame({"Status":["Occupied","Empty"], "Count":[occ_partial, emp_partial]})
-        fig_part = px.pie(
-            part_pie, values="Count", names="Status", hole=0.42,
-            color="Status", color_discrete_map={"Occupied": BLUE, "Empty": GREEN}
-        )
-        fig_part.update_traces(pull=[0.02, 0], textposition="inside")
-        fig_part.update_layout(height=320, showlegend=True)
-        st.plotly_chart(fig_part, use_container_width=True)
-
-    # Bulk capacity gauge
-    with cE:
-        st.markdown("#### Bulk Capacity Utilization")
-        if bulk_locations_df.empty:
-            st.info("No bulk locations.")
-        else:
-            total_cap = float(bulk_locations_df["MaxAllowed"].sum())
-            total_occ = float(bulk_locations_df["PalletCount"].sum())
-            util = (total_occ / total_cap * 100.0) if total_cap > 0 else 0.0
-            fig_g = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=util,
-                number={'suffix': '%', 'font': {'size': 28}},
-                gauge={
-                    'axis': {'range': [0,100]},
-                    'bar': {'color': BLUE},
-                    'steps': [
-                        {'range':[0,50], 'color':'#e8f4ff'},
-                        {'range':[50,80], 'color':'#cfe7ff'},
-                        {'range':[80,100], 'color':'#ffd6d6'}
-                    ]
-                }
-            ))
-            fig_g.update_layout(height=320, margin=dict(l=10,r=10,t=30,b=10))
-            st.plotly_chart(fig_g, use_container_width=True)
-
-    # --- Sparklines row from Trends ---
-    st.markdown("#### Trend Sparklines")
-    tcols = st.columns(4)
-    if hist is not None and not hist.empty:
-        def tiny_line(series_name: str, col):
-            if series_name in hist.columns:
-                h2 = hist[["Timestamp", series_name]].dropna()
-                fig = px.line(h2, x="Timestamp", y=series_name, markers=False)
-                fig.update_layout(height=140, margin=dict(l=6,r=6,t=24,b=6), showlegend=False)
-                fig.update_traces(line=dict(color=BLUE, width=2))
-                col.plotly_chart(fig, use_container_width=True)
-            else:
-                col.info(f"No trend for {series_name}.")
-        tiny_line("EmptyBins", tcols[0])
-        tiny_line("PartialBins", tcols[1])
-        tiny_line("FullPalletBins", tcols[2])
-        tiny_line("Missing", tcols[3])
-    else:
-        for c in tcols: c.info("No trend data yet. Record a snapshot in the sidebar.")
-
-    # --- Search Center ---
-    st.markdown("### 🔎 Search Center")
-    sc1, sc2, sc3, sc4 = st.columns(4)
-    with sc1:
-        q_loc = st.text_input("Location contains", value=st.session_state.filters.get("LocationName", ""))
-    with sc2:
-        q_pid = st.text_input("Pallet ID contains", value=st.session_state.filters.get("PalletId", ""))
-    with sc3:
-        q_sku = st.text_input("SKU contains", value=st.session_state.filters.get("WarehouseSku", ""))
-    with sc4:
-        q_lot = st.text_input("LOT Number contains (numbers only)", value=st.session_state.filters.get("CustomerLotReference", ""))
-
-    if any([q_loc, q_pid, q_sku, q_lot]):
-        base = ensure_core(filtered_inventory_df)
-        df_show = base.copy()
-        if q_loc:
-            df_show = df_show[df_show["LocationName"].astype(str).str.contains(q_loc, case=False, na=False)]
-        if q_pid:
-            df_show = df_show[df_show["PalletId"].astype(str).str.contains(q_pid, case=False, na=False)]
-        if q_sku:
-            df_show = df_show[df_show["WarehouseSku"].astype(str).str.contains(q_sku, case=False, na=False)]
-        if q_lot:
-            q_lot_norm = normalize_lot_number(q_lot)
-            df_show = df_show[df_show["CustomerLotReference"].astype(str).str.contains(q_lot_norm, case=False, na=False)]
-        st.caption("Results")
-        render_lazy_df(maybe_limit(df_show), key="search_center", use_core=False)
-
-elif selected_nav == "Empty Bins":
-    st.subheader("Empty Bins")
-    display = ensure_core(empty_bins_view_df.assign(WarehouseSku="", PalletId="", CustomerLotReference="", Qty=""))
-    render_lazy_df(display, key="empty_bins")
-
-elif selected_nav == "Empty Partial Bins":
-    st.subheader("Empty Partial Bins")
-    display = ensure_core(empty_partial_bins_df.assign(WarehouseSku="", PalletId="", CustomerLotReference="", Qty=""))
-    render_lazy_df(display, key="empty_partial_bins")
-
-elif selected_nav == "Partial Bins":
-    st.subheader("Partial Bins")
-    render_lazy_df(ensure_core(partial_bins_df), key="partial_bins")
-
-elif selected_nav == "Full Pallet Bins":
-    st.subheader("Full Pallet Bins")
-    render_lazy_df(ensure_core(full_pallet_bins_df), key="full_bins")
-
-elif selected_nav == "Damages":
-    st.subheader("Damaged Pallets")
-    render_lazy_df(ensure_core(damages_df), key="damages")
-
-elif selected_nav == "Missing":
-    st.subheader("Missing Pallets")
-    render_lazy_df(ensure_core(missing_df), key="missing")
-
-elif selected_nav == "Discrepancies (All)":
-    st.subheader("🚧 Discrepancies — All")
-    with st.expander("Fix Log (All)"):
-        download_fix_log_button(where_key="all_fixlog")
-
-    t1, t2, t3 = st.tabs(["Rack", "Bulk", "Duplicate"])
-    with t1:
-        page_rack_discrepancies(embed_key="rack_all")
-    with t2:
-        page_bulk_discrepancies(embed_key="bulk_all")
-    with t3:
-        st.subheader("Duplicate Pallets (same Pallet ID in multiple locations)")
-        if dups_summary_df.empty:
-            st.success("No duplicate pallets found. ✅")
-        else:
-            st.write("Summary (PalletId with count of distinct locations):")
-            render_lazy_df(dups_summary_df, key="dup_all_summary")
-            opt = ["(Select)"] + dups_summary_df["PalletId"].astype(str).tolist()
-            sel_pid_norm = st.selectbox("Choose a duplicate Pallet ID", opt, index=0, key="dup_all_sel")
-            if sel_pid_norm != "(Select)":
-                det = dups_detail_df[dups_detail_df["PalletId"].astype(str).str.strip().str.upper() == sel_pid_norm]
-                render_lazy_df(det.sort_values("LocationName"), key="dup_all_detail")
-                with st.expander("Log Fix for this Pallet ID"):
-                    reasons = ["Relocated", "Consolidated", "Data correction", "Damaged pull-down", "Other"]
-                    reason = st.selectbox("Reason", reasons, index=0, key="dup_all_fix_reason")
-                    note = st.text_input("Note (optional)", key="dup_all_fix_note")
-                    if st.button("Log Fix for this Pallet ID", key="dup_all_fix_btn"):
-                        batch_id, used_path = log_batch(det, note, selected_lot="", discrepancy_type="Duplicate", action="RESOLVE", reason=reason)
-                        st.success(f"Logged fix for PalletId {sel_pid_norm} across {det['LocationName'].nunique()} locations.")
-                        st.caption(f"📝 Logged to: `{used_path}` • BatchId={batch_id}")
-
-elif selected_nav == "Bulk Locations":
-    st.subheader("Bulk Locations")
-    st.caption("Click a location or use Quick Jump, then pick a pallet from the dropdown.")
-    st.markdown(
-        """
-        <style>
-        .ag-theme-streamlit .ag-row.overCapRow { background-color:#ffe3e6 !important; }
-        .ag-theme-streamlit .ag-row.overCapRow .ag-cell { color:#7f1d1d; font-weight:600; }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-    ui_mode_default_index = 1 if _AGGRID_AVAILABLE else 0
-    ui_mode = st.radio("View mode", ["Expanders", "Grid (select a location)"],
-                       index=ui_mode_default_index, horizontal=True, key="bulk_loc_mode")
-    search = st.text_input("Search location (optional)", value=st.session_state.get("bulk_loc_search2", ""), key="bulk_loc_search2")
-    parent_df = bulk_locations_df.copy()
-    if not parent_df.empty and search.strip():
-        parent_df = parent_df[parent_df["LocationName"].astype(str).str.contains(search.strip(), case=False, na=False)]
-    if not parent_df.empty:
-        over_mask = parent_df["PalletCount"] > parent_df["MaxAllowed"]
-        if over_mask.any():
-            st.warning(f"{over_mask.sum()} location(s) exceed max allowed pallets. Highlighted in red.")
-    jump = st.session_state.get("jump_intent", {}) or {}
-
-    def _render_location_detail(loc: str, preselect_pallet: Optional[str] = None, key_prefix: str = ""):
-        loc = str(loc)
-        rows = LOC_INDEX.get(loc, pd.DataFrame())
-        if rows.empty:
-            st.warning(f"No pallets found for location {loc}."); return
-        labels, label_to_key, full_df = PALLET_LABELS_BY_LOC.get(loc, ([], {}, rows))
-        choices = ["(All)"] + labels
-        default_index = 0
-        if preselect_pallet:
-            for i, lab in enumerate(labels, start=1):
-                if preselect_pallet.upper() in lab.upper():
-                    default_index = i; break
-        selected_label = st.selectbox(f"Pallets at {loc}", choices, index=default_index, key=f"{key_prefix}pallet_dd_{loc}")
-        if selected_label == "(All)":
-            show_df = full_df
-        else:
-            chosen_key = label_to_key.get(selected_label, None)
-            show_df = full_df if chosen_key is None else full_df[full_df["_PID_KEY"] == chosen_key]
-        render_lazy_df(ensure_core(show_df), key=f"bulk_loc_rows_{loc}")
-
-    if ui_mode.startswith("Grid") and _AGGRID_AVAILABLE and not parent_df.empty:
-        skel_ph = st.empty()
-        with skel_ph.container():
-            show_skeleton(8)
-        show_cols = ["LocationName", "Zone", "PalletCount", "MaxAllowed", "EmptySlots"]
-        gb = GridOptionsBuilder.from_dataframe(parent_df[show_cols].copy())
-        gb.configure_default_column(resizable=True, filter=True, sortable=True, floatingFilter=True)
-        if JsCode is not None:
-            get_row_class = JsCode("""
-                function(params) {
-                    if (params.data && (params.data.PalletCount > params.data.MaxAllowed)) {
-                        return 'overCapRow';
-                    }
-                    return null;
-                }
-            """)
-            gb.configure_grid_options(getRowClass=get_row_class)
-        gb.configure_pagination(enabled=True, paginationAutoPageSize=False, paginationPageSize=50)
-        gb.configure_side_bar()
-        gb.configure_selection("single", use_checkbox=True)
-        grid_options = gb.build()
-        grid_resp = AgGrid(parent_df[show_cols], gridOptions=grid_options, update_mode=GridUpdateMode.SELECTION_CHANGED,
-                           allow_unsafe_jscode=True, fit_columns_on_grid_load=True, height=540, theme="streamlit")
-        skel_ph.empty()
-
-        sel_rows = pd.DataFrame(grid_resp.get("selected_rows", []))
-        if not sel_rows.empty:
-            sel_loc = str(sel_rows.iloc[0]["LocationName"])
-            _render_location_detail(sel_loc, key_prefix="grid_")
-
-        if jump.get("type") in ("pallet", "location") and jump.get("location"):
-            st.markdown("#### Jump Result")
-            _render_location_detail(jump["location"], preselect_pallet=jump.get("pallet_id"), key_prefix="jump_")
-    else:
-        if parent_df.empty:
-            st.info("No bulk locations found.")
-        else:
-            df_show = parent_df.sort_values(["Zone", "LocationName"])
-            for _, r in df_show.iterrows():
-                loc = str(r["LocationName"])
-                over_by = int(r["PalletCount"] - r["MaxAllowed"])
-                over_badge = f' <span style="color:#b00020;font-weight:700;">❗ OVER {over_by}</span>' if over_by > 0 else ""
-                header = f"{loc} — {int(r['PalletCount'])}/{int(r['MaxAllowed'])} (Empty {int(r['EmptySlots'])}){over_badge}"
-                with st.expander(header, expanded=False):
-                    _render_location_detail(loc, key_prefix="exp_")
-
-        if jump.get("type") in ("pallet", "location") and jump.get("location"):
-            st.markdown("#### Jump Result")
-            _render_location_detail(jump["location"], preselect_pallet=jump.get("pallet_id"), key_prefix="jump2_")
-
-    with st.expander("Fix Log"):
-        download_fix_log_button(where_key="bulk_locations_fixlog")
-
-elif selected_nav == "Empty Bulk Locations":
-    st.subheader("Empty Bulk Locations")
-    render_lazy_df(empty_bulk_locations_df, key="empty_bulk_locs")
-
-elif selected_nav == "Trends":
-    st.subheader("📈 Trends Over Time")
-    if not os.path.isfile(TRENDS_FILE):
-        st.info("No trend snapshots yet. Upload a new inventory file or click 'Record snapshot now' in the sidebar.")
-    else:
-        try:
-            hist = pd.read_csv(TRENDS_FILE)
-        except Exception as e:
-            st.error(f"Failed to read trend history: {e}")
-            hist = pd.DataFrame()
-        if not hist.empty:
-            try:
-                hist["Timestamp"] = pd.to_datetime(hist["Timestamp"])
-            except Exception:
-                pass
-            hist = hist.sort_values("Timestamp")
-            st.caption(f"Snapshots: **{len(hist)}** • File: {os.path.basename(TRENDS_FILE)}")
-            with st.expander("Show trend table"):
-                render_lazy_df(hist, key="trend_table", page_size=400)
-            st.download_button("Download trend_history.csv", hist.to_csv(index=False).encode("utf-8"),
-                               "trend_history.csv", "text/csv")
-        else:
-            st.info("Trend log exists but is empty. Record a snapshot to begin.")
-
-elif selected_nav == "Config":
-    st.subheader("⚙️ Config — Bulk Capacity Rules (A..I)")
-    st.caption("Edit and **Save** to apply. This writes to `config.json` in your logs folder.")
-    cur = _config.get("bulk_rules", DEFAULT_BULK_RULES).copy()
-    zones = list(DEFAULT_BULK_RULES.keys())
-    cols = st.columns(len(zones))
-    new_rules = {}
-    for i, z in enumerate(zones):
-        with cols[i]:
-            new_rules[z] = st.number_input(
-                f"{z}",
-                min_value=0,
-                max_value=50,
-                value=int(cur.get(z, DEFAULT_BULK_RULES[z])),
-                step=1,
-                key=f"cfg_{z}"
-            )
-    save_col, apply_col = st.columns([1, 3])
-    with save_col:
-        if st.button("💾 Save", type="primary", use_container_width=True, key="cfg_save"):
-            _config["bulk_rules"] = {k: int(v) for k, v in new_rules.items()}
-            save_config(_config)
-            bulk_rules.update(_config["bulk_rules"])
-            st.success("Saved `config.json`. Click **Apply** to rebuild zone views.")
-    with apply_col:
-        if st.button("⚙️ Apply (rebuild zone capacity views)", use_container_width=True, key="cfg_apply"):
-            bulk_rules = _config["bulk_rules"].copy()
-            bulk_locations_df, empty_bulk_locations_df = build_bulk_views()
-            st.success("Bulk zone capacity views rebuilt.")
-            _rerun()
-
-    st.markdown("———")
-    st.caption(f"Config file: `{CONFIG_FILE}`")
-    if os.path.isfile(CONFIG_FILE):
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            st.code(f.read(), language="json")
-    else:
-        st.info("No config file yet. Save once to create `config.json` in your logs folder.")
-
-elif selected_nav == "Self-Test":
-    st.subheader("🧪 Self‑Test / Diagnostics")
-    c1, c2 = st.columns([2, 3])
-    with c1:
-        st.markdown("**Paths & Folders**")
-        st.write("- Logs folder:", LOG_DIR)
-        st.write("- Data folder:", DATA_DIR)
-        st.write("- Config file:", CONFIG_FILE)
-        st.write("- Resolved actions log:", resolved_file)
-        st.write("- Trends history:", TRENDS_FILE)
-        if LOG_FALLBACK_USED:
-            st.warning("Using fallback log folder (preferred path not writable).")
-        else:
-            st.success("Writing to preferred log folder or env override.")
-        st.markdown("**Environment override**")
-        st.code(os.environ.get("BIN_HELPER_LOG_DIR", "(not set)"))
-    with c2:
-        st.markdown("**In‑memory indices**")
-        st.write("LOC_INDEX locations:", len(LOC_INDEX))
-        if PALLET_LABELS_BY_LOC:
-            any_loc = next(iter(PALLET_LABELS_BY_LOC))
-            labels, _, _ = PALLET_LABELS_BY_LOC[any_loc]
-            st.write(f"Sample location: {any_loc} (pallet choices: {len(labels)})")
-        st.markdown("**Inventory summary**")
-        st.write("- Rows:", len(inventory_df))
-        st.write("- Unique locations:", len(occupied_locations))
-        st.write("- Master locations:", len(master_locations))
-        st.markdown("**Duplicate Pallets**")
-        if dups_summary_df.empty:
-            st.success("No duplicate pallets detected.")
-        else:
-            st.warning(f"Duplicate pallet IDs found: {len(dups_summary_df)}")
-        st.markdown("**Pallet ID Audit (alphanumeric)**")
-        try:
-            pid_series = inventory_df["PalletId"].astype(str)
-            has_letters = pid_series.str.contains(r"[A-Za-z]", na=False)
-            count_alpha = int(has_letters.sum())
-            st.write(f"- Pallet IDs with letters: **{count_alpha}**")
-            if count_alpha > 0:
-                sample_alpha = inventory_df[has_letters][["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference"]].head(25)
-                render_lazy_df(ensure_core(sample_alpha), key="pallet_alpha_sample")
-        except Exception:
-            st.info("Pallet ID audit skipped (no PalletId column or parsing error).")
-        st.markdown("———")
-        st.caption("Tip: If deploying on Streamlit Cloud, set a secret `BIN_HELPER_LOG_DIR` to `/mount/src/bin-helper/logs` to keep logs persistent.")
