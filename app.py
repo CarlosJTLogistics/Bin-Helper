@@ -1094,15 +1094,15 @@ def _read_trends() -> pd.DataFrame:
         return pd.DataFrame()
 
 def _current_kpis() -> dict:
+    dam_qty = int(pd.to_numeric(damages_df["Qty"], errors="coerce").fillna(0).sum()) if ("Qty" in damages_df.columns and not damages_df.empty) else 0
     return {
         "EmptyBins": len(empty_bins_view_df),
         "EmptyPartialBins": len(empty_partial_bins_df),
         "PartialBins": len(partial_bins_df),
         "FullPalletBins": len(full_pallet_bins_df),
-        "Damages": len(damages_df),
+        "Damages": dam_qty,
         "Missing": len(missing_df),
     }
-
 def _kpi_deltas(hist: pd.DataFrame, now: dict) -> Dict[str, dict]:
     out = {k: {"vs_last": None, "vs_yday": None} for k in now}
     if hist is None or hist.empty:
@@ -1151,7 +1151,7 @@ if selected_nav == "Dashboard":
         "Empty Partial Bins": len(empty_partial_bins_df),
         "Partial Bins": len(partial_bins_df),
         "Full Pallet Bins": len(full_pallet_bins_df),
-        "Damages": len(damages_df),
+        Damages": int(pd.to_numeric(damages_df["Qty"], errors="coerce").fillna(0).sum()) if ("Qty" in damages_df.columns and not damages_df.empty) else 0,
         "Missing": len(missing_df),
     }
     hist = _read_trends()
