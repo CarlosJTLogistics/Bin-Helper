@@ -1151,8 +1151,7 @@ if selected_nav == "Dashboard":
         "Empty Partial Bins": len(empty_partial_bins_df),
         "Partial Bins": len(partial_bins_df),
         "Full Pallet Bins": len(full_pallet_bins_df),
-        Damages": int(pd.to_numeric(damages_df["Qty"], errors="coerce").fillna(0).sum()) if ("Qty" in damages_df.columns and not damages_df.empty) else 0,
-        "Missing": len(missing_df),
+        "Damages": int(pd.to_numeric(damages_df["Qty"], errors="coerce").fillna(0).sum()) if ("Qty" in damages_df.columns and not damages_df.empty) else 0,        "Missing": len(missing_df),
     }
     hist = _read_trends()
     now = _current_kpis()
