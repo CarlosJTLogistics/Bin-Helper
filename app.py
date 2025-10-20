@@ -654,19 +654,13 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             results.append(rec)
 
     # Multi-pallet in racks
-    _, mp_details = _find_multi_pallet_all_racks(df2)
-    if mp_details is not None and not mp_details.empty:
-        results += mp_details.to_dict("records")
-
-    out = pd.DataFrame(results)
-    if not out.empty:
-        keep_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Issue"]
-                     if c in out.columns]
-        out = out.drop_duplicates(subset=keep_cols)
-    return out
-
-
-discrepancy_df = analyze_discrepancies(filtered_inventory_df)
+    try:
+        _, mp_details = _find_multi_pallet_all_racks(df2)
+        if mp_details is not None and not mp_details.empty:
+            results += mp_details.to_dict("records")
+    except Exception as e:
+        # Don't break the page; just warn and continue
+        st.warning(f"Multi-pallet check skipped: {e}")
 
 # ===== Duplicate Pallets (case-insensitive) =====
 def build_duplicate_pallets(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
