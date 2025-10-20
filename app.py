@@ -1370,14 +1370,15 @@ if any([q_loc, q_pid, q_sku, q_lot]):
 
 # ---- Recent Fix Actions ----
 with st.expander("🕘 Recent Actions (last 20)"):
-    log_df = read_action_log()
-    if log_df.empty:
-        st.info("No actions logged yet.")
-    else:
-        recent = log_df.sort_values("Timestamp", ascending=False).head(20)
-        render_lazy_df(recent, key="recent_actions", page_size=400)
+        log_df = read_action_log()
+        if log_df.empty:
+            st.info("No actions logged yet.")
+        else:
+            recent = log_df.sort_values("Timestamp", ascending=False).head(20)
+            render_lazy_df(recent, key="recent_actions", page_size=400)
 
-    
+# === end Dashboard ===
+
 elif selected_nav == "Empty Bins":
     st.subheader("Empty Bins")
     display = ensure_core(empty_bins_view_df.assign(WarehouseSku="", PalletId="", CustomerLotReference="", Qty=""))
