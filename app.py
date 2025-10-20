@@ -1187,12 +1187,15 @@ _auto_snapshot_if_needed()
 # ===== Dashboard =====
 if selected_nav == "Dashboard":
     st.subheader("📊 Bin Helper Dashboard")
+
+    # ---- KPI row ----
     kpi_vals = {
         "Empty Bins": len(empty_bins_view_df),
         "Empty Partial Bins": len(empty_partial_bins_df),
         "Partial Bins": len(partial_bins_df),
         "Full Pallet Bins": len(full_pallet_bins_df),
-        "Damages": int(pd.to_numeric(damages_df["Qty"], errors="coerce").fillna(0).sum()) if ("Qty" in damages_df.columns and not damages_df.empty) else 0, "Missing": len(missing_df),
+        "Damages": int(pd.to_numeric(damages_df["Qty"], errors="coerce").fillna(0).sum()) if ("Qty" in damages_df.columns and not damages_df.empty) else 0,
+        "Missing": len(missing_df),
     }
     hist = _read_trends()
     now = _current_kpis()
@@ -1208,6 +1211,7 @@ if selected_nav == "Dashboard":
         }
         k = m[key_name]
         return _delta_combo_text(deltas[k]["vs_last"], deltas[k]["vs_yday"])
+
     LBL_EMPTY = "📦 Empty Bins"
     LBL_EMPTY_PART = "🪧 Empty Partial Bins"
     LBL_PARTIAL = "📍 Partial Bins"
@@ -1222,154 +1226,156 @@ if selected_nav == "Dashboard":
     _animate_metric(k4, LBL_FULL, kpi_vals["Full Pallet Bins"], delta_text=_dx("Full Pallet Bins"))
     _animate_metric(k5, LBL_DAMAGE, kpi_vals["Damages"], delta_text=_dx("Damages"))
     _animate_metric(k6, LBL_MISSING, kpi_vals["Missing"], delta_text=_dx("Missing"))
+
     if col1.button("View", key="btn_empty"): st.session_state["pending_nav"] = "Empty Bins"; _rerun()
     if col2.button("View", key="btn_empty_partial"): st.session_state["pending_nav"] = "Empty Partial Bins"; _rerun()
     if col3.button("View", key="btn_partial"): st.session_state["pending_nav"] = "Partial Bins"; _rerun()
     if col4.button("View", key="btn_full"): st.session_state["pending_nav"] = "Full Pallet Bins"; _rerun()
     if col5.button("View", key="btn_damage"): st.session_state["pending_nav"] = "Damages"; _rerun()
     if col6.button("View", key="btn_missing"): st.session_state["pending_nav"] = "Missing"; _rerun()
-# ---- Racks Empty vs Full / Bulk Used vs Empty ----
-c0a, c0b = st.columns([1, 1])
-with c0a:
-    st.markdown("#### Racks: Empty vs Full")
-    rack_empty = int(len(empty_bins_view_df))
-    rack_full = int(len(full_pallet_bins_df))
-    df_rack_ef = pd.DataFrame({"Status": ["Empty", "Full"], "Count": [rack_empty, rack_full]})
-    fig_rack_ef = px.pie(
-        df_rack_ef, values="Count", names="Status",
-        color="Status", color_discrete_map={"Empty": RED, "Full": BLUE}, hole=0.45
-    )
-    fig_rack_ef.update_layout(showlegend=True, height=320)
-    st.plotly_chart(fig_rack_ef, use_container_width=True)
 
-with c0b:
-    st.markdown("#### Bulk Floor: Used vs Empty Slots")
-    if bulk_locations_df.empty:
-        st.info("No bulk locations in current data.")
-    else:
-        bulk_used = int(bulk_locations_df["PalletCount"].sum())
-        bulk_empty = int(bulk_locations_df["EmptySlots"].sum())
-        df_bulk_ue = pd.DataFrame({"Status": ["Used", "Empty"], "Count": [bulk_used, bulk_empty]})
-        fig_bulk_ue = px.pie(
-            df_bulk_ue, values="Count", names="Status",
-            color="Status", color_discrete_map={"Empty": RED, "Used": BLUE}, hole=0.45
+    # ---- Racks Empty vs Full / Bulk Used vs Empty ----
+    c0a, c0b = st.columns([1, 1])
+    with c0a:
+        st.markdown("#### Racks: Empty vs Full")
+        rack_empty = int(len(empty_bins_view_df))
+        rack_full = int(len(full_pallet_bins_df))
+        df_rack_ef = pd.DataFrame({"Status": ["Empty", "Full"], "Count": [rack_empty, rack_full]})
+        fig_rack_ef = px.pie(
+            df_rack_ef, values="Count", names="Status",
+            color="Status", color_discrete_map={"Empty": RED, "Full": BLUE}, hole=0.45
         )
-        fig_bulk_ue.update_layout(showlegend=True, height=320)
-        st.plotly_chart(fig_bulk_ue, use_container_width=True)
+        fig_rack_ef.update_layout(showlegend=True, height=320)
+        st.plotly_chart(fig_rack_ef, use_container_width=True)
 
-# ---- Inventory Composition / Multi‑Pallet Hotspots ----
-cA, cB = st.columns([1, 1])
-with cA:
-    st.markdown("#### Inventory Composition")
-    s_all = inventory_df["LocationName"].astype(str)
-    is_rack = s_all.str.isnumeric()
-    is_bulk = s_all.str[0].str.upper().isin(bulk_rules.keys())
-    is_special = s_all.str.upper().isin(["DAMAGE", "IBDAMAGE", "MISSING"])
-    comp = pd.DataFrame({
-        "Category": ["Rack", "Bulk", "Special"],
-        "Count": [int(is_rack.sum()), int(is_bulk.sum()), int(is_special.sum())]
-    })
-    fig_comp = px.pie(
-        comp, values="Count", names="Category",
-        color="Category", color_discrete_map={"Rack": BLUE, "Bulk": "#2ca02c", "Special": RED}, hole=0.35
-    )
-    fig_comp.update_layout(showlegend=True, height=340)
-    st.plotly_chart(fig_comp, use_container_width=True)
+    with c0b:
+        st.markdown("#### Bulk Floor: Used vs Empty Slots")
+        if bulk_locations_df.empty:
+            st.info("No bulk locations in current data.")
+        else:
+            bulk_used = int(bulk_locations_df["PalletCount"].sum())
+            bulk_empty = int(bulk_locations_df["EmptySlots"].sum())
+            df_bulk_ue = pd.DataFrame({"Status": ["Used", "Empty"], "Count": [bulk_used, bulk_empty]})
+            fig_bulk_ue = px.pie(
+                df_bulk_ue, values="Count", names="Status",
+                color="Status", color_discrete_map={"Empty": RED, "Used": BLUE}, hole=0.45
+            )
+            fig_bulk_ue.update_layout(showlegend=True, height=320)
+            st.plotly_chart(fig_bulk_ue, use_container_width=True)
 
-with cB:
-    st.markdown("#### Multi‑Pallet Hotspots (Top 10)")
-    viol_summary, _ = _find_multi_pallet_all_racks(filtered_inventory_df)
-    if viol_summary.empty:
-        st.info("No rack locations with >1 pallet.")
-    else:
-        top10 = viol_summary.sort_values("DistinctPallets", ascending=False).head(10)
-        fig_hot = px.bar(top10, x="LocationName", y="DistinctPallets", color_discrete_sequence=[RED])
-        fig_hot.update_layout(xaxis_title="Location", yaxis_title="# Distinct Pallets", height=340)
-        st.plotly_chart(fig_hot, use_container_width=True)
-
-# ---- Partial Bins by Aisle ----
-st.markdown("#### Partial Bins by Aisle (Top 12)")
-if partial_bins_df.empty:
-    st.info("No partial bins in current data.")
-else:
-    loc_series = partial_bins_df["LocationName"].astype(str)
-    aisles = loc_series.where(loc_series.str.len() >= 3, None).str[:3]
-    aisle_counts = aisles.value_counts().reset_index()
-    aisle_counts.columns = ["Aisle", "PartialBinCount"]
-    top_aisles = aisle_counts.head(12).sort_values("PartialBinCount", ascending=True)
-    fig_aisle = px.bar(
-        top_aisles, x="PartialBinCount", y="Aisle",
-        orientation="h", color_discrete_sequence=[BLUE]
-    )
-    fig_aisle.update_layout(xaxis_title="Count", yaxis_title="Aisle", height=360)
-    st.plotly_chart(fig_aisle, use_container_width=True)
-
-# ---- Bulk by Zone; Top SKUs in Partial ----
-c3a, c3b = st.columns([1, 1])
-with c3a:
-    st.markdown("#### Bulk Occupancy by Zone (Used vs Empty)")
-    if bulk_locations_df.empty:
-        st.info("No bulk occupancy to display.")
-    else:
-        z = bulk_locations_df.groupby("Zone").agg(
-            Used=("PalletCount", "sum"),
-            Empty=("EmptySlots", "sum")
-        ).reset_index()
-        z = z.sort_values("Zone")
-        z_melt = z.melt(id_vars="Zone", value_vars=["Used", "Empty"],
-                        var_name="Status", value_name="Count")
-        fig_z = px.bar(
-            z_melt, x="Zone", y="Count", color="Status",
-            color_discrete_map={"Empty": RED, "Used": BLUE},
-            barmode="stack"
+    # ---- Inventory Composition / Multi‑Pallet Hotspots ----
+    cA, cB = st.columns([1, 1])
+    with cA:
+        st.markdown("#### Inventory Composition")
+        s_all = inventory_df["LocationName"].astype(str)
+        is_rack = s_all.str.isnumeric()
+        is_bulk = s_all.str[0].str.upper().isin(bulk_rules.keys())
+        is_special = s_all.str.upper().isin(["DAMAGE", "IBDAMAGE", "MISSING"])
+        comp = pd.DataFrame({
+            "Category": ["Rack", "Bulk", "Special"],
+            "Count": [int(is_rack.sum()), int(is_bulk.sum()), int(is_special.sum())]
+        })
+        fig_comp = px.pie(
+            comp, values="Count", names="Category",
+            color="Category", color_discrete_map={"Rack": BLUE, "Bulk": "#2ca02c", "Special": RED}, hole=0.35
         )
-        fig_z.update_layout(height=360)
-        st.plotly_chart(fig_z, use_container_width=True)
+        fig_comp.update_layout(showlegend=True, height=340)
+        st.plotly_chart(fig_comp, use_container_width=True)
 
-with c3b:
-    st.markdown("#### Top SKUs in Partial Bins (Top 10)")
+    with cB:
+        st.markdown("#### Multi‑Pallet Hotspots (Top 10)")
+        viol_summary, _ = _find_multi_pallet_all_racks(filtered_inventory_df)
+        if viol_summary.empty:
+            st.info("No rack locations with >1 pallet.")
+        else:
+            top10 = viol_summary.sort_values("DistinctPallets", ascending=False).head(10)
+            fig_hot = px.bar(top10, x="LocationName", y="DistinctPallets", color_discrete_sequence=[RED])
+            fig_hot.update_layout(xaxis_title="Location", yaxis_title="# Distinct Pallets", height=340)
+            st.plotly_chart(fig_hot, use_container_width=True)
+
+    # ---- Partial Bins by Aisle ----
+    st.markdown("#### Partial Bins by Aisle (Top 12)")
     if partial_bins_df.empty:
-        st.info("No data.")
+        st.info("No partial bins in current data.")
     else:
-        sku_counts = partial_bins_df["WarehouseSku"].astype(str).value_counts().reset_index().head(10)
-        sku_counts.columns = ["SKU", "PartialPallets"]
-        fig_sku = px.bar(
-            sku_counts.sort_values("PartialPallets"),
-            x="PartialPallets", y="SKU",
+        loc_series = partial_bins_df["LocationName"].astype(str)
+        aisles = loc_series.where(loc_series.str.len() >= 3, None).str[:3]
+        aisle_counts = aisles.value_counts().reset_index()
+        aisle_counts.columns = ["Aisle", "PartialBinCount"]
+        top_aisles = aisle_counts.head(12).sort_values("PartialBinCount", ascending=True)
+        fig_aisle = px.bar(
+            top_aisles, x="PartialBinCount", y="Aisle",
             orientation="h", color_discrete_sequence=[BLUE]
         )
-        fig_sku.update_layout(height=360)
-        st.plotly_chart(fig_sku, use_container_width=True)
+        fig_aisle.update_layout(xaxis_title="Count", yaxis_title="Aisle", height=360)
+        st.plotly_chart(fig_aisle, use_container_width=True)
 
-# ---- Search Center ----
-st.markdown("### 🔎 Search Center")
-sc1, sc2, sc3, sc4 = st.columns(4)
-with sc1:
-    q_loc = st.text_input("Location contains", value=st.session_state.filters.get("LocationName", ""))
-with sc2:
-    q_pid = st.text_input("Pallet ID contains", value=st.session_state.filters.get("PalletId", ""))
-with sc3:
-    q_sku = st.text_input("SKU contains", value=st.session_state.filters.get("WarehouseSku", ""))
-with sc4:
-    q_lot = st.text_input("LOT Number contains (numbers only)", value=st.session_state.filters.get("CustomerLotReference", ""))
+    # ---- Bulk by Zone; Top SKUs in Partial ----
+    c3a, c3b = st.columns([1, 1])
+    with c3a:
+        st.markdown("#### Bulk Occupancy by Zone (Used vs Empty)")
+        if bulk_locations_df.empty:
+            st.info("No bulk occupancy to display.")
+        else:
+            z = bulk_locations_df.groupby("Zone").agg(
+                Used=("PalletCount", "sum"),
+                Empty=("EmptySlots", "sum")
+            ).reset_index()
+            z = z.sort_values("Zone")
+            z_melt = z.melt(id_vars="Zone", value_vars=["Used", "Empty"],
+                            var_name="Status", value_name="Count")
+            fig_z = px.bar(
+                z_melt, x="Zone", y="Count", color="Status",
+                color_discrete_map={"Empty": RED, "Used": BLUE},
+                barmode="stack"
+            )
+            fig_z.update_layout(height=360)
+            st.plotly_chart(fig_z, use_container_width=True)
 
-if any([q_loc, q_pid, q_sku, q_lot]):
-    base = ensure_core(filtered_inventory_df)
-    df_show = base.copy()
-    if q_loc:
-        df_show = df_show[df_show["LocationName"].astype(str).str.contains(q_loc, case=False, na=False)]
-    if q_pid:
-        df_show = df_show[df_show["PalletId"].astype(str).str.contains(q_pid, case=False, na=False)]
-    if q_sku:
-        df_show = df_show[df_show["WarehouseSku"].astype(str).str.contains(q_sku, case=False, na=False)]
-    if q_lot:
-        q_lot_norm = normalize_lot_number(q_lot)
-        df_show = df_show[df_show["CustomerLotReference"].astype(str).str.contains(q_lot_norm, case=False, na=False)]
-    st.caption("Results")
-    render_lazy_df(maybe_limit(df_show), key="search_center", use_core=False)
+    with c3b:
+        st.markdown("#### Top SKUs in Partial Bins (Top 10)")
+        if partial_bins_df.empty:
+            st.info("No data.")
+        else:
+            sku_counts = partial_bins_df["WarehouseSku"].astype(str).value_counts().reset_index().head(10)
+            sku_counts.columns = ["SKU", "PartialPallets"]
+            fig_sku = px.bar(
+                sku_counts.sort_values("PartialPallets"),
+                x="PartialPallets", y="SKU",
+                orientation="h", color_discrete_sequence=[BLUE]
+            )
+            fig_sku.update_layout(height=360)
+            st.plotly_chart(fig_sku, use_container_width=True)
 
-# ---- Recent Fix Actions ----
-with st.expander("🕘 Recent Actions (last 20)"):
+    # ---- Search Center ----
+    st.markdown("### 🔎 Search Center")
+    sc1, sc2, sc3, sc4 = st.columns(4)
+    with sc1:
+        q_loc = st.text_input("Location contains", value=st.session_state.filters.get("LocationName", ""))
+    with sc2:
+        q_pid = st.text_input("Pallet ID contains", value=st.session_state.filters.get("PalletId", ""))
+    with sc3:
+        q_sku = st.text_input("SKU contains", value=st.session_state.filters.get("WarehouseSku", ""))
+    with sc4:
+        q_lot = st.text_input("LOT Number contains (numbers only)", value=st.session_state.filters.get("CustomerLotReference", ""))
+
+    if any([q_loc, q_pid, q_sku, q_lot]):
+        base = ensure_core(filtered_inventory_df)
+        df_show = base.copy()
+        if q_loc:
+            df_show = df_show[df_show["LocationName"].astype(str).str.contains(q_loc, case=False, na=False)]
+        if q_pid:
+            df_show = df_show[df_show["PalletId"].astype(str).str.contains(q_pid, case=False, na=False)]
+        if q_sku:
+            df_show = df_show[df_show["WarehouseSku"].astype(str).str.contains(q_sku, case=False, na=False)]
+        if q_lot:
+            q_lot_norm = normalize_lot_number(q_lot)
+            df_show = df_show[df_show["CustomerLotReference"].astype(str).str.contains(q_lot_norm, case=False, na=False)]
+        st.caption("Results")
+        render_lazy_df(maybe_limit(df_show), key="search_center", use_core=False)
+
+    # ---- Recent Fix Actions ----
+    with st.expander("🕘 Recent Actions (last 20)"):
         log_df = read_action_log()
         if log_df.empty:
             st.info("No actions logged yet.")
@@ -1377,7 +1383,7 @@ with st.expander("🕘 Recent Actions (last 20)"):
             recent = log_df.sort_values("Timestamp", ascending=False).head(20)
             render_lazy_df(recent, key="recent_actions", page_size=400)
 
-# === end Dashboard === #
+# === end Dashboard ===
 
 elif selected_nav == "Empty Bins":
     st.subheader("Empty Bins")
