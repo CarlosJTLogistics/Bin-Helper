@@ -3,11 +3,12 @@
 Bin Helper — streamlined, animated inventory dashboard with NLQ, discrepancies,
 bulk capacity rules, fix logs, robust logging, and persistent trend analytics.
 
-This build:
+This build (2025-10-20):
 - Removes the Multi‑Pallet Hotspots graph.
 - Adds Racks: Empty vs Full + Bulk: Used vs Empty donuts.
 - Removes standalone "Fix Log (All)" tab (Fix Log lives inside Discrepancies).
 - Fixes Trends download button (trend_history.csv).
+- Restores Fix Discrepancy toolbar for Rack, Bulk, and Duplicate tabs.
 """
 
 # -------------------- Imports --------------------
@@ -499,6 +500,7 @@ def _mk_pallet_labels(df: pd.DataFrame):
         except Exception:
             qty_i = qty
         return f"QTY {qty_i:>3} — {pid} — SKU {sku} — LOT {lot}", qty_i
+
     df["_PID_KEY"] = df["PalletId"].where(df["PalletId"].astype(str).str.len() > 0, df.index.astype(str))
     uniq = df.drop_duplicates(subset=["_PID_KEY"]).copy()
     tmp = [(_label(r), r) for _, r in uniq.iterrows()]
@@ -686,6 +688,7 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
         keep_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Issue"] if c in out.columns]
         out = out.drop_duplicates(subset=keep_cols)
     return out
+
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
 # --- UPDATED: exclude IB* in duplicate pallets ---
@@ -995,6 +998,63 @@ def show_skeleton(n_rows: int = 8):
     with st.container():
         for _ in range(n_rows):
             st.markdown('<div class="skel-row"></div>', unsafe_allow_html=True)
+
+# ===== Fix Toolbar (batch resolve) =====
+def fix_toolbar(table_df: pd.DataFrame, discrepancy_type: str, key_prefix: str = ""):
+    """
+    Renders checkbox-per-row selection and a Resolve button that logs actions
+    to resolved_discrepancies.csv via log_batch(...).
+
+    table_df: DataFrame including core cols: LocationName, PalletId, WarehouseSku,
+              CustomerLotReference, Qty, Issue(optional)
+    discrepancy_type: e.g., "Rack/Partial", "Bulk", "Duplicate"
+    """
+    if table_df is None or table_df.empty:
+        st.info("Nothing to fix here.")
+        return
+
+    view_df = table_df.copy().reset_index(drop=True)
+
+    with st.form(key=f"{key_prefix}form_{discrepancy_type}"):
+        st.markdown("**Select rows to resolve**")
+
+        chosen_idx = []
+        # Compact checkbox list (no AgGrid dependency)
+        for i, r in view_df.iterrows():
+            label = f"{r.get('LocationName','')} | PID: {r.get('PalletId','')} | SKU: {r.get('WarehouseSku','')} | LOT: {r.get('CustomerLotReference','')} | QTY: {r.get('Qty','')}"
+            checked = st.checkbox(label, key=f"{key_prefix}cb_{discrepancy_type}_{i}")
+            if checked:
+                chosen_idx.append(i)
+
+        st.divider()
+        c1, c2, c3 = st.columns([2, 2, 2])
+        with c1:
+            reason = st.text_input("Reason (optional)", key=f"{key_prefix}reason_{discrepancy_type}")
+        with c2:
+            selected_lot = st.text_input("Selected LOT (optional)", key=f"{key_prefix}lot_{discrepancy_type}")
+        with c3:
+            note = st.text_area("Note (optional)", key=f"{key_prefix}note_{discrepancy_type}", height=80)
+
+        submitted = st.form_submit_button("✅ Resolve Selected")
+        if submitted:
+            if not chosen_idx:
+                st.warning("Select at least one row to resolve.")
+                return
+            subset = view_df.iloc[chosen_idx].copy()
+            # Ensure required columns exist before logging
+            for c in ["LocationName","PalletId","WarehouseSku","CustomerLotReference","Qty","Issue"]:
+                if c not in subset.columns:
+                    subset[c] = ""
+            batch_id, used_path = log_batch(
+                df_rows=subset,
+                note=note,
+                selected_lot=selected_lot,
+                discrepancy_type=discrepancy_type,
+                action="RESOLVE",
+                reason=reason or ""
+            )
+            st.success(f"Logged {len(subset)} item(s) as RESOLVE. Batch: {batch_id}")
+            st.caption(f"Log file: {used_path}")
 
 # ===== Robust single KPI helper =====
 def _animate_metric(ph, label: str, value, delta_text=None, duration_ms: int = 600, steps: int = 20):
@@ -1450,12 +1510,13 @@ elif selected_nav == "Discrepancies (All)":
     _inject_card_css(card_style)
     st.subheader("🛠️ Discrepancies — All")
 
-    # Keep Fix Log inside Discrepancies
     with st.expander("Fix Log (All)"):
+        st.caption("Use the ✅ Resolve Selected buttons in the tabs below to log fixes. Download the full log here anytime.")
         download_fix_log_button(where_key="all_fixlog")
 
     t1, t2, t3 = st.tabs(["Rack", "Bulk", "Duplicate"])
 
+    # ---- Rack / Partial ----
     with t1:
         st.markdown("#### Rack / Partial Issues")
         rack_all_df = discrepancy_df.copy()
@@ -1464,19 +1525,23 @@ elif selected_nav == "Discrepancies (All)":
         else:
             show_rack = ensure_core(rack_all_df, include_issue=True)
             render_lazy_df(show_rack, key="disc_rack", use_core=False, include_issue=True)
+            # Fix toolbar for Rack/Partial discrepancies
+            fix_toolbar(show_rack, discrepancy_type="Rack/Partial", key_prefix="rack_")
         with st.expander("Issue Breakdown"):
-            if "Issue" in rack_all_df.columns:
+            if not rack_all_df.empty and "Issue" in rack_all_df.columns:
                 brk = rack_all_df["Issue"].value_counts(dropna=False).reset_index()
                 brk.columns = ["Issue", "Count"]
                 st.dataframe(brk, use_container_width=True)
             else:
                 st.info("No Issue column available.")
 
+    # ---- Bulk ----
     with t2:
         st.markdown("#### Bulk Over-Capacity Issues")
         bulk_issues_df = bulk_df.copy()
         if bulk_issues_df.empty:
             st.success("No bulk over-capacity found.")
+            tmp = pd.DataFrame()
         else:
             tmp = bulk_issues_df.copy()
             try:
@@ -1492,18 +1557,24 @@ elif selected_nav == "Discrepancies (All)":
                 pass
             show_bulk = ensure_core(tmp, include_issue=True)
             render_lazy_df(show_bulk, key="disc_bulk", use_core=False, include_issue=True)
+            # Fix toolbar for Bulk discrepancies
+            fix_toolbar(show_bulk, discrepancy_type="Bulk", key_prefix="bulk_")
         with st.expander("Summary by Location"):
             try:
-                loc_counts = tmp.groupby("LocationName").size().reset_index(name="PalletsListed")
-                if not bulk_locations_df.empty and "MaxAllowed" in bulk_locations_df.columns:
-                    loc_counts = loc_counts.merge(
-                        bulk_locations_df[["LocationName", "MaxAllowed"]],
-                        on="LocationName", how="left"
-                    )
-                st.dataframe(loc_counts.sort_values("PalletsListed", ascending=False), use_container_width=True)
+                if not tmp.empty:
+                    loc_counts = tmp.groupby("LocationName").size().reset_index(name="PalletsListed")
+                    if not bulk_locations_df.empty and "MaxAllowed" in bulk_locations_df.columns:
+                        loc_counts = loc_counts.merge(
+                            bulk_locations_df[["LocationName", "MaxAllowed"]],
+                            on="LocationName", how="left"
+                        )
+                    st.dataframe(loc_counts.sort_values("PalletsListed", ascending=False), use_container_width=True)
+                else:
+                    st.info("Summary not available.")
             except Exception:
                 st.info("Summary not available.")
 
+    # ---- Duplicate ----
     with t3:
         st.markdown("#### Duplicate Pallets (same PalletId in multiple locations)")
         csum, cdet = st.columns([1, 2])
@@ -1517,12 +1588,15 @@ elif selected_nav == "Discrepancies (All)":
             st.markdown("**Details**")
             if dups_detail_df.empty:
                 st.info("No duplicate details.")
+                show_dup_details = pd.DataFrame()
             else:
                 show_dup_details = ensure_core(dups_detail_df)
                 render_lazy_df(show_dup_details, key="disc_dups_detail", use_core=False)
+                # Fix toolbar for Duplicate Pallets
+                fix_toolbar(show_dup_details, discrepancy_type="Duplicate", key_prefix="dup_")
             with st.expander("Filter details"):
                 pid_filter = st.text_input("PalletId contains", "")
-                if pid_filter.strip():
+                if pid_filter.strip() and not show_dup_details.empty:
                     filt = show_dup_details[
                         show_dup_details["PalletId"].astype(str).str.contains(pid_filter, case=False, na=False)
                     ]
