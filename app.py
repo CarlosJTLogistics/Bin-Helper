@@ -1814,4 +1814,4 @@ elif selected_nav == "Trends":
         with st.expander("Show trend table"):
             render_lazy_df(hist, key="trend_table", page_size=400)
         st.download_button("Download trend_history.csv", hist.to_csv(index=False).encode("utf-8"),
-                           "trendGot it, Carlos — here’s your **full updated `app.py`** with the changes you asked for:
+                           "trendGot it,
