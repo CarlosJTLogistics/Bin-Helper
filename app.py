@@ -1415,9 +1415,101 @@ elif selected_nav == "Discrepancies (All)":
     st.subheader("🛠️ Discrepancies — All")
     with st.expander("Fix Log (All)"):
         download_fix_log_button(where_key="all_fixlog")
+
+    # Build data fresh (already computed above, but make sure we have frames)
+    rack_all_df = discrepancy_df.copy()  # Issues found in racks/partials (from analyze_discrepancies)
+    bulk_issues_df = bulk_df.copy()      # Bulk locations over capacity (from analyze_bulk_locations_grouped)
+    dups_summary = dups_summary_df.copy()
+    dups_detail = dups_detail_df.copy()
+
     t1, t2, t3 = st.tabs(["Rack", "Bulk", "Duplicate"])
-    # ... (unchanged discrepancy pages from your current code)
-    # Keep your existing Rack / Bulk / Duplicate logic intact.
+
+    # ---- Rack tab ----
+    with t1:
+        st.markdown("#### Rack / Partial Issues")
+        if rack_all_df is None or rack_all_df.empty:
+            st.success("No rack/partial discrepancies found.")
+        else:
+            # Keep columns tight and readable
+            show_rack = ensure_core(rack_all_df, include_issue=True)
+            render_lazy_df(show_rack, key="disc_rack", use_core=False, include_issue=True)
+
+            # Quick counts by issue type
+            with st.expander("Issue Breakdown"):
+                if "Issue" in rack_all_df.columns:
+                    brk = rack_all_df["Issue"].value_counts(dropna=False).reset_index()
+                    brk.columns = ["Issue", "Count"]
+                    st.dataframe(brk, use_container_width=True)
+                else:
+                    st.info("No Issue column available.")
+
+    # ---- Bulk tab ----
+    with t2:
+        st.markdown("#### Bulk Over-Capacity Issues")
+        if bulk_issues_df is None or bulk_issues_df.empty:
+            st.success("No bulk over-capacity found.")
+        else:
+            # Add a helper column showing how many over capacity (if possible)
+            tmp = bulk_issues_df.copy()
+            # Try to compute actual overage per location (optional)
+            try:
+                tmp["OverBy"] = (
+                    tmp.groupby("LocationName")["LocationName"].transform("count")
+                    - tmp["LocationName"].map(
+                        bulk_locations_df.set_index("LocationName")["MaxAllowed"]
+                        if not bulk_locations_df.empty and "MaxAllowed" in bulk_locations_df.columns
+                        else {}
+                    )
+                )
+            except Exception:
+                pass
+
+            show_bulk = ensure_core(tmp, include_issue=True)
+            render_lazy_df(show_bulk, key="disc_bulk", use_core=False, include_issue=True)
+
+            with st.expander("Summary by Location"):
+                try:
+                    loc_counts = tmp.groupby("LocationName").size().reset_index(name="PalletsListed")
+                    if not bulk_locations_df.empty and "MaxAllowed" in bulk_locations_df.columns:
+                        loc_counts = loc_counts.merge(
+                            bulk_locations_df[["LocationName", "MaxAllowed"]],
+                            on="LocationName", how="left"
+                        )
+                    st.dataframe(loc_counts.sort_values("PalletsListed", ascending=False),
+                                 use_container_width=True)
+                except Exception:
+                    st.info("Summary not available.")
+
+    # ---- Duplicate tab ----
+    with t3:
+        st.markdown("#### Duplicate Pallets (same PalletId in multiple locations)")
+        csum, cdet = st.columns([1, 2])
+
+        with csum:
+            st.markdown("**Summary (by PalletId)**")
+            if dups_summary is None or dups_summary.empty:
+                st.success("No duplicate pallets detected.")
+            else:
+                st.dataframe(dups_summary, use_container_width=True)
+
+        with cdet:
+            st.markdown("**Details**")
+            if dups_detail is None or dups_detail.empty:
+                st.info("Select a PalletId from summary and filter below, or review full details.")
+            show_dup_details = ensure_core(dups_detail)
+            render_lazy_df(show_dup_details, key="disc_dups_detail", use_core=False)
+
+            # Simple filter for details
+            with st.expander("Filter details"):
+                pid_filter = st.text_input("PalletId contains", "")
+                if pid_filter.strip():
+                    filt = show_dup_details[
+                        show_dup_details["PalletId"].astype(str).str.contains(pid_filter, case=False, na=False)
+                    ]
+                    if filt.empty:
+                        st.info("No matching rows.")
+                    else:
+                        st.dataframe(filt, use_container_width=True)
 
 elif selected_nav == "Ask Bin Helper (Beta)":
     page_ask_bin_helper()
