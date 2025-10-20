@@ -348,27 +348,28 @@ def get_empty_partial_bins(master_locs: set, occupied_locs: set) -> pd.DataFrame
     empty_partial = sorted(partial_candidates - set(occupied_locs))
     return pd.DataFrame({"LocationName": empty_partial})
 
-def _find_multi_pallet_all_racks(df: pd.DataFrame):
-    df2 = exclude_damage_missing(df).copy()
-    df2["LocationName"] = df2["LocationName"].astype(str).str.strip()
-    s = df2["LocationName"].astype(str)
-    rack_df = df2[s.str.isnumeric()].copy()
-    if rack_df.empty:
-        return pd.DataFrame(columns=["LocationName", "DistinctPallets"]), pd.DataFrame()
-    grp = (rack_df.groupby("LocationName")["PalletId"].nunique(dropna=True).reset_index(name="DistinctPallets"))
-    viol = grp[grp["DistinctPallets"] > 1]
-    if viol.empty:
-        return grp.iloc[0:0], pd.DataFrame()
-    viol_locs = set(viol["LocationName"])
-    details = rack_df[rack_df["LocationName"].isin(viol_locs)].copy()
-    locs = details["LocationName"].astype(str)
-    details["Issue"] = [
-        "Multiple pallets in partial bin" if (loc.endswith("01") and not loc.startswith("111"))
-        else "Multiple pallets in rack location"
-        for loc in locs
-    ]
-    details = details.merge(viol, on="LocationName", how="left")
-    return viol.sort_values("DistinctPallets", ascending=False), details
+def analyze_bulk_locations_grouped(df: pd.DataFrame) -> pd.DataFrame:
+    df2 = exclude_damage_missing(df)
+    # NEW: remove IB* locations from discrepancies
+    df2 = df2[~df2["LocationName"].astype(str).str.upper().str.startswith("IB")]
+
+    results = []
+    letter_mask = df2["LocationName"].str[0].str.upper().isin(bulk_rules.keys())
+    df2 = df2[letter_mask]
+    if df2.empty:
+        return pd.DataFrame()
+
+    slot_counts = df2.groupby("LocationName").size()
+    for slot, count in slot_counts.items():
+        zone = str(slot)[0].upper()
+        max_pallets = bulk_rules.get(zone)
+        if max_pallets is not None and count > max_pallets:
+            slot_df = df2[df2["LocationName"] == slot]
+            for _, row in slot_df.iterrows():
+                rec = row.to_dict()
+                rec["Issue"] = f"Exceeds max allowed: {count} > {max_pallets}"
+                results.append(rec)
+    return pd.DataFrame(results)
 
 # ===== Config: bulk capacity =====
 DEFAULT_BULK_RULES = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
@@ -627,7 +628,11 @@ bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
 
 def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
+    # NEW: remove IB* locations from discrepancies
+    df2 = df2[~df2["LocationName"].astype(str).str.upper().str.startswith("IB")]
+
     results = []
+
     # Partial bin issues
     p_df = get_partial_bins(df2)
     if not p_df.empty:
@@ -636,6 +641,7 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             issue = "Qty too high for partial bin" if row["Qty"] > 5 else "Multiple pallets in partial bin"
             rec = row.to_dict(); rec["Issue"] = issue
             results.append(rec)
+
     # Full rack issues
     s = df2["LocationName"].astype(str)
     full_mask = ((~s.str.endswith("01")) | (s.str.startswith("111"))) & s.str.isnumeric()
@@ -646,27 +652,38 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             rec = row.to_dict()
             rec["Issue"] = "Partial Pallet needs to be moved to Partial Location"
             results.append(rec)
+
     # Multi-pallet in racks
     _, mp_details = _find_multi_pallet_all_racks(df2)
     if mp_details is not None and not mp_details.empty:
         results += mp_details.to_dict("records")
+
     out = pd.DataFrame(results)
     if not out.empty:
-        keep_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Issue"] if c in out.columns]
+        keep_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Issue"]
+                     if c in out.columns]
         out = out.drop_duplicates(subset=keep_cols)
     return out
+
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
 # ===== Duplicate Pallets (case-insensitive) =====
 def build_duplicate_pallets(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     base = df.copy()
+    # NEW: remove IB* locations from duplicate discrepancy calculations
+    base = base[~base["LocationName"].astype(str).str.upper().str.startswith("IB")]
+
     base["PalletId"] = base["PalletId"].apply(normalize_pallet_id)
     base["PalletId_norm"] = base["PalletId"].astype(str).str.strip().str.upper()
+
     grp = base.groupby("PalletId_norm")["LocationName"].nunique().reset_index(name="DistinctLocations")
-    dups = grp[(grp["PalletId_norm"].astype(str).str.len() > 0) & (grp["DistinctLocations"] > 1)].sort_values("DistinctLocations", ascending=False)
+    dups = grp[(grp["PalletId_norm"].astype(str).str.len() > 0) & (grp["DistinctLocations"] > 1)] \
+            .sort_values("DistinctLocations", ascending=False)
+
     if dups.empty:
         return dups.rename(columns={"PalletId_norm": "PalletId"}), pd.DataFrame()
+
     dup_ids = set(dups["PalletId_norm"])
     details = base[base["PalletId_norm"].isin(dup_ids)].copy()
     dups = dups.rename(columns={"PalletId_norm": "PalletId"})
