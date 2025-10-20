@@ -514,7 +514,7 @@ def _file_freshness_panel():
                 since_snap = f"{int(since.total_seconds()//60)} min"
         except Exception:
             pass
-    st.caption(f"**File:** {name} • **Modified:** {mtime.strftime('%Y-%m-%d %H:%M:%S') if mtime else 'n/a'} • **Age:** {age_txt} • **MD5:** {md5_short} • **Since last snapshot:** {since_snap}")
+    st.caption(f"**File:** {name} • **Modified:** {mtime.strftime('%Y-%m-%d %I:%M:%S %p') if mtime else 'n/a'} • **Age:** {age_txt} • **MD5:** {md5_short} • **Since last snapshot:** {since_snap}")
 
 _file_freshness_panel()
 
@@ -550,7 +550,7 @@ def _row_key(row: dict, discrepancy_type: str) -> str:
 def log_action(row: dict, note: str, selected_lot: str, discrepancy_type: str, action: str, batch_id: str, reason: str = "") -> Tuple[bool, str, str]:
     has_reason = _resolved_has_reason()
     csv_row_v1 = [
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        datetime.now().strftime("%Y-%m-%d %I:%M:%S %p"),
         action, batch_id, discrepancy_type, _row_key(row, discrepancy_type),
         row.get("LocationName", ""), row.get("PalletId", ""), row.get("WarehouseSku", ""),
         row.get("CustomerLotReference", ""), row.get("Qty", ""), row.get("Issue", ""),
@@ -1138,7 +1138,7 @@ def _ensure_trend_file():
 
 def _append_trend_row(kpis: dict):
     row = [
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        datetime.now().strftime("%Y-%m-%d %I:%M:%S %p"),
         kpis["EmptyBins"], kpis["EmptyPartialBins"], kpis["PartialBins"], kpis["FullPalletBins"],
         kpis["Damages"], kpis["Missing"],
         kpis["RackCount"], kpis["BulkCount"], kpis["SpecialCount"],
