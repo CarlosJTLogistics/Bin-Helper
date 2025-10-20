@@ -3,7 +3,6 @@
 Bin Helper — streamlined, animated inventory dashboard with NLQ, discrepancies,
 bulk capacity rules, fix logs, and robust local/cloud-safe logging.
 """
-
 # ---------- Imports ----------
 import os
 import csv
@@ -14,7 +13,6 @@ import hashlib  # file hash (trend de-dup)
 import tempfile  # SAFEGUARD: fallback dirs
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, Dict, List, Union
-
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -23,7 +21,6 @@ import requests
 
 # ---------- PAGE CONFIG (must be the first Streamlit call) ----------
 st.set_page_config(page_title="Bin Helper", layout="wide")
-
 # Allow BIN_HELPER_LOG_DIR via Streamlit Secrets as well (safe AFTER page_config)
 try:
     if "BIN_HELPER_LOG_DIR" in st.secrets:
@@ -45,7 +42,7 @@ except Exception:
 
 # ---------- THEME COLORS ----------
 BLUE = "#1f77b4"  # Plotly classic blue
-RED = "#d62728"   # Plotly classic red
+RED  = "#d62728"  # Plotly classic red
 px.defaults.template = "plotly_white"
 
 # ---------- SESSION STATE ----------
@@ -120,7 +117,6 @@ def _resolve_writable_dir(preferred: Optional[str], purpose: str = "logs") -> Tu
     app_dir = os.path.dirname(os.path.abspath(__file__))
     candidates.append(os.path.join(app_dir, purpose))
     candidates.append(os.path.join(tempfile.gettempdir(), f"bin-helper-{purpose}"))
-
     for d in candidates:
         try:
             os.makedirs(d, exist_ok=True)
@@ -131,7 +127,6 @@ def _resolve_writable_dir(preferred: Optional[str], purpose: str = "logs") -> Tu
             return d, (d != preferred)
         except Exception:
             continue
-
     d = os.getcwd()
     try:
         test_path = os.path.join(d, ".write_test")
@@ -152,7 +147,6 @@ def _safe_append_csv(path: str, header: List[str], row: List) -> Tuple[bool, str
                 w.writerow(header)
             w.writerow(row)
         return True, p
-
     try:
         ok, used = _try_write(path)
         return True, used, ""
@@ -169,11 +163,9 @@ def _safe_append_csv(path: str, header: List[str], row: List) -> Tuple[bool, str
 PREFERRED_LOG_DIR = r"C:\Users\carlos.pacheco.MYA-LOGISTICS\OneDrive - JT Logistics\bin-helper\logs"
 LOG_DIR, LOG_FALLBACK_USED = _resolve_writable_dir(PREFERRED_LOG_DIR, purpose="logs")
 DATA_DIR, DATA_FALLBACK_USED = _resolve_writable_dir(os.path.join(os.path.dirname(LOG_DIR), "data"), purpose="data")
-
 CONFIG_FILE = os.path.join(LOG_DIR, "config.json")
 resolved_file = os.path.join(LOG_DIR, "resolved_discrepancies.csv")
 TRENDS_FILE = os.path.join(LOG_DIR, "trend_history.csv")
-
 DEFAULT_INVENTORY_FILE = "ON_HAND_INVENTORY.xlsx"
 DEFAULT_MASTER_FILE = "Empty Bin Formula.xlsx"
 
@@ -247,13 +239,11 @@ def _load_excel(path: str, sheet_name=0):
 
 inventory_file = st.session_state.inventory_path or DEFAULT_INVENTORY_FILE
 master_file = DEFAULT_MASTER_FILE
-
 try:
     inventory_df = _load_excel(inventory_file)
 except Exception as e:
     st.error(f"Failed to load inventory file: {inventory_file}. Error: {e}")
     st.stop()
-
 try:
     master_df = _load_excel(master_file, sheet_name="Master Locations")
 except Exception:
@@ -280,8 +270,7 @@ def normalize_pallet_id(val) -> str:
     """
     Preserve alphanumeric Pallet IDs (e.g., 'JTL00496').
     - Trim whitespace.
-    - If value is pure integer-like (e.g., '123.0'), coerce to '123'.
-    - Otherwise, keep as-is.
+    - If integer-like (e.g., '123.0'), coerce to '123'.
     """
     try:
         if pd.isna(val):
@@ -292,7 +281,6 @@ def normalize_pallet_id(val) -> str:
     if re.fullmatch(r"\d+(\.0+)?", s):
         s = s.split(".")[0]
     return s
-
 def ensure_numeric_col(df: pd.DataFrame, col: str, default: Union[float, int] = 0):
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(default)
@@ -304,7 +292,6 @@ ensure_numeric_col(inventory_df, "PalletCount", 0)
 for c in ["LocationName", "PalletId", "CustomerLotReference", "WarehouseSku"]:
     if c not in inventory_df.columns:
         inventory_df[c] = ""
-
 inventory_df["LocationName"] = inventory_df["LocationName"].astype(str)
 inventory_df["PalletId"] = inventory_df["PalletId"].apply(normalize_pallet_id)  # keep alphanumeric
 inventory_df["CustomerLotReference"] = inventory_df["CustomerLotReference"].apply(normalize_lot_number)
@@ -340,7 +327,7 @@ def get_partial_bins(df: pd.DataFrame) -> pd.DataFrame:
 def get_full_pallet_bins(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     s = df2["LocationName"].astype(str)
-    # Full pallet bins: numeric locations that are (not '...01' OR start with '111') and Qty between 6 and 15
+    # Full pallet bins: numeric locations that are (not '...01' OR starts with '111') and Qty between 6 and 15
     mask = ((~s.str.endswith("01")) | (s.str.startswith("111"))) & s.str.isnumeric() & df2["Qty"].between(6, 15)
     return df2.loc[mask].copy()
 
@@ -389,7 +376,7 @@ def load_config() -> dict:
                 raw = json.load(f)
             if isinstance(raw, dict) and "bulk_rules" in raw and isinstance(raw["bulk_rules"], dict):
                 cfg["bulk_rules"] = {str(k).upper(): int(v) for k, v in raw["bulk_rules"].items()
-                                    if str(k).upper() in DEFAULT_BULK_RULES}
+                                     if str(k).upper() in DEFAULT_BULK_RULES}
     except Exception:
         pass
     return cfg
@@ -437,7 +424,6 @@ bulk_locations_df, empty_bulk_locations_df = build_bulk_views()
 
 # ===== Core table helpers =====
 CORE_COLS = ["LocationName", "WarehouseSku", "PalletId", "CustomerLotReference", "Qty"]
-
 def ensure_core(df: pd.DataFrame, include_issue: bool = False) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=CORE_COLS + (["Issue"] if include_issue else []))
@@ -458,7 +444,6 @@ def ensure_core(df: pd.DataFrame, include_issue: bool = False) -> pd.DataFrame:
     return out[cols]
 
 def _lot_to_str(x): return normalize_lot_number(x)
-
 def maybe_limit(df: pd.DataFrame) -> pd.DataFrame:
     return df.head(1000) if st.session_state.get("fast_tables", False) else df
 
@@ -467,7 +452,15 @@ LOC_INDEX: Dict[str, pd.DataFrame] = {}
 for loc, g in filtered_inventory_df.groupby(filtered_inventory_df["LocationName"].astype(str)):
     LOC_INDEX[str(loc)] = ensure_core(g)
 
+# ===== Pallet label builder (updated: put QTY first and sort by QTY ascending) =====
 def _mk_pallet_labels(df: pd.DataFrame):
+    """
+    Returns:
+      labels (List[str]): formatted labels sorted by Qty ASC (QTY 0..N first)
+      label_to_key (Dict[str, Any]): label -> internal row key
+      df_with_keys (pd.DataFrame)
+    Label format: "QTY {qty} — {PalletId} — SKU {sku} — LOT {lot}"
+    """
     df = df.copy()
     df["PalletId"] = df["PalletId"].apply(normalize_pallet_id)
     df["CustomerLotReference"] = df["CustomerLotReference"].apply(_lot_to_str)
@@ -478,15 +471,19 @@ def _mk_pallet_labels(df: pd.DataFrame):
         lot = r.get("CustomerLotReference", "") or "[no LOT]"
         qty = r.get("Qty", 0)
         try:
-            qty = int(qty)
+            qty_i = int(qty)
         except Exception:
-            pass
-        return f"{pid} — SKU {sku} — LOT {lot} — Qty {qty}"
+            qty_i = qty
+        # Put QTY up-front for quick scanning; left-pad to align
+        return f"QTY {qty_i:>3} — {pid} — SKU {sku} — LOT {lot}", qty_i
 
     df["_PID_KEY"] = df["PalletId"].where(df["PalletId"].astype(str).str.len() > 0, df.index.astype(str))
-    uniq = df.drop_duplicates(subset=["_PID_KEY"])
-    labels = [_label(r) for _, r in uniq.iterrows()]
-    label_to_key = { _label(r): r["_PID_KEY"] for _, r in uniq.iterrows() }
+    uniq = df.drop_duplicates(subset=["_PID_KEY"]).copy()
+    tmp = [(_label(r), r) for _, r in uniq.iterrows()]
+    # sort by Qty ascending
+    tmp_sorted = sorted(tmp, key=lambda t: (t[0][1] if isinstance(t[0][1], int) else 0, str(t[1].get("PalletId", ""))))
+    labels = [t[0][0] for t in tmp_sorted]
+    label_to_key = { (_label(r)[0]): r["_PID_KEY"] for _, r in uniq.iterrows() }
     return labels, label_to_key, df
 
 PALLET_LABELS_BY_LOC: Dict[str, Tuple[List[str], dict, pd.DataFrame]] = {}
@@ -628,7 +625,6 @@ bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
 def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     results = []
-
     # Partial bin issues
     p_df = get_partial_bins(df2)
     if not p_df.empty:
@@ -637,7 +633,6 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             issue = "Qty too high for partial bin" if row["Qty"] > 5 else "Multiple pallets in partial bin"
             rec = row.to_dict(); rec["Issue"] = issue
             results.append(rec)
-
     # Full rack issues
     s = df2["LocationName"].astype(str)
     # Full bins are numeric and (not ...01 OR startswith 111); here we find items that are NOT full (Qty outside 6..15)
@@ -649,12 +644,10 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
             rec = row.to_dict()
             rec["Issue"] = "Partial Pallet needs to be moved to Partial Location"
             results.append(rec)
-
     # Multi-pallet in racks
     _, mp_details = _find_multi_pallet_all_racks(df2)
     if mp_details is not None and not mp_details.empty:
         results += mp_details.to_dict("records")
-
     out = pd.DataFrame(results)
     if not out.empty:
         keep_cols = [c for c in ["LocationName", "PalletId", "WarehouseSku", "CustomerLotReference", "Issue"] if c in out.columns]
@@ -662,6 +655,7 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
+
 # ===== Duplicate Pallets (case-insensitive) =====
 def build_duplicate_pallets(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     base = df.copy()
@@ -680,7 +674,6 @@ dups_summary_df, dups_detail_df = build_duplicate_pallets(filtered_inventory_df)
 
 # ===== Natural Language Query (Ask Bin Helper) =====
 from dataclasses import dataclass
-
 @dataclass
 class NLQResult:
     df: pd.DataFrame
@@ -692,41 +685,34 @@ def _num_from_text(s: str) -> List[int]:
 
 def parse_comparator(q: str):
     ql = (q or "").lower()
-
     # between X and Y
     m_between = re.search(r"between\s+(\d+)\s+and\s+(\d+)", ql)
     if m_between:
         a, b = int(m_between.group(1)), int(m_between.group(2))
         lo, hi = min(a, b), max(a, b)
         return ("between", lo, hi)
-
     # ≤ like "or less", "at most", "<=", "≤"
     if re.search(r"(or\s+less|at\s+most|<=|≤)", ql):
         nums = _num_from_text(ql)
         return ("le", max(nums or [0]))
-
     # ≥ like "or more", "at least", ">=", "≥"
     if re.search(r"(or\s+more|at\s+least|>=|≥)", ql):
         nums = _num_from_text(ql)
         return ("ge", max(nums or [0]))
-
     # = exactly (exactly N, equals N, == N)
-    if re.search(r"\bexactly\b|\bequal(?:s)?\s+to\b|==", ql):
+    if re.search(r"(\bexactly\b|\bequal(?:s)?\s+to\b|==)", ql):
         nums = _num_from_text(ql)
         return ("eq", nums[0] if nums else 0)
-
     # plain "with N" -> equality default
     nums = _num_from_text(ql)
     if nums:
         return ("eq", nums[0])
-
     return (None, None)
 
 def parse_nl_query(q: str) -> NLQResult:
     ql = (q or "").strip().lower()
     if not ql:
         return NLQResult(pd.DataFrame(), "Type something like: 'show me bulk locations with 5 pallets or less'.")
-
     # --- BULK domain ---
     if "bulk" in ql:
         df = bulk_locations_df.copy()
@@ -752,7 +738,6 @@ def parse_nl_query(q: str) -> NLQResult:
             else:
                 df = df[df["EmptySlots"] >= 1]
                 return NLQResult(df, "Bulk locations with at least 1 EmptySlot.")
-
         # default: "with N pallets" -> PalletCount
         cmp = parse_comparator(ql)
         if cmp[0] == "between":
@@ -773,7 +758,6 @@ def parse_nl_query(q: str) -> NLQResult:
             return NLQResult(df, f"Bulk locations with PalletCount == {n}.")
         else:
             return NLQResult(df, "All bulk locations.")
-
     # --- DUPLICATES ---
     if "duplicate" in ql or "duplicates" in ql:
         m_pid = re.search(r"(?:pallet|pallet id)\s+([A-Za-z0-9\-]+)", q or "", re.IGNORECASE)
@@ -782,7 +766,6 @@ def parse_nl_query(q: str) -> NLQResult:
             det = dups_detail_df[dups_detail_df["PalletId"].astype(str).str.strip().str.upper() == pid_norm]
             return NLQResult(ensure_core(det), f"Duplicate detail for PalletId {pid_norm}.")
         return NLQResult(dups_summary_df.copy(), "Duplicate pallet summary (PalletId with distinct location count).")
-
     # --- PARTIAL / FULL / RACK MULTI-PALLET ---
     if "partial bin" in ql or "partial bins" in ql or "partial" in ql:
         df = ensure_core(partial_bins_df)
@@ -799,13 +782,11 @@ def parse_nl_query(q: str) -> NLQResult:
         if details is None or details.empty:
             return NLQResult(pd.DataFrame(), "No rack locations with multiple pallets.")
         return NLQResult(ensure_core(details, include_issue=True), "Rack locations with multiple pallets (detail).")
-
     # --- DAMAGES / MISSING ---
     if "damage" in ql or "damaged" in ql:
         return NLQResult(ensure_core(damages_df), "Damaged pallets.")
     if "missing" in ql:
         return NLQResult(ensure_core(missing_df), "Missing pallets.")
-
     # --- Pallet / LOT / SKU / Location queries ---
     m_pid = re.search(r"(?:pallet|pallet id)\s+([A-Za-z0-9\-]+)", q or "", re.IGNORECASE)
     if m_pid:
@@ -813,28 +794,24 @@ def parse_nl_query(q: str) -> NLQResult:
         base = ensure_core(filtered_inventory_df)
         df = base[base["PalletId"].astype(str).str.strip().str.upper() == pid.strip().upper()]
         return NLQResult(df, f'Where is pallet "{pid}"?')
-
     m_lot = re.search(r"(?:lot|lot number)\s+(\d+)", q or "", re.IGNORECASE)
     if m_lot:
         lot = normalize_lot_number(m_lot.group(1))
         base = ensure_core(filtered_inventory_df)
         df = base[base["CustomerLotReference"].astype(str).str.contains(lot, case=False, na=False)]
         return NLQResult(df, f'Rows for LOT Number "{lot}".')
-
     m_sku = re.search(r"(?:sku)\s+([A-Za-z0-9\-]+)", q or "", re.IGNORECASE)
     if m_sku:
         sku = m_sku.group(1)
         base = ensure_core(filtered_inventory_df)
         df = base[base["WarehouseSku"].astype(str).str.contains(sku, case=False, na=False)]
         return NLQResult(df, f'Rows for SKU containing "{sku}".')
-
     m_loc = re.search(r"(?:location|bin)\s+(?:contains|like)\s+([A-Za-z0-9\-]+)", q or "", re.IGNORECASE)
     if m_loc:
         frag = m_loc.group(1)
         base = ensure_core(filtered_inventory_df)
         df = base[base["LocationName"].astype(str).str.contains(frag, case=False, na=False)]
         return NLQResult(df, f'Rows where Location contains "{frag}".')
-
     # Fallback: direct location or global contains search
     base = ensure_core(filtered_inventory_df)
     guess = (q or "").strip()
@@ -902,60 +879,59 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] { font-weight: 800; }
 animation:skel 1.2s ease-in-out infinite;margin:8px 0;border-radius:6px;}
 @keyframes skel{0%{background-position:200% 0}100%{background-position:-200% 0}}
 """
-    neon = """
-div[data-testid="stMetric"] {
+    neon = f"""
+div[data-testid="stMetric"] {{
   color: #e8f0ff;
   background: radial-gradient(120% 120% at 0% 0%, #0b1220 0%, #101a2e 55%, #0b1220 100%);
   border: 1px solid rgba(31,119,180, .35);
   box-shadow: 0 0 12px rgba(31,119,180, .35), inset 0 0 10px rgba(31,119,180, .15);
-}
-div[data-testid="stMetric"] [data-testid="stMetricLabel"] { color: rgba(200,220,255,.9); }
-div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: __BLUE__; text-shadow: 0 0 12px rgba(31,119,180,.5); }
-div[data-testid="stMetric"]:hover {
+}}
+div[data-testid="stMetric"] [data-testid="stMetricLabel"] {{ color: rgba(200,220,255,.9); }}
+div[data-testid="stMetric"] [data-testid="stMetricValue"] {{ color: {BLUE}; text-shadow: 0 0 12px rgba(31,119,180,.5); }}
+div[data-testid="stMetric"]:hover {{
   box-shadow: 0 0 18px rgba(31,119,180,.55), inset 0 0 12px rgba(31,119,180,.22);
-}
+}}
 """
-    glass = """
-div[data-testid="stMetric"] {
+    glass = f"""
+div[data-testid="stMetric"] {{
   color: #0e1730;
   background: linear-gradient(160deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,.25) 100%);
   border: 1px solid rgba(15,35,65,.15);
   box-shadow: 0 10px 30px rgba(0,0,0,.08);
   backdrop-filter: blur(10px);
-}
-div[data-testid="stMetric"] [data-testid="stMetricLabel"] { color: rgba(14,23,48,.8); }
-div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: __BLUE__; }
-div[data-testid="stMetric"]:hover { box-shadow: 0 14px 36px rgba(0,0,0,.12); }
+}}
+div[data-testid="stMetric"] [data-testid="stMetricLabel"] {{ color: rgba(14,23,48,.8); }}
+div[data-testid="stMetric"] [data-testid="stMetricValue"] {{ color: {BLUE}; }}
+div[data-testid="stMetric"]:hover {{ box-shadow: 0 14px 36px rgba(0,0,0,.12); }}
 """
-    blueprint = """
-div[data-testid="stMetric"] {
+    blueprint = f"""
+div[data-testid="stMetric"] {{
   color: #d7e9ff;
   background:
-    linear-gradient(#0b1f33 1px, transparent 1px) 0 0/100% 22px,
-    linear-gradient(90deg, #0b1f33 1px, transparent 1px) 0 0/22px 100%,
-    linear-gradient(160deg, #07233e 0%, #0a2949 60%, #061a2d 100%);
+  linear-gradient(#0b1f33 1px, transparent 1px) 0 0/100% 22px,
+  linear-gradient(90deg, #0b1f33 1px, transparent 1px) 0 0/22px 100%,
+  linear-gradient(160deg, #07233e 0%, #0a2949 60%, #061a2d 100%);
   border: 1px dashed rgba(120,170,220,.45);
   box-shadow: inset 0 0 0 1px rgba(31,119,180,.25), 0 10px 24px rgba(0,0,0,.22);
-}
-div[data-testid="stMetric"] [data-testid="stMetricLabel"] { color: #b7d1f3; }
-div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: __BLUE__; text-shadow: 0 0 8px rgba(31,119,180,.45); }
-div[data-testid="stMetric"]:hover {
+}}
+div[data-testid="stMetric"] [data-testid="stMetricLabel"] {{ color: #b7d1f3; }}
+div[data-testid="stMetric"] [data-testid="stMetricValue"] {{ color: {BLUE}; text-shadow: 0 0 8px rgba(31,119,180,.45); }}
+div[data-testid="stMetric"]:hover {{
   box-shadow: inset 0 0 0 1px rgba(31,119,180,.45), 0 14px 28px rgba(0,0,0,.28);
-}
+}}
 """
-    exception_hint = """
+    exception_hint = f"""
 section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(5) div[data-testid="stMetric"],
-section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] {
+section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] {{
   border-color: rgba(214,39,40,.5) !important;
   box-shadow: 0 0 12px rgba(214,39,40,.45), inset 0 0 10px rgba(214,39,40,.18) !important;
-}
+}}
 section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(5) div[data-testid="stMetric"] [data-testid="stMetricValue"],
-section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-  color: __RED__ !important; text-shadow: 0 0 10px rgba(214,39,40,.45) !important;
-}
+section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"]:nth-of-type(6) div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
+  color: {RED} !important; text-shadow: 0 0 10px rgba(214,39,40,.45) !important;
+}}
 """
     bundle = common + (neon if style == "Neon Glow" else glass if style == "Glassmorphism" else blueprint) + exception_hint
-    bundle = bundle.replace("__BLUE__", BLUE).replace("__RED__", RED)
     st.markdown(f"<style>{bundle}</style>", unsafe_allow_html=True)
 
 _inject_card_css(card_style)
@@ -984,24 +960,18 @@ def show_skeleton(n_rows: int = 8):
 
 # ===== Robust single KPI helper (duplicate removed) =====
 def _animate_metric(ph, label: str, value, delta_text=None, duration_ms: int = 600, steps: int = 20):
-    """
-    Animates KPI numbers for a quick count-up effect.
-    Falls back gracefully if animation is disabled or anything unexpected happens.
-    """
+    """Animates KPI numbers for a quick count-up effect."""
     try:
         v_end = int(value) if value is not None else 0
         d_text = None if delta_text in (None, "") else str(delta_text)
-
         if not st.session_state.get("animate_kpis", True) or v_end <= 0:
             try:
                 ph.metric(label, v_end, delta=d_text)
             except Exception:
                 st.metric(label, v_end, delta=d_text)
             return
-
         steps = max(8, min(40, int(steps)))
         sleep_s = max(0.01, float(duration_ms) / 1000.0 / steps)
-
         for i in range(1, steps + 1):
             v = int(round(v_end * i / steps))
             try:
@@ -1009,12 +979,10 @@ def _animate_metric(ph, label: str, value, delta_text=None, duration_ms: int = 6
             except Exception:
                 st.metric(label, v)
             time.sleep(sleep_s)
-
         try:
             ph.metric(label, v_end, delta=d_text)
         except Exception:
             st.metric(label, v_end, delta=d_text)
-
     except Exception:
         try:
             ph.metric(label, value if value is not None else 0, delta=delta_text if delta_text else None)
@@ -1032,7 +1000,6 @@ nav_options = [
     # Standalone "Duplicate Pallets" removed — duplicates live inside Discrepancies
     "Bulk Locations", "Empty Bulk Locations", "Trends", "Config", "Self-Test"
 ]
-
 _default_nav = st.session_state.get("nav", "Dashboard")
 if "pending_nav" in st.session_state:
     _default_nav = st.session_state.pop("pending_nav", _default_nav)
@@ -1103,6 +1070,7 @@ def _current_kpis() -> dict:
         "Damages": dam_qty,
         "Missing": len(missing_df),
     }
+
 def _kpi_deltas(hist: pd.DataFrame, now: dict) -> Dict[str, dict]:
     out = {k: {"vs_last": None, "vs_yday": None} for k in now}
     if hist is None or hist.empty:
@@ -1129,6 +1097,7 @@ def _kpi_deltas(hist: pd.DataFrame, now: dict) -> Dict[str, dict]:
         except Exception:
             pass
     return out
+
 def _delta_text(d):
     if d is None: return None
     arrow = "▲" if d > 0 else "▼" if d < 0 else "■"
@@ -1140,23 +1109,22 @@ def _delta_combo_text(vs_last, vs_yday):
         parts.append(f"{_delta_text(vs_last)} vs last")
     if vs_yday is not None:
         parts.append(f"{_delta_text(vs_yday)} vs 24h")
-    return " \n".join(parts) if parts else None
+    return " \\\n".join(parts) if parts else None
+
 # ===== Dashboard =====
 if selected_nav == "Dashboard":
     st.subheader("📊 Bin Helper Dashboard")
-
     # KPI Row
     kpi_vals = {
         "Empty Bins": len(empty_bins_view_df),
         "Empty Partial Bins": len(empty_partial_bins_df),
         "Partial Bins": len(partial_bins_df),
         "Full Pallet Bins": len(full_pallet_bins_df),
-        "Damages": int(pd.to_numeric(damages_df["Qty"], errors="coerce").fillna(0).sum()) if ("Qty" in damages_df.columns and not damages_df.empty) else 0,        "Missing": len(missing_df),
+        "Damages": int(pd.to_numeric(damages_df["Qty"], errors="coerce").fillna(0).sum()) if ("Qty" in damages_df.columns and not damages_df.empty) else 0, "Missing": len(missing_df),
     }
     hist = _read_trends()
     now = _current_kpis()
     deltas = _kpi_deltas(hist, now)
-
     def _dx(key_name):
         m = {
             "Empty Bins": "EmptyBins",
@@ -1168,14 +1136,12 @@ if selected_nav == "Dashboard":
         }
         k = m[key_name]
         return _delta_combo_text(deltas[k]["vs_last"], deltas[k]["vs_yday"])
-
     LBL_EMPTY = "📦 Empty Bins"
     LBL_EMPTY_PART = "🪧 Empty Partial Bins"
     LBL_PARTIAL = "📍 Partial Bins"
     LBL_FULL = "🧱 Full Pallet Bins"
     LBL_DAMAGE = "🛑 Damages" + (" 🔴" if kpi_vals["Damages"] > 0 else "")
     LBL_MISSING = "🚫 Missing" + (" 🔴" if kpi_vals["Missing"] > 0 else "")
-
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     k1 = col1.empty(); k2 = col2.empty(); k3 = col3.empty(); k4 = col4.empty(); k5 = col5.empty(); k6 = col6.empty()
     _animate_metric(k1, LBL_EMPTY, kpi_vals["Empty Bins"], delta_text=_dx("Empty Bins"))
@@ -1184,7 +1150,6 @@ if selected_nav == "Dashboard":
     _animate_metric(k4, LBL_FULL, kpi_vals["Full Pallet Bins"], delta_text=_dx("Full Pallet Bins"))
     _animate_metric(k5, LBL_DAMAGE, kpi_vals["Damages"], delta_text=_dx("Damages"))
     _animate_metric(k6, LBL_MISSING, kpi_vals["Missing"], delta_text=_dx("Missing"))
-
     if col1.button("View", key="btn_empty"): st.session_state["pending_nav"] = "Empty Bins"; _rerun()
     if col2.button("View", key="btn_empty_partial"): st.session_state["pending_nav"] = "Empty Partial Bins"; _rerun()
     if col3.button("View", key="btn_partial"): st.session_state["pending_nav"] = "Partial Bins"; _rerun()
@@ -1192,12 +1157,11 @@ if selected_nav == "Dashboard":
     if col5.button("View", key="btn_damage"): st.session_state["pending_nav"] = "Damages"; _rerun()
     if col6.button("View", key="btn_missing"): st.session_state["pending_nav"] = "Missing"; _rerun()
 
-    # ---- NEW: Racks Empty vs Full / Bulk Used vs Empty ----
     c0a, c0b = st.columns([1, 1])
     with c0a:
         st.markdown("#### Racks: Empty vs Full")
         rack_empty = int(len(empty_bins_view_df))
-        rack_full = int(len(full_pallet_bins_df))
+        rack_full  = int(len(full_pallet_bins_df))
         df_rack_ef = pd.DataFrame({"Status": ["Empty", "Full"], "Count": [rack_empty, rack_full]})
         fig_rack_ef = px.pie(df_rack_ef, values="Count", names="Status",
                              color="Status", color_discrete_map={"Empty": RED, "Full": BLUE}, hole=0.45)
@@ -1208,7 +1172,7 @@ if selected_nav == "Dashboard":
         if bulk_locations_df.empty:
             st.info("No bulk locations in current data.")
         else:
-            bulk_used = int(bulk_locations_df["PalletCount"].sum())
+            bulk_used  = int(bulk_locations_df["PalletCount"].sum())
             bulk_empty = int(bulk_locations_df["EmptySlots"].sum())
             df_bulk_ue = pd.DataFrame({"Status": ["Used", "Empty"], "Count": [bulk_used, bulk_empty]})
             fig_bulk_ue = px.pie(df_bulk_ue, values="Count", names="Status",
@@ -1216,7 +1180,6 @@ if selected_nav == "Dashboard":
             fig_bulk_ue.update_layout(showlegend=True, height=320)
             st.plotly_chart(fig_bulk_ue, use_container_width=True)
 
-    # ---- Existing charts: Composition / Hotspots ----
     cA, cB = st.columns([1, 1])
     with cA:
         st.markdown("#### Inventory Composition")
@@ -1241,47 +1204,6 @@ if selected_nav == "Dashboard":
             fig_hot.update_layout(xaxis_title="Location", yaxis_title="# Distinct Pallets", height=340)
             st.plotly_chart(fig_hot, use_container_width=True)
 
-    # ---- Partial by Aisle ----
-    st.markdown("#### Partial Bins by Aisle (Top 12)")
-    if partial_bins_df.empty:
-        st.info("No partial bins in current data.")
-    else:
-        loc_series = partial_bins_df["LocationName"].astype(str)
-        aisles = loc_series.where(loc_series.str.len() >= 3, None).str[:3]
-        aisle_counts = aisles.value_counts().reset_index()
-        aisle_counts.columns = ["Aisle", "PartialBinCount"]
-        top_aisles = aisle_counts.head(12).sort_values("PartialBinCount", ascending=True)
-        fig_aisle = px.bar(top_aisles, x="PartialBinCount", y="Aisle", orientation="h", color_discrete_sequence=[BLUE])
-        fig_aisle.update_layout(xaxis_title="Count", yaxis_title="Aisle", height=360)
-        st.plotly_chart(fig_aisle, use_container_width=True)
-
-    # ---- Bulk by Zone; Top SKUs in Partial ----
-    c3a, c3b = st.columns([1, 1])
-    with c3a:
-        st.markdown("#### Bulk Occupancy by Zone (Used vs Empty)")
-        if bulk_locations_df.empty:
-            st.info("No bulk occupancy to display.")
-        else:
-            z = bulk_locations_df.groupby("Zone").agg(Used=("PalletCount", "sum"), Empty=("EmptySlots", "sum")).reset_index()
-            z = z.sort_values("Zone")
-            z_melt = z.melt(id_vars="Zone", value_vars=["Used", "Empty"], var_name="Status", value_name="Count")
-            fig_z = px.bar(z_melt, x="Zone", y="Count", color="Status",
-                           color_discrete_map={"Empty": RED, "Used": BLUE}, barmode="stack")
-            fig_z.update_layout(height=360)
-            st.plotly_chart(fig_z, use_container_width=True)
-    with c3b:
-        st.markdown("#### Top SKUs in Partial Bins (Top 10)")
-        if partial_bins_df.empty:
-            st.info("No data.")
-        else:
-            sku_counts = partial_bins_df["WarehouseSku"].astype(str).value_counts().reset_index().head(10)
-            sku_counts.columns = ["SKU", "PartialPallets"]
-            fig_sku = px.bar(sku_counts.sort_values("PartialPallets"), x="PartialPallets", y="SKU",
-                             orientation="h", color_discrete_sequence=[BLUE])
-            fig_sku.update_layout(height=360)
-            st.plotly_chart(fig_sku, use_container_width=True)
-
-    # ---- Search Center ----
     st.markdown("### 🔎 Search Center")
     sc1, sc2, sc3, sc4 = st.columns(4)
     with sc1:
@@ -1292,7 +1214,6 @@ if selected_nav == "Dashboard":
         q_sku = st.text_input("SKU contains", value=st.session_state.filters.get("WarehouseSku", ""))
     with sc4:
         q_lot = st.text_input("LOT Number contains (numbers only)", value=st.session_state.filters.get("CustomerLotReference", ""))
-
     if any([q_loc, q_pid, q_sku, q_lot]):
         base = ensure_core(filtered_inventory_df)
         df_show = base.copy()
@@ -1307,8 +1228,6 @@ if selected_nav == "Dashboard":
             df_show = df_show[df_show["CustomerLotReference"].astype(str).str.contains(q_lot_norm, case=False, na=False)]
         st.caption("Results")
         render_lazy_df(maybe_limit(df_show), key="search_center", use_core=False)
-
-    # Recent Fix Actions feed
     with st.expander("🕘 Recent Actions (last 20)"):
         log_df = read_action_log()
         if log_df.empty:
@@ -1348,16 +1267,14 @@ elif selected_nav == "Discrepancies (All)":
     with st.expander("Fix Log (All)"):
         download_fix_log_button(where_key="all_fixlog")
     t1, t2, t3 = st.tabs(["Rack", "Bulk", "Duplicate"])
-
-    # ---- Rack tab ----
+    # --- Rack tab ---
     with t1:
         st.subheader("Rack Discrepancies")
         if not discrepancy_df.empty:
             lots = ["(All)"] + sorted([_lot_to_str(x) for x in discrepancy_df["CustomerLotReference"].dropna().unique() if _lot_to_str(x)])
             sel_lot = st.selectbox("Filter by LOT", lots, index=0, key="rack_all_lot_filter",
-                                   help="Only non-empty LOTs are shown. Use (All) to see every row.")
+                help="Only non-empty LOTs are shown. Use (All) to see every row.")
             filt = discrepancy_df if sel_lot == "(All)" else discrepancy_df[discrepancy_df["CustomerLotReference"].map(_lot_to_str) == sel_lot]
-
             with st.expander("▶ Multi‑Pallet Summary (by Location)"):
                 if "Issue" in filt.columns:
                     mp_only = filt[filt["Issue"].isin(["Multiple pallets in rack location", "Multiple pallets in partial bin"])]
@@ -1377,12 +1294,10 @@ elif selected_nav == "Discrepancies (All)":
                     render_lazy_df(mp_summary_tbl, key="rack_all_mp_summary")
                 else:
                     st.info("No multi‑pallet rack locations in the current filter.")
-
             rack_display = ensure_core(filt, include_issue=True)
             render_lazy_df(rack_display, key="rack_all_disc_table")
             st.download_button("Download Rack Discrepancies CSV", discrepancy_df.to_csv(index=False).encode("utf-8"),
                                "rack_discrepancies.csv", "text/csv", key="rack_all_dl_rack")
-
             st.markdown("### ✅ Fix discrepancy by LOT")
             reasons = ["Relocated", "Consolidated", "Data correction", "Damaged pull-down", "Other"]
             lot_choices = sorted({_lot_to_str(x) for x in discrepancy_df["CustomerLotReference"].dropna().unique() if _lot_to_str(x)})
@@ -1397,7 +1312,6 @@ elif selected_nav == "Discrepancies (All)":
                     st.caption(f"📝 Logged to: `{used_path}` • BatchId={batch_id}")
             else:
                 st.info("No valid LOTs available to fix.")
-
             with st.expander("Recent discrepancy actions (Rack) & Undo"):
                 log_df = read_action_log()
                 if not log_df.empty:
@@ -1409,7 +1323,7 @@ elif selected_nav == "Discrepancies (All)":
                             last_batch = last_resolve.sort_values("Timestamp").iloc[-1]["BatchId"]
                             rows = last_resolve[last_resolve["BatchId"] == last_batch]
                             for _, r in rows.iterrows():
-                                ok, upath, err = log_action(r.to_dict(), f"UNDO of batch {last_batch}", r.get("SelectedLOT", ""), "Rack", "UNDO", str(last_batch), reason="Undo")
+                                ok, upath, err = log_action(r.to_dict(), f"UNDO of batch {last_batch}", r.get("SelectedLOT",""), "Rack", "UNDO", str(last_batch), reason="Undo")
                                 if not ok:
                                     st.error(f"Failed to write UNDO action. {err}")
                                     break
@@ -1418,26 +1332,23 @@ elif selected_nav == "Discrepancies (All)":
                             st.info("No RESOLVE actions to undo for Rack.")
                 else:
                     st.info("No actions logged yet.")
-
             st.markdown("#### Fix Log")
             download_fix_log_button(where_key="rack_all_rack_fixlog")
         else:
             st.info("No rack discrepancies found.")
 
-    # ---- Bulk tab ----
+    # --- Bulk tab ---
     with t2:
         st.subheader("Bulk Discrepancies")
         if not bulk_df.empty:
             lots = ["(All)"] + sorted([_lot_to_str(x) for x in bulk_df["CustomerLotReference"].dropna().unique() if _lot_to_str(x)])
             sel_lot = st.selectbox("Filter by LOT", lots, index=0, key="bulk_all_lot_filter",
-                                   help="Only non-empty LOTs are shown. Use (All) to see every row.")
+                help="Only non-empty LOTs are shown. Use (All) to see every row.")
             filt = bulk_df if sel_lot == "(All)" else bulk_df[bulk_df["CustomerLotReference"].map(_lot_to_str) == sel_lot]
-
             loc_search = st.text_input("Search location (optional)", value="", key="bulk_all_loc_search")
             df2 = filt.copy()
             if loc_search.strip():
                 df2 = df2[df2["LocationName"].astype(str).str.contains(loc_search.strip(), case=False, na=False)]
-
             st.markdown("#### Grouped by Location (AgGrid)")
             if not _AGGRID_AVAILABLE:
                 st.warning("`streamlit-aggrid` is not installed. Add `streamlit-aggrid==0.3.5` to requirements.txt.")
@@ -1497,14 +1408,11 @@ function(params) {
                         batch_id, used_path = log_batch(sel_rows, note, selected_lot_value, "Bulk", action="RESOLVE", reason=reason)
                         st.success(f"Logged fix for {len(sel_rows)} row(s).")
                         st.caption(f"📝 Logged to: `{used_path}` • BatchId={batch_id}")
-
             st.markdown("#### Flat view (all rows)")
             bulk_display = ensure_core(filt, include_issue=True)
             render_lazy_df(bulk_display, key="bulk_all_disc_flat")
-
             st.download_button("Download Bulk Discrepancies CSV", bulk_df.to_csv(index=False).encode("utf-8"),
                                "bulk_discrepancies.csv", "text/csv", key="bulk_all_dl_bulk")
-
             st.markdown("### ✅ Fix discrepancy by LOT")
             lot_choices = sorted({_lot_to_str(x) for x in bulk_df["CustomerLotReference"].dropna().unique() if _lot_to_str(x)})
             reasons = ["Relocated", "Consolidated", "Data correction", "Damaged pull-down", "Other"]
@@ -1519,13 +1427,12 @@ function(params) {
                     st.caption(f"📝 Logged to: `{used_path}` • BatchId={batch_id}")
             else:
                 st.info("No valid LOTs available to fix.")
-
             st.markdown("#### Fix Log")
             download_fix_log_button(where_key="bulk_all_bulk_fixlog")
         else:
             st.info("No bulk discrepancies found.")
 
-    # ---- Duplicate tab ----
+    # --- Duplicate tab ---
     with t3:
         st.subheader("Duplicate Pallets (same Pallet ID in multiple locations)")
         if dups_summary_df.empty:
@@ -1562,10 +1469,20 @@ elif selected_nav == "Bulk Locations":
 """,
         unsafe_allow_html=True
     )
+
+    # 🔽 NEW: Add "Flat Pallet List (Bulk)" view for global QTY sorting/filter
     ui_mode_default_index = 1 if _AGGRID_AVAILABLE else 0
-    ui_mode = st.radio("View mode", ["Expanders", "Grid (select a location)"], index=ui_mode_default_index, horizontal=True, key="bulk_loc_mode")
+    ui_mode = st.radio(
+        "View mode",
+        ["Expanders", "Grid (select a location)", "Flat Pallet List (Bulk)"],
+        index=ui_mode_default_index,
+        horizontal=True,
+        key="bulk_loc_mode"
+    )
+
     search = st.text_input("Search location (optional)", value=st.session_state.get("bulk_loc_search2", ""), key="bulk_loc_search2")
 
+    # Build parent location view
     parent_df = bulk_locations_df.copy()
     if not parent_df.empty and search.strip():
         parent_df = parent_df[parent_df["LocationName"].astype(str).str.contains(search.strip(), case=False, na=False)]
@@ -1578,11 +1495,13 @@ elif selected_nav == "Bulk Locations":
     jump = st.session_state.get("jump_intent", {}) or {}
 
     def _render_location_detail(loc: str, preselect_pallet: Optional[str] = None, key_prefix: str = ""):
+        """Per-location detail with updated pallet dropdown sorted by QTY asc."""
         loc = str(loc)
         rows = LOC_INDEX.get(loc, pd.DataFrame())
         if rows.empty:
             st.warning(f"No pallets found for location {loc}."); return
         labels, label_to_key, full_df = PALLET_LABELS_BY_LOC.get(loc, ([], {}, rows))
+        # choices sorted by Qty ascending already in _mk_pallet_labels; add "(All)" on top
         choices = ["(All)"] + labels
         default_index = 0
         if preselect_pallet:
@@ -1595,9 +1514,10 @@ elif selected_nav == "Bulk Locations":
         else:
             chosen_key = label_to_key.get(selected_label, None)
             show_df = full_df if chosen_key is None else full_df[full_df["_PID_KEY"] == chosen_key]
+        # Always show core columns (includes Qty) below
         render_lazy_df(ensure_core(show_df), key=f"bulk_loc_rows_{loc}")
 
-    if ui_mode.startswith("Grid") and _AGGRID_AVAILABLE and not parent_df.empty:
+    if ui_mode == "Grid (select a location)" and _AGGRID_AVAILABLE and not parent_df.empty:
         skel_ph = st.empty()
         with skel_ph.container():
             show_skeleton(8)
@@ -1629,7 +1549,42 @@ function(params) {
         if jump.get("type") in ("pallet", "location") and jump.get("location"):
             st.markdown("#### Jump Result")
             _render_location_detail(jump["location"], preselect_pallet=jump.get("pallet_id"), key_prefix="jump_")
+
+    elif ui_mode == "Flat Pallet List (Bulk)":
+        # NEW: Global flat list of bulk pallets with Qty header and sorting
+        st.markdown("#### Flat Pallet List (Bulk)")
+        base = ensure_core(filtered_inventory_df)
+        # Filter rows where the location's first character is a bulk zone letter
+        is_bulk_row = base["LocationName"].astype(str).str[0].str.upper().isin(bulk_rules.keys())
+        bulk_flat = base[is_bulk_row].copy()
+        only_low = st.toggle("Only show Qty ≤ 5", value=True, key="bulk_flat_lowqty")
+        if only_low:
+            bulk_flat = bulk_flat[pd.to_numeric(bulk_flat["Qty"], errors="coerce").fillna(0) <= 5]
+        # Optional search
+        colA, colB, colC, colD = st.columns(4)
+        with colA: f_loc = st.text_input("Filter: Location", "")
+        with colB: f_pid = st.text_input("Filter: Pallet ID", "")
+        with colC: f_sku = st.text_input("Filter: SKU", "")
+        with colD: f_lot = st.text_input("Filter: LOT", "")
+        if f_loc: bulk_flat = bulk_flat[bulk_flat["LocationName"].astype(str).str.contains(f_loc, case=False, na=False)]
+        if f_pid: bulk_flat = bulk_flat[bulk_flat["PalletId"].astype(str).str.contains(f_pid, case=False, na=False)]
+        if f_sku: bulk_flat = bulk_flat[bulk_flat["WarehouseSku"].astype(str).str.contains(f_sku, case=False, na=False)]
+        if f_lot:
+            lot_norm = normalize_lot_number(f_lot)
+            bulk_flat = bulk_flat[bulk_flat["CustomerLotReference"].astype(str).str.contains(lot_norm, case=False, na=False)]
+        # Sort by Qty ascending so lowest QTYs appear first
+        bulk_flat["Qty_num"] = pd.to_numeric(bulk_flat["Qty"], errors="coerce").fillna(0)
+        bulk_flat = bulk_flat.sort_values("Qty_num", ascending=True).drop(columns=["Qty_num"])
+        render_lazy_df(bulk_flat, key="bulk_flat_all", use_core=False, page_size=500)
+        st.download_button("Download (Bulk Flat Pallets CSV)", bulk_flat.to_csv(index=False).encode("utf-8"),
+                           "bulk_pallets_flat.csv", "text/csv")
+        # Jump intent preview (optional)
+        if jump.get("type") in ("pallet", "location") and jump.get("location"):
+            st.markdown("#### Jump Result")
+            _render_location_detail(jump["location"], preselect_pallet=jump.get("pallet_id"), key_prefix="jump2_")
+
     else:
+        # Expanders mode
         if parent_df.empty:
             st.info("No bulk locations found.")
         else:
@@ -1754,5 +1709,5 @@ elif selected_nav == "Self-Test":
                 render_lazy_df(ensure_core(sample_alpha), key="pallet_alpha_sample")
         except Exception:
             st.info("Pallet ID audit skipped (no PalletId column or parsing error).")
-    st.markdown("— — —")
-    st.caption("Tip: If deploying on Streamlit Cloud, set a secret `BIN_HELPER_LOG_DIR` to `/mount/src/bin-helper/logs` to keep logs persistent.")
+        st.markdown("— — —")
+        st.caption("Tip: If deploying on Streamlit Cloud, set a secret `BIN_HELPER_LOG_DIR` to `/mount/src/bin-helper/logs` to keep logs persistent.")
