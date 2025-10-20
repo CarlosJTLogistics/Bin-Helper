@@ -1810,8 +1810,13 @@ elif selected_nav == "Trends":
                 st.plotly_chart(fig_cum, use_container_width=True)
             else:
                 st.info("No RESOLVE actions in the log yet.")
-
-        with st.expander("Show trend table"):
-            render_lazy_df(hist, key="trend_table", page_size=400)
-        st.download_button("Download trend_history.csv", hist.to_csv(index=False).encode("utf-8"),
-                           "trendGot it,
+with st.expander("Show trend table"):
+    render_lazy_df(hist, key="trend_table", page_size=400)
+    st.download_button(
+        "Download trend_history.csv",
+        hist.to_csv(index=False).encode("utf-8"),
+        "trend_history.csv",
+        "text/csv",
+        key="dl_trend_hist"
+    )
+       
