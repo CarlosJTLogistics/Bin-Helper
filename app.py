@@ -1377,7 +1377,7 @@ with st.expander("🕘 Recent Actions (last 20)"):
             recent = log_df.sort_values("Timestamp", ascending=False).head(20)
             render_lazy_df(recent, key="recent_actions", page_size=400)
 
-# === end Dashboard ===
+# === end Dashboard === #
 
 elif selected_nav == "Empty Bins":
     st.subheader("Empty Bins")
