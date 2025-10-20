@@ -1295,7 +1295,7 @@ if selected_nav == "Dashboard":
 
 with cB:
     # Removed Multi-Pallet Hotspots graph as requested
-    st.markdown("#### Multi-Pallet Hotspots graph removed")
+    st.empty()
     
     # ---- Partial Bins by Aisle ----
     st.markdown("#### Partial Bins by Aisle (Top 12)")
