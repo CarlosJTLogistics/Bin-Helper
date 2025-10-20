@@ -1293,17 +1293,10 @@ if selected_nav == "Dashboard":
         fig_comp.update_layout(showlegend=True, height=340)
         st.plotly_chart(fig_comp, use_container_width=True)
 
-    with cB:
-        st.markdown("#### Multi‑Pallet Hotspots (Top 10)")
-        viol_summary, _ = _find_multi_pallet_all_racks(filtered_inventory_df)
-        if viol_summary.empty:
-            st.info("No rack locations with >1 pallet.")
-        else:
-            top10 = viol_summary.sort_values("DistinctPallets", ascending=False).head(10)
-            fig_hot = px.bar(top10, x="LocationName", y="DistinctPallets", color_discrete_sequence=[RED])
-            fig_hot.update_layout(xaxis_title="Location", yaxis_title="# Distinct Pallets", height=340)
-            st.plotly_chart(fig_hot, use_container_width=True)
-
+with cB:
+    # Removed Multi-Pallet Hotspots graph as requested
+    st.markdown("#### Multi-Pallet Hotspots graph removed")
+    
     # ---- Partial Bins by Aisle ----
     st.markdown("#### Partial Bins by Aisle (Top 12)")
     if partial_bins_df.empty:
