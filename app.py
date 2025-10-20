@@ -1180,31 +1180,72 @@ def _current_kpis() -> dict:
     }
 
 def _kpi_deltas(hist: pd.DataFrame, now: dict) -> Dict[str, dict]:
+    """
+    Compute deltas vs:
+      - the most recent PRIOR snapshot that differs from 'now' by FileMD5,
+        else the second-to-last row if available,
+      - and vs a snapshot ~24h earlier if available.
+
+    This avoids the "always 0" case after we just appended a snapshot for 'now'.
+    """
     out = {k: {"vs_last": None, "vs_yday": None} for k in now}
     if hist is None or hist.empty:
         return out
-    last = hist.iloc[-1] if not hist.empty else None
-    yday = None
+
+    # Ensure Timestamp is datetime
+    if "Timestamp" in hist.columns and not pd.api.types.is_datetime64_any_dtype(hist["Timestamp"]):
+        try:
+            hist = hist.copy()
+            hist["Timestamp"] = pd.to_datetime(hist["Timestamp"], errors="coerce")
+        except Exception:
+            pass
+
+    # Select a "prior" row to compare to (not the one we just appended)
+    prior_row = None
+    if len(hist) >= 2:
+        # Prefer the last row whose FileMD5 differs from current file
+        try:
+            md5_now = now.get("FileMD5", "")
+            candidates = hist.iloc[:-1]  # everything except the last snapshot
+            if "FileMD5" in candidates.columns:
+                diff_md5 = candidates[candidates["FileMD5"] != md5_now]
+                if not diff_md5.empty:
+                    prior_row = diff_md5.iloc[-1]
+            if prior_row is None:
+                # fallback to second-to-last snapshot
+                prior_row = hist.iloc[-2]
+        except Exception:
+            prior_row = hist.iloc[-2]
+    elif len(hist) == 1:
+        # If only one row, treat it as prior if it's at least ~1 minute behind
+        try:
+            ts_last = hist["Timestamp"].iloc[0]
+            if pd.notna(ts_last) and (datetime.now() - ts_last) > timedelta(minutes=1):
+                prior_row = hist.iloc[0]
+        except Exception:
+            pass
+
+    # Select a "~24h" row (closest not after 24h ago)
+    yday_row = None
     try:
-        day_ago = datetime.now() - timedelta(days=1)
-        ydf = hist[(hist["Timestamp"].dt.date == day_ago.date())]
+        cutoff = datetime.now() - timedelta(hours=24)
+        ydf = hist[hist["Timestamp"] <= cutoff]
         if not ydf.empty:
-            yday = ydf.iloc[-1]
-        else:
-            ydf2 = hist[hist["Timestamp"] <= (datetime.now() - timedelta(hours=24))]
-            if not ydf2.empty:
-                yday = ydf2.iloc[-1]
+            yday_row = ydf.iloc[-1]
     except Exception:
         pass
+
+    # Populate deltas
     for k in now:
         try:
-            if last is not None and k in last:
-                out[k]["vs_last"] = int(now[k]) - int(last[k])
-            if yday is not None and k in yday:
-                out[k]["vs_yday"] = int(now[k]) - int(yday[k])
+            if prior_row is not None and k in prior_row:
+                out[k]["vs_last"] = int(now[k]) - int(prior_row[k])
+            if yday_row is not None and k in yday_row:
+                out[k]["vs_yday"] = int(now[k]) - int(yday_row[k])
         except Exception:
             pass
     return out
+
 
 def _delta_text(d):
     if d is None: return None
@@ -1271,12 +1312,22 @@ def _auto_snapshot_if_needed():
         _append_trend_row(kpis_now)
         st.session_state["pending_trend_record"] = False
         return
-    df = _read_trends()
+   df = _read_trends()
+    # If empty and startup flag is on, write initial snapshot
     if df.empty and st.session_state.get("auto_snapshot_on_start", True):
         _append_trend_row(kpis_now)
         return
+
+    # Respect the interval but ALSO skip if same FileMD5 as last snapshot
     age = _last_snapshot_age_minutes()
-    if age is None or age >= interval_min:
+    last_md5 = None
+    try:
+        if not df.empty and "FileMD5" in df.columns:
+            last_md5 = str(df["FileMD5"].iloc[-1])
+    except Exception:
+        pass
+
+    if (age is None or age >= int(st.session_state.get("trend_interval_min", 60))) and (last_md5 != kpis_now.get("FileMD5")):
         _append_trend_row(kpis_now)
 
 # 🔔 Run the auto snapshot guard once per run (keeps Trends persistent)
