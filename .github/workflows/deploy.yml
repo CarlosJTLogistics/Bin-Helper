@@ -1,0 +1,62 @@
+﻿name: Bin Helper CI (push with token)
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+permissions:
+  contents: write   # Needed to push commits
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies (if requirements.txt exists)
+        run: |
+          if [ -f requirements.txt ]; then
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+          fi
+      - name: Validate Streamlit app imports (optional)
+        run: |
+          python - << 'PY'
+          import importlib.util, os
+          target = 'app.py'
+          if os.path.exists(target):
+              spec = importlib.util.spec_from_file_location("app", target)
+              mod = importlib.util.module_from_spec(spec)
+              spec.loader.exec_module(mod)
+              print("✅ app.py imports successfully.")
+          else:
+              print("⚠️ app.py not found—skipping import validation.")
+          PY
+      - name: Configure Git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Commit changes (if any)
+        run: |
+          set -e
+          if ! git diff --quiet; then
+            git add -A
+            git commit -m "CI: automated update"
+          else:
+            echo "No changes to commit."
+          fi
+      - name: Push using GH_TOKEN (force as needed)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          REPO_SLUG="CarlosJTLogistics/Bin-Helper"
+          BRANCH="main"
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO_SLUG}.git"
+          # Normal push (safer with branch protection):
+          # git push origin "${BRANCH}"
+          # Force push (your preference; requires no protection rules):
+          git push origin "${BRANCH}" --force
