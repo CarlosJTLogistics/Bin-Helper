@@ -1711,3 +1711,4 @@ elif selected_nav == "Self-Test":
             st.info("Pallet ID audit skipped (no PalletId column or parsing error).")
         st.markdown("— — —")
         st.caption("Tip: If deploying on Streamlit Cloud, set a secret `BIN_HELPER_LOG_DIR` to `/mount/src/bin-helper/logs` to keep logs persistent.")
+# redeploy-bump: 2025-10-21T11:48:20
