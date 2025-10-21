@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 Bin Helper â€” streamlined, animated inventory dashboard with NLQ, discrepancies,
 bulk capacity rules, fix logs, robust logging, and persistent trend analytics.
@@ -1079,6 +1079,40 @@ st.text_input(
     placeholder="e.g., JTL00496 or A123 or 11400804",
     on_change=_handle_quick_jump
 )
+
+def fix_form(discrepancy_type: str, df_rows: pd.DataFrame, key: str):
+    """Batch 'Fix discrepancy' form. Logs RESOLVE actions to resolved_discrepancies.csv."""
+    st.markdown("##### ✅ Log a fix")
+    with st.form(f"fix_form_{key}"):
+        reason = st.selectbox(
+            "Reason",
+            [
+                "Moved to correct bin",
+                "Adjusted Qty",
+                "Consolidated pallets",
+                "Relabeled/Retagged",
+                "System correction",
+                "Other",
+            ],
+            index=0,
+            key=f"reason_{key}",
+        )
+        selected_lot = st.text_input("Selected LOT (optional)", key=f"sel_lot_{key}")
+        note = st.text_area("Note (optional)", key=f"note_{key}")
+        n = 0 if df_rows is None else len(df_rows)
+        submitted = st.form_submit_button(f"Log Resolve for {n} row(s)")
+        if submitted:
+            if df_rows is None or df_rows.empty:
+                st.warning("No rows to resolve. Adjust filters or selection first.")
+            else:
+                batch_id, used_path = log_batch(
+                    df_rows, note, selected_lot,
+                    discrepancy_type=discrepancy_type,
+                    action="RESOLVE",
+                    reason=reason,
+                )
+                st.success(f"Logged RESOLVE for {n} row(s). Batch: {batch_id}. Log: {used_path}")
+
 st.markdown("---")
 
 # ===== Trends helpers (deltas for KPIs) =====
@@ -1233,7 +1267,6 @@ def _auto_snapshot_if_needed():
     age = _last_snapshot_age_minutes()
     if age is None or age >= interval_min:
         _append_trend_row(kpis_now)
-
 # 🔔 Run the auto snapshot guard once per run
 _auto_snapshot_if_needed()
 
@@ -1470,6 +1503,8 @@ elif selected_nav == "Discrepancies (All)":
         else:
             show_rack = ensure_core(rack_all_df, include_issue=True)
             render_lazy_df(show_rack, key="disc_rack", use_core=False, include_issue=True)
+        fix_form(\"Rack/Partial\", show_rack, key=\"rack\")
+
             with st.expander("Issue Breakdown"):
                 if "Issue" in rack_all_df.columns:
                     brk = rack_all_df["Issue"].value_counts(dropna=False).reset_index()
@@ -1498,6 +1533,8 @@ elif selected_nav == "Discrepancies (All)":
                 pass
             show_bulk = ensure_core(tmp, include_issue=True)
             render_lazy_df(show_bulk, key="disc_bulk", use_core=False, include_issue=True)
+        fix_form(\"Bulk Over-capacity\", show_bulk, key=\"bulk\")
+
             with st.expander("Summary by Location"):
                 try:
                     loc_counts = tmp.groupby("LocationName").size().reset_index(name="PalletsListed")
@@ -1526,6 +1563,8 @@ elif selected_nav == "Discrepancies (All)":
             else:
                 show_dup_details = ensure_core(dups_detail_df)
                 render_lazy_df(show_dup_details, key="disc_dups_detail", use_core=False)
+            fix_form(\"Duplicate Pallet\", show_dup_details, key=\"dups\")
+
                 with st.expander("Filter details"):
                     pid_filter = st.text_input("PalletId contains", "")
                     if pid_filter.strip():
@@ -1768,6 +1807,3 @@ elif selected_nav == "Trends":
     file_name="trend_history.csv",
     mime="text/csv"
 )
-
-
-
