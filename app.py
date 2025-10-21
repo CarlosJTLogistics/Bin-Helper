@@ -1392,34 +1392,6 @@ if selected_nav == "Dashboard":
             recent = log_df.sort_values("Timestamp", ascending=False).head(20)
             render_lazy_df(recent, key="recent_actions", page_size=400)
 
-# === end Dashboard ===
-
-elif selected_nav == "Empty Bins":
-    st.subheader("Empty Bins")
-    display = ensure_core(empty_bins_view_df.assign(WarehouseSku="", PalletId="", CustomerLotReference="", Qty=""))
-    render_lazy_df(display, key="empty_bins")
-
-elif selected_nav == "Empty Partial Bins":
-    st.subheader("Empty Partial Bins")
-    display = ensure_core(empty_partial_bins_df.assign(WarehouseSku="", PalletId="", CustomerLotReference="", Qty=""))
-    render_lazy_df(display, key="empty_partial_bins")
-
-elif selected_nav == "Partial Bins":
-    st.subheader("Partial Bins")
-    render_lazy_df(ensure_core(partial_bins_df), key="partial_bins")
-
-elif selected_nav == "Full Pallet Bins":
-    st.subheader("Full Pallet Bins")
-    render_lazy_df(ensure_core(full_pallet_bins_df), key="full_bins")
-
-elif selected_nav == "Damages":
-    st.subheader("Damaged Pallets")
-    render_lazy_df(ensure_core(damages_df), key="damages")
-
-elif selected_nav == "Missing":
-    st.subheader("Missing Pallets")
-    render_lazy_df(ensure_core(missing_df), key="missing")
-
 # ---- Helper: FIX ACTIONS panel (reusable for tabs) ----
 def _fix_actions_panel(rows_df: pd.DataFrame, discrepancy_type: str, key_prefix: str):
     st.markdown("### ✅ Fix Actions")
@@ -1462,6 +1434,34 @@ def _fix_actions_panel(rows_df: pd.DataFrame, discrepancy_type: str, key_prefix:
             batch_id, used_path = log_batch(subset, note, selected_lot, discrepancy_type, "RESOLVE", reason=reason)
             st.success(f"Resolved {len(subset)} rows for PalletId {pid_norm}. Batch: {batch_id}")
             st.caption(f"Log: {used_path}")
+
+# === end Dashboard ===
+
+elif selected_nav == "Empty Bins":
+    st.subheader("Empty Bins")
+    display = ensure_core(empty_bins_view_df.assign(WarehouseSku="", PalletId="", CustomerLotReference="", Qty=""))
+    render_lazy_df(display, key="empty_bins")
+
+elif selected_nav == "Empty Partial Bins":
+    st.subheader("Empty Partial Bins")
+    display = ensure_core(empty_partial_bins_df.assign(WarehouseSku="", PalletId="", CustomerLotReference="", Qty=""))
+    render_lazy_df(display, key="empty_partial_bins")
+
+elif selected_nav == "Partial Bins":
+    st.subheader("Partial Bins")
+    render_lazy_df(ensure_core(partial_bins_df), key="partial_bins")
+
+elif selected_nav == "Full Pallet Bins":
+    st.subheader("Full Pallet Bins")
+    render_lazy_df(ensure_core(full_pallet_bins_df), key="full_bins")
+
+elif selected_nav == "Damages":
+    st.subheader("Damaged Pallets")
+    render_lazy_df(ensure_core(damages_df), key="damages")
+
+elif selected_nav == "Missing":
+    st.subheader("Missing Pallets")
+    render_lazy_df(ensure_core(missing_df), key="missing")
 
 elif selected_nav == "Discrepancies (All)":
     st.subheader("🛠️ Discrepancies — All")
