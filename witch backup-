@@ -1,0 +1,107 @@
+[33mb0e1607[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;32mbackup-20251015-091945[m[33m, [m[1;32mbackup-[m[33m)[m HEAD@{2025-10-15 09:15:27 -0500}: reset: moving to origin/main
+[33mb0e1607[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;32mbackup-20251015-091945[m[33m, [m[1;32mbackup-[m[33m)[m HEAD@{2025-10-15 09:15:26 -0500}: checkout: moving from main to main
+[33mb0e1607[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;32mbackup-20251015-091945[m[33m, [m[1;32mbackup-[m[33m)[m HEAD@{2025-10-15 09:11:40 -0500}: commit: feat(bin-helper): restore full dashboard look + all rules; AI NLQ (OpenAI/Azure), master reference, mappings, global filters, clickable KPIs, charts, bulk row-select+pallet dropdown, discrepancies, slideshow, fix logs, refresh+watch
+[33me42b2e7[m HEAD@{2025-10-15 08:58:52 -0500}: commit: feat: restore all modules—master integration, mapping, filters, clickable KPIs, charts, bulk row-select + pallet dropdown, discrepancies, slideshow, fix logs, refresh+watch; keep AI NLQ (OpenAI/Azure)
+[33mdbf15ec[m HEAD@{2025-10-15 08:48:43 -0500}: commit: feat: Bulk Locations row-select + pallet dropdown, charts (Racks Empty vs Full; Bulk Used vs Empty), Discrepancies tab (hide MISSING; Bulk details with SKU/LOT/PalletID); keep AI NLQ (OpenAI + Azure)
+[33m9323cc0[m HEAD@{2025-10-15 08:30:21 -0500}: commit: feat(nlq): add AI Natural-Language Query with safe JSON plan + fallback; dashboards & discrepancies intact
+[33m2781cce[m[33m ([m[1;33mtag: [m[1;33mv2025.10.15-regex-only[m[33m, [m[1;31morigin/snapshot/2025-10-15-pre-llm[m[33m, [m[1;32msnapshot/2025-10-15-pre-llm[m[33m)[m HEAD@{2025-10-15 07:38:11 -0500}: checkout: moving from snapshot/2025-10-15-pre-llm to main
+[33m2781cce[m[33m ([m[1;33mtag: [m[1;33mv2025.10.15-regex-only[m[33m, [m[1;31morigin/snapshot/2025-10-15-pre-llm[m[33m, [m[1;32msnapshot/2025-10-15-pre-llm[m[33m)[m HEAD@{2025-10-15 07:38:01 -0500}: checkout: moving from main to snapshot/2025-10-15-pre-llm
+[33m2781cce[m[33m ([m[1;33mtag: [m[1;33mv2025.10.15-regex-only[m[33m, [m[1;31morigin/snapshot/2025-10-15-pre-llm[m[33m, [m[1;32msnapshot/2025-10-15-pre-llm[m[33m)[m HEAD@{2025-10-15 07:27:33 -0500}: commit: Bin Helper: fix set_page_config order, remove duplicate _animate_metric, harden KPI, OR-logic fixes
+[33mca04ae7[m HEAD@{2025-10-14 17:09:14 -0500}: commit: Add Ask Bin Helper (Beta); keep all prior rules; new rack/bulk charts; remove standalone Duplicate tab
+[33mea73922[m[33m ([m[1;33mtag: [m[1;33mbin-helper-v2025.10.14-1523[m[33m)[m HEAD@{2025-10-14 15:20:32 -0500}: commit: Bin Helper: remove standalone Duplicate tab; add rack/bulk charts; keep existing visuals
+[33mca2676c[m HEAD@{2025-10-14 15:11:31 -0500}: commit: Bin Helper: remove standalone Duplicate tab; add rack/bulk Empty-vs-Full + new dashboard charts; keep existing graphs
+[33m5cac4ce[m HEAD@{2025-10-14 15:02:28 -0500}: commit: Remove standalone Rack/Bulk discrepancy tabs; enhance Dashboard (composition, hotspots, partial-by-aisle, search center, recent actions)
+[33m7ea9f1a[m HEAD@{2025-10-14 14:46:57 -0500}: commit: Revert Bin Helper to previous version
+[33m77fd8b3[m HEAD@{2025-10-14 14:11:01 -0500}: commit: Fix: f-string key brace in bulk logfix button
+[33m2c01367[m HEAD@{2025-10-14 14:07:13 -0500}: commit: UI rollback & polish: remove sticky bar/JS; restore charts (composition, bulk capacity), add KPI sparklines; keep rules
+[33m324bc45[m HEAD@{2025-10-14 13:48:14 -0500}: commit: Bin Helper: animated glossy nav + micro transitions; KPI polish; bugfix masks; Bulk Locations expanders
+[33m096e51e[m HEAD@{2025-10-14 13:48:14 -0500}: Branch: renamed refs/heads/main to refs/heads/main
+[33m096e51e[m HEAD@{2025-10-14 13:36:47 -0500}: Branch: renamed refs/heads/main to refs/heads/main
+[33m096e51e[m HEAD@{2025-10-14 13:36:47 -0500}: commit (merge): Bin Helper: animated glossy nav, micro-transitions, KPI polish; bugfix masks; Bulk Locations expander
+[33mb1ad4af[m HEAD@{2025-10-14 12:33:24 -0500}: Branch: renamed refs/heads/main to refs/heads/main
+[33mb1ad4af[m HEAD@{2025-10-14 12:33:23 -0500}: commit: chore: initial repo with animated hero & nav enhancements
+[33m2378d62[m HEAD@{2025-10-14 12:33:03 -0500}: commit: feat(ui): add _inject_hero_css() + animated hero/nav (gradient beam, typewriter, floating icons, ripple, progress, quick-jump glow)
+[33m26ada4c[m HEAD@{2025-10-14 12:12:39 -0500}: commit: UI revamp: remove Duplicate Pallets tab; replace hotspots with Bulk capacity bar; add Rack/Partial 3D-style pies; Discrepancy KPI; gauge, sparklines, and animations
+[33m1fedd88[m HEAD@{2025-10-14 11:57:09 -0500}: commit: Remove standalone Rack/Bulk discrepancy tabs; enhance Dashboard (composition, hotspots, partial-by-aisle, search center, recent actions)
+[33m0f88e1c[m HEAD@{2025-10-14 11:46:05 -0500}: commit: UI: add Download Fix Log everywhere + new integrated 'Discrepancies (All)' page; keep alphanumeric Pallet IDs
+[33mecc429c[m HEAD@{2025-10-14 10:22:38 -0500}: commit: Fix: preserve alphanumeric Pallet IDs (e.g., JTL00496); LOT stays numeric-only; quick jump/dups updated; add audit
+[33md8f7037[m HEAD@{2025-10-14 08:21:00 -0500}: commit: UI: KPI icons/alerts; Zone heat % labels + drilldown buttons; lazy-load tables + skeleton loaders
+[33m72b8fb6[m HEAD@{2025-10-13 15:20:41 -0500}: commit: chore: requirements for aggrid/lottie/plotly/openpyxl
+[33m77d2c05[m HEAD@{2025-10-13 15:20:29 -0500}: commit: Fix: remove invalid global; make typing Python 3.9 friendly; keep config apply rebuild
+[33mf045440[m HEAD@{2025-10-13 15:13:07 -0500}: commit: Fix: clean Config + Self-Test sections; add Quick Jump, duplicates, reasons, KPI deltas, zone heat, indices, freshness badge, config panel
+[33m37587a0[m HEAD@{2025-10-13 15:03:56 -0500}: commit: Added Quick Jump, Duplicate Pallets tab, Reason codes, Trend deltas, Zone heat block, Precomputed index, File freshness badge, Config panel
+[33m196d10d[m HEAD@{2025-10-13 14:44:57 -0500}: commit: Bulk Locations: click location -> dropdown of pallets (no enterprise features). Also retain expanders mode.
+[33m05c2861[m HEAD@{2025-10-13 14:35:10 -0500}: commit: Fix LOT dropdowns: remove blanks, normalize filter; add OR in rack masks; harden selectboxes
+[33mfb8e891[m HEAD@{2025-10-13 13:39:27 -0500}: commit: Bulk Locations: make ▸ expander clickable (master-detail settings + group cell renderer) and high-contrast over-capacity highlight; better badges in expanders
+[33m0c25891[m HEAD@{2025-10-13 13:24:21 -0500}: commit: Bulk Locations: click-to-expand pallet details (expanders + AgGrid master-detail), search + over-capacity highlight
+[33m6b3f741[m HEAD@{2025-10-13 11:24:25 -0500}: commit: Safeguard: auto-create & fallback log folders; safe CSV append; show active log path & file destinations
+[33m447711a[m HEAD@{2025-10-13 10:58:06 -0500}: commit: UI: animated dashboard menu (glow/underline/shimmer) + Streamlit trend message fix; keep all rules intact
+[33m1581189[m HEAD@{2025-10-13 10:44:04 -0500}: commit: Enhancement: Added multiple trend visualizations and advanced charts to Trends tab
+[33m6691012[m HEAD@{2025-10-13 10:20:30 -0500}: commit: Fix(Streamlit): replace bare conditional expression with explicit if/else for trend snapshot message
+[33m8e985c0[m HEAD@{2025-10-13 10:12:16 -0500}: commit: Fix: indent Self-Test button handlers; remove stray unconditional rerun
+[33m3d5c778[m HEAD@{2025-10-13 09:52:56 -0500}: commit: Fix: add missing bodies under 'Go to Rack Discrepancies' buttons; optional cleanup of stray st.session_store line
+[33m1c55f9e[m HEAD@{2025-10-13 09:47:01 -0500}: commit: YOUR MESSAGE HERE
+[33m4430fd3[m HEAD@{2025-10-13 09:45:34 -0500}: commit: Normalize LOT and PalletId to digits-only whole numbers; apply across logic & UI
+[33m47da802[m HEAD@{2025-10-13 09:13:43 -0500}: commit: Fix CSS NameError; apply >1 pallet rule to ALL rack locations (full + partial) with deduped results
+[33mc7827d3[m HEAD@{2025-10-13 09:05:30 -0500}: commit: Rack discrepancy: flag >1 pallet per rack slot + summary view; keep existing rules untouched
+[33md1622b8[m HEAD@{2025-10-13 08:21:20 -0500}: commit: feat(trends): file-uploader, persistent trend_history.csv (hash de-dup), Trends tab with Blue/Red charts; preserve all rules
+[33mb53a70c[m HEAD@{2025-10-13 08:07:18 -0500}: commit: UI: Animated KPI counters + responsive mobile layout (stacked KPIs & wrapped nav); preserve all logic
+[33m79bef55[m HEAD@{2025-10-13 07:55:47 -0500}: commit: UI: Replace plain cards with selectable Neon/Glass/Blueprint KPI styles; keep all rules/logic
+[33m394414e[m HEAD@{2025-10-13 07:46:32 -0500}: commit: Fix: Excel loader default to first sheet; harden Qty/PalletCount/LocationName; preserve all logic
+[33m28d1278[m HEAD@{2025-10-13 07:28:16 -0500}: commit: UI: AgGrid enhancements (quick filter, row highlight, pinning), micro-animations (CSS + success Lottie), and performance caching/fast tables; preserve all logic
+[33m297614b[m HEAD@{2025-10-13 07:21:23 -0500}: commit: UI: apply consistent Blue/Red chart palette and set light Plotly template; preserve all logic
+[33m2b7a86b[m HEAD@{2025-10-09 16:14:58 -0500}: Branch: renamed refs/heads/main to refs/heads/main
+[33m2b7a86b[m HEAD@{2025-10-09 16:00:41 -0500}: Branch: renamed refs/heads/main to refs/heads/main
+[33m2b7a86b[m HEAD@{2025-10-09 14:44:55 -0500}: commit: UI: Bulk Discrepancies AgGrid grouping + multi-select Log Fix; include Issue in logs; preserve all rules/logic.
+[33m26e8dce[m HEAD@{2025-10-09 14:43:57 -0500}: commit: UI: Bulk Discrepancies AgGrid grouping + multi-select Log Fix; include Issue in logs; preserve all rules/logic.
+[33me30c0a3[m HEAD@{2025-10-09 12:44:04 -0500}: commit: Fix: Bulk Discrepancies grouped UI + include Issue in logs; preserve all existing rules; fix Self-Test indentation for nav button.
+[33me250696[m HEAD@{2025-10-09 12:40:18 -0500}: commit: Bulk Discrepancies: grouped-by-location expanders; include Issue in fix logs; logs to OneDrive bin-helper\\logs; preserve all existing rules/logic.
+[33m31ecd86[m[33m ([m[1;33mtag: [m[1;33mv2025.10.09-dash-charts-undo[m[33m)[m HEAD@{2025-10-09 11:13:25 -0500}: commit: UI polish: 5-column tables, LOT whole numbers, dashboard charts, Fix+Undo logging (no rule changes)
+[33m475f4e4[m HEAD@{2025-10-09 10:48:31 -0500}: commit: UX: add Group-by-Location + drill-down across tabs; preserve 5-column details; red Issue + LOT fix in discrepancy drilldowns
+[33mee1b501[m[33m ([m[1;33mtag: [m[1;33mv2025.10.09-ui5cols[m[33m)[m HEAD@{2025-10-09 10:20:06 -0500}: commit: UI: unified 5-column tables across all tabs + red Issue styling + LOT-based fix flow on discrepancy tabs (no business-rule changes)
+[33m5d73b24[m HEAD@{2025-10-09 10:03:31 -0500}: commit: UI: add always-on warehouse animation banner + safe KPI navigation (no rule changes)
+[33m35f73aa[m HEAD@{2025-10-09 09:57:30 -0500}: commit: Bin Helper: Phase-1 patch (no logic changes) — robust master parse, clickable KPIs, focused bulk view, self-test
+[33m868c1a7[m HEAD@{2025-10-09 09:28:15 -0500}: commit: Patch: robust master parsing, clickable KPIs, focused bulk view, self-test (no logic changes)
+[33m5153b20[m HEAD@{2025-10-09 09:18:59 -0500}: commit: Add proper requirements.txt
+[33mb144eb0[m HEAD@{2025-10-09 09:17:46 -0500}: commit: Add requirements.txt
+[33m0a991dd[m HEAD@{2025-10-09 09:17:01 -0500}: commit: Add requirements.txt
+[33md037a8b[m HEAD@{2025-10-09 09:08:22 -0500}: commit: Add runtime.txt for Streamlit Cloud
+[33m8ea14a6[m HEAD@{2025-10-09 09:04:52 -0500}: commit: Flatten repo structure and include all files
+[33m4fcd5ac[m HEAD@{2025-10-09 09:03:35 -0500}: Branch: renamed refs/heads/main to refs/heads/main
+[33m4fcd5ac[m HEAD@{2025-10-09 09:01:29 -0500}: commit: Reinitialize repo at correct root
+[33m989e010[m HEAD@{2025-10-09 08:56:53 -0500}: commit: Fix requirements.txt with correct dependencies
+[33mbc503d0[m HEAD@{2025-10-09 08:46:46 -0500}: reset: moving to bc503d0
+[33mbc503d0[m HEAD@{2025-10-09 08:46:06 -0500}: reset: moving to bc503d0
+[33m0d1fb83[m HEAD@{2025-10-09 08:30:19 -0500}: commit: Dynamic column filtering + Dashboard graphs intact
+[33m278e50a[m HEAD@{2025-10-09 08:10:57 -0500}: commit: Add correct requirements.txt for Bin Helper
+[33mbc503d0[m HEAD@{2025-10-09 08:09:18 -0500}: commit: Full merged version of Bin Helper with all tabs and enhancements
+[33m1e4cbd7[m HEAD@{2025-10-09 07:46:42 -0500}: commit: Added streamlit-lottie for animations
+[33ma1ac7e3[m HEAD@{2025-10-09 07:11:07 -0500}: commit: Modern dark dashboard with embedded images and charts
+[33mdf3cd75[m HEAD@{2025-10-08 18:01:01 -0500}: commit: Upgraded Bin Helper UI with Neon theme and kept all logic
+[33mafa4818[m HEAD@{2025-10-08 17:51:27 -0500}: commit: Restarted Bin Helper using app_backup version
+[33m8788759[m HEAD@{2025-10-08 17:43:56 -0500}: commit: Merged v2.6.0 features into app.py
+[33m076f8f6[m HEAD@{2025-10-08 15:55:43 -0500}: commit: Fixed syntax and updated Rack & Bulk Discrepancies to show only required columns
+[33m6045dc3[m HEAD@{2025-10-08 15:49:37 -0500}: commit: Updated app.py with undo feature and full dashboard
+[33mac69921[m HEAD@{2025-10-08 15:30:08 -0500}: commit: Added graphs back to Dashboard, full features, undo, and fixes
+[33m8a55930[m HEAD@{2025-10-08 15:16:13 -0500}: commit: Full corrected app.py with st.rerun fix, undo feature, and expander label fix
+[33m465f877[m HEAD@{2025-10-08 15:10:47 -0500}: commit: Updated app.py with undo feature, st.rerun fix, and full dashboard
+[33me18bfe8[m HEAD@{2025-10-08 14:59:48 -0500}: commit: Updated app.py with undo feature and full dashboard
+[33mf4e2940[m HEAD@{2025-10-08 12:54:47 -0500}: commit: Full update: restored Bulk Discrepancies layout + all improvements
+[33m2982ff9[m HEAD@{2025-10-08 12:53:11 -0500}: commit: Fixed syntax and updated Rack & Bulk Discrepancies to show only required columns
+[33mc2097c8[m HEAD@{2025-10-08 12:52:04 -0500}: commit: Updated Rack & Bulk Discrepancies to show only required columns, kept LOT fix button
+[33m27af41e[m HEAD@{2025-10-08 12:46:46 -0500}: commit: Restored Rack & Bulk Discrepancies tables, unified logging with DiscrepancyType
+[33m511cbf2[m HEAD@{2025-10-08 12:35:14 -0500}: commit: Full update: Damages fix + 3D charts + preserve original layout + all previous improvements
+[33m3b04ffd[m HEAD@{2025-10-08 12:27:44 -0500}: commit: Full update: Damages fix + 3D charts + all previous improvements
+[33m71bc745[m HEAD@{2025-10-08 12:22:26 -0500}: commit: Full update: restored Bulk Discrepancies layout + all improvements
+[33m2d4794d[m HEAD@{2025-10-08 12:15:43 -0500}: commit: Full update: tables for all tabs, discrepancy theme, LOT fix controls, KPI fix
+[33mda7a755[m HEAD@{2025-10-08 12:09:59 -0500}: commit: Full update: visual theme for discrepancies, LOT fix controls, CSV download
+[33ma98187f[m HEAD@{2025-10-08 11:26:39 -0500}: commit: Redesigned Bulk Discrepancies tab with single LOT dropdown and Fix button; kept all previous logic
+[33m5194c74[m HEAD@{2025-10-08 11:14:02 -0500}: commit: Added interactive pallet view to Bulk Locations tab
+[33md3f384c[m HEAD@{2025-10-08 10:59:27 -0500}: commit: Added Bulk Locations and Empty Bulk Locations tabs, updated Bulk Zone Utilization chart, retained all previous logic
+[33mace7691[m HEAD@{2025-10-08 10:44:06 -0500}: commit: Exclude OB/IB locations from dashboard charts and KPIs
+[33ma27498f[m HEAD@{2025-10-08 10:33:43 -0500}: commit: Restored full discrepancy details and original dashboard charts
+[33m773c096[m HEAD@{2025-10-08 10:27:20 -0500}: commit: Reverted dashboard charts and colors; LOT dropdown for both discrepancy tabs
+[33mbe585e2[m HEAD@{2025-10-08 10:25:08 -0500}: commit: Reverted dashboard charts and colors; LOT dropdown for both discrepancy tabs
+[33m7565fb8[m HEAD@{2025-10-08 10:18:40 -0500}: commit: Restored full dashboard with Lottie animation, Neon styling, and LOT dropdown in discrepancy fix cards
+[33m11f1d48[m HEAD@{2025-10-08 10:10:46 -0500}: commit: Added LOT Lookup feature to Bin Helper app
+[33m0b49ad3[m HEAD@{2025-10-08 10:04:54 -0500}: commit: Updated Bin Helper dashboard with lat
