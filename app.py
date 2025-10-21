@@ -1195,7 +1195,47 @@ def _last_snapshot_age_minutes() -> Optional[int]:
         return int((datetime.now() - last_ts).total_seconds() // 60)
     except Exception:
         return None
-{AUTO}
+def _auto_snapshot_if_needed():
+    \"\"\"
+    - Create trend_history.csv if missing.
+    - If 'Auto-snapshot on startup' is ON and file is empty -> write an initial snapshot.
+    - If inventory file MD5 changed since the last snapshot -> write a new snapshot immediately.
+    - If last snapshot older than interval -> write a new snapshot.
+    - Respect manual 'pending_trend_record'.
+    \"\"\"
+    _ensure_trend_file()
+    interval_min = int(st.session_state.get("trend_interval_min", 60))
+    kpis_now = _current_kpis()
+
+    # Manual trigger from sidebar
+    if st.session_state.get("pending_trend_record", False):
+        _append_trend_row(kpis_now)
+        st.session_state["pending_trend_record"] = False
+        return
+
+    hist = _read_trends()
+
+    # First run: seed a snapshot if enabled
+    if hist.empty and st.session_state.get("auto_snapshot_on_start", True):
+        _append_trend_row(kpis_now)
+        return
+
+    # Snapshot immediately when inventory file changes (MD5)
+    last_md5 = None
+    if not hist.empty and "FileMD5" in hist.columns:
+        last_md5 = str(hist["FileMD5"].iloc[-1])
+    curr_md5 = kpis_now.get("FileMD5", "")
+    if curr_md5 and curr_md5 != last_md5:
+        _append_trend_row(kpis_now)
+        return
+
+    # Interval-based snapshot
+    age = _last_snapshot_age_minutes()
+    if age is None or age >= interval_min:
+        _append_trend_row(kpis_now)
+
+# 🔔 Run the auto snapshot guard once per run
+_auto_snapshot_if_needed()
 
 # ===== Dashboard =====
 if selected_nav == "Dashboard":
@@ -1728,3 +1768,4 @@ elif selected_nav == "Trends":
     file_name="trend_history.csv",
     mime="text/csv"
 )
+
