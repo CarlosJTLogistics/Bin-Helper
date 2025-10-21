@@ -68,7 +68,6 @@ def _rerun():
             st.experimental_rerun()
         except Exception:
             pass
-
 # ---------- Lottie helpers ----------
 def _load_lottie(url: str):
     try:
@@ -149,7 +148,6 @@ def _safe_append_csv(path: str, header: List[str], row: List) -> Tuple[bool, str
                 w.writerow(header)
             w.writerow(row)
         return True, p
-
     try:
         ok, used = _try_write(path)
         return True, used, ""
@@ -338,7 +336,6 @@ def get_partial_bins(df: pd.DataFrame) -> pd.DataFrame:
 def get_full_pallet_bins(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     s = df2["LocationName"].astype(str)
-    # Full pallet bins: numeric locations that are (not '...01' OR starts with '111') and Qty between 6 and 15
     mask = ((~s.str.endswith("01")) | (s.str.startswith("111"))) & s.str.isnumeric() & df2["Qty"].between(6, 15)
     return df2.loc[mask].copy()
 
@@ -379,6 +376,7 @@ def _find_multi_pallet_all_racks(df: pd.DataFrame):
     ]
     details = details.merge(viol, on="LocationName", how="left")
     return viol.sort_values("DistinctPallets", ascending=False), details
+
 # ===== Config: bulk capacity =====
 DEFAULT_BULK_RULES = {"A": 5, "B": 4, "C": 5, "D": 4, "E": 5, "F": 4, "G": 5, "H": 4, "I": 4}
 
@@ -615,7 +613,6 @@ def download_fix_log_button(where_key: str = "fixlog"):
         )
 
 # ===== Discrepancies (calculations) =====
-# --- UPDATED: exclude IB* in bulk grouped analysis ---
 def analyze_bulk_locations_grouped(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     # Exclude IB* from discrepancies
@@ -639,7 +636,6 @@ def analyze_bulk_locations_grouped(df: pd.DataFrame) -> pd.DataFrame:
 
 bulk_df = analyze_bulk_locations_grouped(filtered_inventory_df)
 
-# --- UPDATED: exclude IB* in main discrepancies ---
 def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
     df2 = exclude_damage_missing(df)
     # Exclude IB* from discrepancies
@@ -672,7 +668,6 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
         if mp_details is not None and not mp_details.empty:
             results += mp_details.to_dict("records")
     except Exception as e:
-        # Keep the page resilient
         st.warning(f"Multi-pallet check skipped: {e}")
 
     out = pd.DataFrame(results)
@@ -683,7 +678,6 @@ def analyze_discrepancies(df: pd.DataFrame) -> pd.DataFrame:
 
 discrepancy_df = analyze_discrepancies(filtered_inventory_df)
 
-# --- UPDATED: exclude IB* in duplicate pallets ---
 def build_duplicate_pallets(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     base = df.copy()
     # Exclude IB* from duplicate discrepancy calculations
@@ -876,7 +870,6 @@ def page_ask_bin_helper():
             render_lazy_df(show_df, key="ask_results", use_core=False)
             st.download_button("Download results (CSV)", show_df.to_csv(index=False).encode("utf-8"),
                                file_name="ask-bin-helper-results.csv", mime="text/csv")
-
 # ===== KPI Card CSS & extras =====
 def _inject_card_css(style: str):
     common = """ 
@@ -895,7 +888,9 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] { font-weight: 800; }
   section.main div[data-testid="stHorizontalBlock"] div[data-testid="column"] {
     width: 100% !important; flex: 1 1 100% !important; padding-bottom: 8px;
   }
-  div[data-testid="stRadio"] div[role="radiogroup"] { display: flex; flex-wrap: wrap; gap: 6px 10px; justify-content: center; }
+  div[data-testid="stRadio"] div[role="radiogroup"] {
+    display: flex; flex-wrap: wrap; gap: 6px 10px; justify-content: center;
+  }
   .stDataFrame, .stTable { font-size: 0.92rem; }
 }
 /* Skeleton loader */
@@ -1019,7 +1014,7 @@ nav_options = [
     "Discrepancies (All)",
     "Ask Bin Helper (Beta)",
     "Bulk Locations", "Empty Bulk Locations",
-    # REMOVED standalone "Fix Log (All)" per Carlos's request
+    # NOTE: standalone "Fix Log (All)" removed — now inside Discrepancies tab
     "Trends", "Config", "Self-Test"
 ]
 _default_nav = st.session_state.get("nav", "Dashboard")
@@ -1145,7 +1140,7 @@ def _delta_combo_text(vs_last, vs_yday):
         parts.append(f"{_delta_text(vs_yday)} vs 24h")
     return " \\\n".join(parts) if parts else None
 
-# ===== NEW: Trend snapshot management =====
+# ===== Trend snapshot management =====
 TREND_HEADER = [
     "Timestamp",
     "EmptyBins", "EmptyPartialBins", "PartialBins", "FullPalletBins",
@@ -1206,7 +1201,7 @@ def _auto_snapshot_if_needed():
     if age is None or age >= interval_min:
         _append_trend_row(kpis_now)
 
-# 🔔 Run the auto snapshot guard once per run (keeps Trends persistent)
+# 🔔 Run once per run
 _auto_snapshot_if_needed()
 
 # ===== Dashboard =====
@@ -1288,7 +1283,7 @@ if selected_nav == "Dashboard":
             fig_bulk_ue.update_layout(showlegend=True, height=320)
             st.plotly_chart(fig_bulk_ue, use_container_width=True)
 
-    # ---- Inventory Composition (Hotspots removed) ----
+    # ---- Inventory Composition ----
     cA, cB = st.columns([1, 1])
     with cA:
         st.markdown("#### Inventory Composition")
@@ -1425,14 +1420,58 @@ elif selected_nav == "Missing":
     st.subheader("Missing Pallets")
     render_lazy_df(ensure_core(missing_df), key="missing")
 
+# ---- Helper: FIX ACTIONS panel (reusable for tabs) ----
+def _fix_actions_panel(rows_df: pd.DataFrame, discrepancy_type: str, key_prefix: str):
+    st.markdown("### ✅ Fix Actions")
+    if rows_df is None or rows_df.empty:
+        st.info("No rows to resolve in the current view.")
+        return
+    with st.form(key=f"{key_prefix}_fixform"):
+        c1, c2, c3 = st.columns([1,1,2])
+        with c1:
+            reason = st.selectbox(
+                "Reason",
+                ["Moved to Correct Location", "Consolidated", "Adjusted in WMS", "Cycle Count Correction", "Other"],
+                index=0,
+                key=f"{key_prefix}_reason"
+            )
+        with c2:
+            selected_lot = st.text_input("Selected LOT (optional)", value="", key=f"{key_prefix}_lot")
+        with c3:
+            note = st.text_area("Note (optional)", value="", height=80, key=f"{key_prefix}_note")
+
+        cA, cB = st.columns([1,1])
+        with cA:
+            submit_all = st.form_submit_button("✔️ Resolve ALL shown rows", use_container_width=True)
+        with cB:
+            pid = st.text_input("Or resolve by PalletId", value="", key=f"{key_prefix}_pid_inline")
+            submit_pid = st.form_submit_button("✔️ Resolve this PalletId", use_container_width=True)
+
+    if submit_all:
+        batch_df = ensure_core(rows_df, include_issue=True)
+        batch_id, used_path = log_batch(batch_df, note, selected_lot, discrepancy_type, "RESOLVE", reason=reason)
+        st.success(f"Resolved {len(batch_df)} rows for '{discrepancy_type}'. Batch: {batch_id}")
+        st.caption(f"Log: {used_path}")
+    if submit_pid and pid.strip():
+        pid_norm = normalize_pallet_id(pid.strip())
+        subset = ensure_core(rows_df, include_issue=True)
+        subset = subset[subset["PalletId"].astype(str).str.strip().str.upper() == pid_norm.upper()]
+        if subset.empty:
+            st.warning(f"No rows found in view for PalletId '{pid_norm}'.")
+        else:
+            batch_id, used_path = log_batch(subset, note, selected_lot, discrepancy_type, "RESOLVE", reason=reason)
+            st.success(f"Resolved {len(subset)} rows for PalletId {pid_norm}. Batch: {batch_id}")
+            st.caption(f"Log: {used_path}")
+
 elif selected_nav == "Discrepancies (All)":
     st.subheader("🛠️ Discrepancies — All")
     with st.expander("Fix Log (quick download)"):
         download_fix_log_button(where_key="all_fixlog")
 
-    # ⬇️ Added Fix Log (All) as a fourth tab here
+    # 4 tabs: Rack, Bulk, Duplicate, Fix Log (All)
     t1, t2, t3, t4 = st.tabs(["Rack", "Bulk", "Duplicate", "Fix Log (All)"])
 
+    # --- Rack / Partial issues
     with t1:
         st.markdown("#### Rack / Partial Issues")
         rack_all_df = discrepancy_df.copy()
@@ -1441,19 +1480,23 @@ elif selected_nav == "Discrepancies (All)":
         else:
             show_rack = ensure_core(rack_all_df, include_issue=True)
             render_lazy_df(show_rack, key="disc_rack", use_core=False, include_issue=True)
+            _fix_actions_panel(show_rack, "Rack", "rackfix")
+
         with st.expander("Issue Breakdown"):
-            if "Issue" in rack_all_df.columns:
+            if not rack_all_df.empty and "Issue" in rack_all_df.columns:
                 brk = rack_all_df["Issue"].value_counts(dropna=False).reset_index()
                 brk.columns = ["Issue", "Count"]
                 st.dataframe(brk, use_container_width=True)
             else:
                 st.info("No Issue column available.")
 
+    # --- Bulk over-capacity
     with t2:
         st.markdown("#### Bulk Over-Capacity Issues")
         bulk_issues_df = bulk_df.copy()
         if bulk_issues_df.empty:
             st.success("No bulk over-capacity found.")
+            tmp = pd.DataFrame()
         else:
             tmp = bulk_issues_df.copy()
             try:
@@ -1469,18 +1512,24 @@ elif selected_nav == "Discrepancies (All)":
                 pass
             show_bulk = ensure_core(tmp, include_issue=True)
             render_lazy_df(show_bulk, key="disc_bulk", use_core=False, include_issue=True)
+            _fix_actions_panel(show_bulk, "Bulk", "bulkfix")
+
         with st.expander("Summary by Location"):
             try:
-                loc_counts = tmp.groupby("LocationName").size().reset_index(name="PalletsListed")
-                if not bulk_locations_df.empty and "MaxAllowed" in bulk_locations_df.columns:
-                    loc_counts = loc_counts.merge(
-                        bulk_locations_df[["LocationName", "MaxAllowed"]],
-                        on="LocationName", how="left"
-                    )
-                st.dataframe(loc_counts.sort_values("PalletsListed", ascending=False), use_container_width=True)
+                if not tmp.empty:
+                    loc_counts = tmp.groupby("LocationName").size().reset_index(name="PalletsListed")
+                    if not bulk_locations_df.empty and "MaxAllowed" in bulk_locations_df.columns:
+                        loc_counts = loc_counts.merge(
+                            bulk_locations_df[["LocationName", "MaxAllowed"]],
+                            on="LocationName", how="left"
+                        )
+                    st.dataframe(loc_counts.sort_values("PalletsListed", ascending=False), use_container_width=True)
+                else:
+                    st.info("Summary not available.")
             except Exception:
                 st.info("Summary not available.")
 
+    # --- Duplicates
     with t3:
         st.markdown("#### Duplicate Pallets (same PalletId in multiple locations)")
         csum, cdet = st.columns([1, 2])
@@ -1494,12 +1543,13 @@ elif selected_nav == "Discrepancies (All)":
             st.markdown("**Details**")
             if dups_detail_df.empty:
                 st.info("No duplicate details.")
+                show_dup_details = pd.DataFrame()
             else:
                 show_dup_details = ensure_core(dups_detail_df)
                 render_lazy_df(show_dup_details, key="disc_dups_detail", use_core=False)
             with st.expander("Filter details"):
                 pid_filter = st.text_input("PalletId contains", "")
-                if pid_filter.strip():
+                if pid_filter.strip() and not show_dup_details.empty:
                     filt = show_dup_details[
                         show_dup_details["PalletId"].astype(str).str.contains(pid_filter, case=False, na=False)
                     ]
@@ -1508,7 +1558,10 @@ elif selected_nav == "Discrepancies (All)":
                     else:
                         st.dataframe(filt, use_container_width=True)
 
-    # NEW: Fix Log (All) tab here
+        # Fix actions for duplicate details
+        _fix_actions_panel(show_dup_details if 'show_dup_details' in locals() else pd.DataFrame(), "Duplicate", "dupefix")
+
+    # --- Fix Log (All) tab
     with t4:
         st.subheader("🧾 Fix Log (All Types)")
         log_df = read_action_log()
@@ -1749,8 +1802,7 @@ elif selected_nav == "Trends":
         comp_melt = hist.melt(id_vars=["Timestamp"], value_vars=["RackCount","BulkCount","SpecialCount"],
                               var_name="Category", value_name="Count")
         fig_comp = px.area(comp_melt, x="Timestamp", y="Count", color="Category",
-                           color_discrete_map={"RackCount": BLUE, "BulkCount": GREEN, "SpecialCount": RED},
-                           groupnorm=None)
+                           color_discrete_map={"RackCount": BLUE, "BulkCount": GREEN, "SpecialCount": RED})
         fig_comp.update_layout(height=340)
         st.plotly_chart(fig_comp, use_container_width=True)
 
@@ -1764,11 +1816,9 @@ elif selected_nav == "Trends":
                 log_df["Timestamp"] = pd.to_datetime(log_df["Timestamp"], errors="coerce")
             except Exception:
                 pass
-            # Resolved by day & Reason
             log_df["Date"] = log_df["Timestamp"].dt.date
             reason_col = "Reason" if "Reason" in log_df.columns else None
             if reason_col is None:
-                # if earlier logs used "[Reason: ...] " prefix in Note, try to extract
                 log_df["ReasonEx"] = log_df["Note"].astype(str).str.extract(r"\[Reason:\s*(.*?)\]").fillna("(Unknown)")
                 reason_col = "ReasonEx"
             resolved = log_df[log_df["Action"].astype(str).str.upper()=="RESOLVE"].copy()
@@ -1778,7 +1828,6 @@ elif selected_nav == "Trends":
                                  title="Resolved actions per day by Reason")
                 fig_res.update_layout(height=340, legend_title_text="Reason")
                 st.plotly_chart(fig_res, use_container_width=True)
-                # Cumulative fixes
                 by_day = resolved.groupby("Date").size().reset_index(name="DailyCount").sort_values("Date")
                 by_day["CumulativeFixes"] = by_day["DailyCount"].cumsum()
                 fig_cum = px.line(by_day, x="Date", y="CumulativeFixes", markers=True, title="Cumulative Fixes Over Time")
@@ -1787,11 +1836,11 @@ elif selected_nav == "Trends":
             else:
                 st.info("No RESOLVE actions in the log yet.")
 
-        # ✅ Keep a single expander here to avoid IndentationError
+        # ✅ Single expander (fixes IndentationError)
         with st.expander("Show trend table"):
             render_lazy_df(hist, key="trend_table", page_size=400)
 
-        # Keep download outside the expander block
+        # Download outside of expander
         st.download_button(
             "Download trend_history.csv",
             hist.to_csv(index=False).encode("utf-8"),
