@@ -27,3 +27,6 @@ data/
 
 # Cache
 .cache/
+.pytest_cache/
+*.pyc
+
