@@ -1196,13 +1196,13 @@ def _last_snapshot_age_minutes() -> Optional[int]:
     except Exception:
         return None
 def _auto_snapshot_if_needed():
-    \"\"\"
+    """
     - Create trend_history.csv if missing.
     - If 'Auto-snapshot on startup' is ON and file is empty -> write an initial snapshot.
     - If inventory file MD5 changed since the last snapshot -> write a new snapshot immediately.
     - If last snapshot older than interval -> write a new snapshot.
     - Respect manual 'pending_trend_record'.
-    \"\"\"
+    """
     _ensure_trend_file()
     interval_min = int(st.session_state.get("trend_interval_min", 60))
     kpis_now = _current_kpis()
@@ -1768,4 +1768,5 @@ elif selected_nav == "Trends":
     file_name="trend_history.csv",
     mime="text/csv"
 )
+
 
