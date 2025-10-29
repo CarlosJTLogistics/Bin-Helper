@@ -1301,6 +1301,68 @@ if selected_nav == "Dashboard":
     if col4.button("View", key="btn_full"): st.session_state["pending_nav"] = "Full Pallet Bins"; _rerun()
     if col5.button("View", key="btn_damage"): st.session_state["pending_nav"] = "Damages"; _rerun()
     if col6.button("View", key="btn_missing"): st.session_state["pending_nav"] = "Missing"; _rerun()
+    # >>> DASH-SPARK: BEGIN
+    # Mini KPI sparklines under KPI row (reads trend_history.csv if available)
+    try:
+        if os.path.isfile(TRENDS_FILE):
+            _hist = pd.read_csv(TRENDS_FILE)
+        else:
+            _hist = pd.DataFrame()
+    except Exception as _e:
+        _hist = pd.DataFrame()
+
+    if _hist is None or _hist.empty:
+        st.info("No trend snapshots yet for mini-trends.")
+    else:
+        try:
+            _hist["Timestamp"] = pd.to_datetime(_hist["Timestamp"], errors="coerce")
+        except Exception:
+            pass
+        _hist = _hist.dropna(subset=["Timestamp"]).sort_values("Timestamp")
+        # Choose last N points for compact charts
+        N = 50
+        if len(_hist) > N:
+            _hist = _hist.tail(N)
+
+        kpi_cols = [
+            ("EmptyBins", "Empty Bins", "#1f77b4"),
+            ("EmptyPartialBins", "Empty Partial Bins", "#17becf"),
+            ("PartialBins", "Partial Bins", "#9467bd"),
+            ("FullPalletBins", "Full Pallet Bins", "#2ca02c"),
+            ("Damages", "Damages", "#d62728"),
+            ("Missing", "Missing", "#ff7f0e"),
+        ]
+        st.markdown("#### Mini Trends (last {} snapshots)".format(len(_hist)))
+        r1c1, r1c2, r1c3 = st.columns(3)
+        r2c1, r2c2, r2c3 = st.columns(3)
+        _targets = [r1c1, r1c2, r1c3, r2c1, r2c2, r2c3]
+
+        for i, (col_key, title, color) in enumerate(kpi_cols):
+            tgt = _targets[i]
+            if col_key not in _hist.columns:
+                with tgt:
+                    st.info(f"No data for {title}.")
+                continue
+            df_plot = _hist[["Timestamp", col_key]].copy()
+            # coerce to numeric
+            try:
+                df_plot[col_key] = pd.to_numeric(df_plot[col_key], errors="coerce").fillna(0)
+            except Exception:
+                pass
+            fig = px.line(
+                df_plot, x="Timestamp", y=col_key, title=title, markers=True,
+                color_discrete_sequence=[color]
+            )
+            fig.update_layout(
+                height=140, margin=dict(l=8, r=8, t=36, b=8),
+                xaxis_title=None, yaxis_title=None, showlegend=False
+            )
+            fig.update_xaxes(showgrid=False)
+            fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)")
+            with tgt:
+                st.plotly_chart(fig, use_container_width=True)
+    # >>> DASH-SPARK: END
+
 
     c0a, c0b = st.columns([1, 1])
     with c0a:
