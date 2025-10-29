@@ -1,0 +1,6 @@
+tree a9621671e19623c7108bff3c1f40d2bbddc32afb
+parent 40822708abd564bfe2868fc5f46fa9a0a807153a
+author Carlos Pacheco <carlos.pacheco@jtlogistics.com> 1761569509 -0500
+committer Carlos Pacheco <carlos.pacheco@jtlogistics.com> 1761569509 -0500
+
+Fix: strip UTF-8 BOM from app.py and validate AST (20251027-075144)
