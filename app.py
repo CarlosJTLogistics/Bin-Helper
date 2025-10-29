@@ -1812,7 +1812,7 @@ elif selected_nav == "Empty Bulk Locations":
     render_lazy_df(empty_bulk_locations_df, key="empty_bulk_locs")
 
 elif selected_nav == "Trends":
-st.subheader("📈 Trends Over Time")
+    st.subheader("📈 Trends Over Time")
     # >>> TRENDS-UI-BUTTON: BEGIN
     col_tr_a, col_tr_b = st.columns([1,3])
     with col_tr_a:
