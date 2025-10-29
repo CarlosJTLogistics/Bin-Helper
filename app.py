@@ -1,4 +1,11 @@
-﻿# -*- coding: utf-8 -*-
+﻿
+# >>> TRENDS-SIDEBAR-TOGGLES: BEGIN
+ensure_daily = st.toggle("Ensure daily snapshot (once per day)", value=True, key="ensure_daily_snapshot")
+auto_interval = st.toggle("Auto-snapshot every N minutes (while open)", value=False, key="auto_interval_snapshot")
+if auto_interval:
+    st.number_input("Interval (minutes)", min_value=5, max_value=240, value=60, step=5, key="auto_snapshot_minutes")
+# >>> TRENDS-SIDEBAR-TOGGLES: END
+# -*- coding: utf-8 -*-
 """
 Bin Helper — streamlined, animated inventory dashboard with NLQ, discrepancies,
 bulk capacity rules, fix logs, and robust local/cloud-safe logging.
@@ -18,6 +25,21 @@ import streamlit as st
 import plotly.express as px
 from streamlit_lottie import st_lottie
 import requests
+# >>> TRENDS-TZ: BEGIN
+try:
+    from zoneinfo import ZoneInfo  # Python 3.9+
+except Exception:
+    ZoneInfo = None
+
+def _now_local():
+    """Return timezone-aware now() using BIN_HELPER_TZ (default America/Chicago)."""
+    tz_name = os.environ.get("BIN_HELPER_TZ", "America/Chicago")
+    try:
+        return datetime.now(ZoneInfo(tz_name)) if ZoneInfo else datetime.now()
+    except Exception:
+        return datetime.now()
+# >>> TRENDS-TZ: END
+
 
 # ---------- PAGE CONFIG (must be the first Streamlit call) ----------
 st.set_page_config(page_title="Bin Helper", layout="wide")
@@ -422,6 +444,13 @@ empty_partial_bins_df = get_empty_partial_bins(master_locations, occupied_locati
 damages_df = inventory_df[inventory_df["LocationName"].str.upper().isin(["DAMAGE", "IBDAMAGE"])].copy()
 missing_df = inventory_df[inventory_df["LocationName"].str.upper() == "MISSING"].copy()
 bulk_locations_df, empty_bulk_locations_df = build_bulk_views()
+# >>> TRENDS-HOOKCALL: BEGIN
+try:
+    _trend_auto_hooks()
+except Exception as _trend_e:
+    st.info(f"Trend auto-snapshot skipped: {_trend_e}")
+# >>> TRENDS-HOOKCALL: END
+
 
 # ===== Core table helpers =====
 CORE_COLS = ["LocationName", "WarehouseSku", "PalletId", "CustomerLotReference", "Qty"]
@@ -1059,6 +1088,108 @@ st.text_input(
 st.markdown("---")
 
 # ===== Trends helpers (deltas for KPIs) =====
+# >>> TRENDS-WRITER: BEGIN
+TREND_HEADER = [
+    "Timestamp","Reason","FileName","FileMD5",
+    "EmptyBins","EmptyPartialBins","PartialBins","FullPalletBins","Damages","Missing"
+]
+
+def _trend_history_df():
+    """Read trend history safely."""
+    try:
+        if os.path.isfile(TRENDS_FILE):
+            df = pd.read_csv(TRENDS_FILE)
+            if "Timestamp" in df.columns:
+                df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
+            return df
+    except Exception:
+        pass
+    return pd.DataFrame(columns=TREND_HEADER)
+
+def record_trend_snapshot(reason: str = "manual"):
+    """Append a snapshot of current KPIs to trend_history.csv (safe append)."""
+    try:
+        now_kpis = _current_kpis()
+        ts = _now_local()
+        md5 = _file_md5(inventory_file)
+        row = [
+            ts.strftime("%Y-%m-%d %H:%M:%S"),
+            str(reason or "manual"),
+            os.path.basename(inventory_file),
+            md5 or "",
+            int(now_kpis.get("EmptyBins", 0)),
+            int(now_kpis.get("EmptyPartialBins", 0)),
+            int(now_kpis.get("PartialBins", 0)),
+            int(now_kpis.get("FullPalletBins", 0)),
+            int(now_kpis.get("Damages", 0)),
+            int(now_kpis.get("Missing", 0)),
+        ]
+        ok, used_path, err = _safe_append_csv(TRENDS_FILE, TREND_HEADER, row)
+        if not ok:
+            st.warning(f"Trend snapshot not recorded: {err}")
+        else:
+            st.session_state["last_trend_md5"] = md5
+        return ok, used_path, (err or "")
+    except Exception as e:
+        st.warning(f"Trend snapshot failed: {e}")
+        return False, TRENDS_FILE, str(e)
+
+def _trend_today_exists():
+    """Return True if a snapshot for today exists."""
+    hist = _trend_history_df()
+    if hist.empty or "Timestamp" not in hist.columns:
+        return False
+    try:
+        today = _now_local().date()
+        return not hist[hist["Timestamp"].dt.date == today].empty
+    except Exception:
+        return False
+
+def _trend_auto_hooks():
+    """Run upload/manual pending trigger, daily baseline, and interval timer."""
+    # 1) Pending flag (set by sidebar upload or 'Record snapshot now' button)
+    if st.session_state.get("pending_trend_record", False):
+        st.session_state["pending_trend_record"] = False
+        reason = st.session_state.pop("pending_trend_record_reason", None)
+        if not reason:
+            cur_md5 = _file_md5(inventory_file)
+            last_md5 = st.session_state.get("last_trend_md5", None)
+            reason = "upload" if (cur_md5 and cur_md5 != last_md5) else "manual"
+        ok, upath, err = record_trend_snapshot(reason=reason)
+        if ok:
+            st.caption(f"📈 Trend snapshot recorded ({reason}). File: `{upath}`")
+        else:
+            st.warning(f"Trend snapshot not recorded: {err}")
+
+    # 2) Daily baseline
+    if st.session_state.get("ensure_daily_snapshot", True):
+        if not _trend_today_exists():
+            ok, upath, err = record_trend_snapshot(reason="daily")
+            if ok:
+                st.caption("🗓️ Daily trend snapshot recorded.")
+            else:
+                st.warning(f"Daily trend snapshot not recorded: {err}")
+
+    # 3) Interval snapshots while open
+    if st.session_state.get("auto_interval_snapshot", False):
+        minutes = int(st.session_state.get("auto_snapshot_minutes", 60))
+        minutes = max(5, min(240, minutes))
+        now_ts = _now_local()
+        next_at = st.session_state.get("next_auto_snapshot_at", None)
+        if isinstance(next_at, str):
+            try:
+                next_at = pd.to_datetime(next_at)
+            except Exception:
+                next_at = None
+        if next_at is None or now_ts >= next_at:
+            ok, upath, err = record_trend_snapshot(reason=f"interval:{minutes}m")
+            if ok:
+                st.caption(f"⏱️ Interval snapshot recorded ({minutes}m).")
+            else:
+                st.warning(f"Interval snapshot not recorded: {err}")
+            st.session_state["next_auto_snapshot_at"] = (now_ts + timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M:%S")
+# >>> TRENDS-WRITER: END
+
 def _read_trends() -> pd.DataFrame:
     if not os.path.isfile(TRENDS_FILE):
         return pd.DataFrame()
@@ -1679,6 +1810,18 @@ elif selected_nav == "Empty Bulk Locations":
     render_lazy_df(empty_bulk_locations_df, key="empty_bulk_locs")
 
 elif selected_nav == "Trends":
+    # >>> TRENDS-UI-BUTTON: BEGIN
+    col_tr_a, col_tr_b = st.columns([1,3])
+    with col_tr_a:
+        if st.button("Record snapshot now", key="trend_record_now_main"):
+            ok, upath, err = record_trend_snapshot(reason="manual")
+            if ok:
+                st.success(f"Snapshot recorded → {os.path.basename(upath)}")
+                _rerun()
+            else:
+                st.warning(f"Snapshot not recorded: {err}")
+    # >>> TRENDS-UI-BUTTON: END
+
     st.subheader("📈 Trends Over Time")
     if not os.path.isfile(TRENDS_FILE):
         st.info("No trend snapshots yet. Upload a new inventory file or click 'Record snapshot now' in the sidebar.")
