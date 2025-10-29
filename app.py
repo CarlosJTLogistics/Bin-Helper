@@ -1,4 +1,4 @@
-﻿
+
 # >>> TRENDS-SIDEBAR-TOGGLES: BEGIN
 ensure_daily = st.toggle("Ensure daily snapshot (once per day)", value=True, key="ensure_daily_snapshot")
 auto_interval = st.toggle("Auto-snapshot every N minutes (while open)", value=False, key="auto_interval_snapshot")

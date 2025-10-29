@@ -32,3 +32,15 @@ data/
 .pytest_cache/
 *.pyc
 
+
+# Bin-Helper: block archives and local backups
+*.zip
+*.ZIP
+*.7z
+*.rar
+*.bak
+*.bak-*
+backup-*.py
+app.py.bak-*
+backup-before-*.zip
+
