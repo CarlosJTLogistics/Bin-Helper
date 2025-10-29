@@ -1,10 +1,5 @@
 ﻿
-# >>> TRENDS-SIDEBAR-TOGGLES: BEGIN
-ensure_daily = st.toggle("Ensure daily snapshot (once per day)", value=True, key="ensure_daily_snapshot")
-auto_interval = st.toggle("Auto-snapshot every N minutes (while open)", value=False, key="auto_interval_snapshot")
-if auto_interval:
-    st.number_input("Interval (minutes)", min_value=5, max_value=240, value=60, step=5, key="auto_snapshot_minutes")
-# >>> TRENDS-SIDEBAR-TOGGLES: END
+
 # -*- coding: utf-8 -*-
 """
 Bin Helper — streamlined, animated inventory dashboard with NLQ, discrepancies,
@@ -252,6 +247,13 @@ with st.sidebar:
 
     st.subheader("🧭 Trends")
     st.caption("Snapshots are stored in logs/trend_history.csv")
+# >>> TRENDS-SIDEBAR-TOGGLES: BEGIN
+ensure_daily = st.toggle("Ensure daily snapshot (once per day)", value=True, key="ensure_daily_snapshot")
+auto_interval = st.toggle("Auto-snapshot every N minutes (while open)", value=False, key="auto_interval_snapshot")
+if auto_interval:
+    st.number_input("Interval (minutes)", min_value=5, max_value=240, value=60, step=5, key="auto_snapshot_minutes")
+# >>> TRENDS-SIDEBAR-TOGGLES: END
+
     if st.button("Record snapshot now"):
         st.session_state["pending_trend_record"] = True
 
