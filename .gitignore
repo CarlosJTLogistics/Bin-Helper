@@ -48,3 +48,18 @@ backup-before-*.zip
 *.zip
 
 *.zip
+
+# --- Bin Helper ignores ---
+*.zip
+*.7z
+*.rar
+*.tar
+*.gz
+*.exe
+*.msi
+logs/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+~$*
