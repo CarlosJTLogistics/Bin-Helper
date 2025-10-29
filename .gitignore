@@ -44,3 +44,5 @@ backup-*.py
 app.py.bak-*
 backup-before-*.zip
 
+
+*.zip
