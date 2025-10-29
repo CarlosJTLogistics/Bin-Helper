@@ -254,6 +254,8 @@ if auto_interval:
     st.number_input("Interval (minutes)", min_value=5, max_value=240, value=60, step=5, key="auto_snapshot_minutes")
 # >>> TRENDS-SIDEBAR-TOGGLES: END
 
+
+
     if st.button("Record snapshot now"):
         st.session_state["pending_trend_record"] = True
 
@@ -1810,11 +1812,10 @@ function(params) {
 elif selected_nav == "Empty Bulk Locations":
     st.subheader("Empty Bulk Locations")
     render_lazy_df(empty_bulk_locations_df, key="empty_bulk_locs")
-
 elif selected_nav == "Trends":
     st.subheader("📈 Trends Over Time")
 
-    # Manual snapshot button (safe, correctly indented)
+    # Manual snapshot button
     col_tr_a, col_tr_b = st.columns([1, 3])
     with col_tr_a:
         if st.button("Record snapshot now", key="trend_record_now_main"):
@@ -1852,40 +1853,7 @@ elif selected_nav == "Trends":
                 "text/csv"
             )
         else:
-            st.info("Trend log exists but is empty. Record a snapshot to begin.")elif selected_nav == "Config":
-    st.subheader("⚙️ Config — Bulk Capacity Rules (A..I)")
-    st.caption("Edit and **Save** to apply. This writes to `config.json` in your logs folder.")
-    cur = _config.get("bulk_rules", DEFAULT_BULK_RULES).copy()
-    zones = list(DEFAULT_BULK_RULES.keys())
-    cols = st.columns(len(zones))
-    new_rules = {}
-    for i, z in enumerate(zones):
-        with cols[i]:
-            new_rules[z] = st.number_input(
-                f"{z}", min_value=0, max_value=50,
-                value=int(cur.get(z, DEFAULT_BULK_RULES[z])),
-                step=1, key=f"cfg_{z}"
-            )
-    save_col, apply_col = st.columns([1, 3])
-    with save_col:
-        if st.button("💾 Save", type="primary", use_container_width=True, key="cfg_save"):
-            _config["bulk_rules"] = {k: int(v) for k, v in new_rules.items()}
-            save_config(_config)
-            bulk_rules.update(_config["bulk_rules"])
-            st.success("Saved `config.json`. Click **Apply** to rebuild zone views.")
-    with apply_col:
-        if st.button("⚙️ Apply (rebuild zone capacity views)", use_container_width=True, key="cfg_apply"):
-            bulk_rules = _config["bulk_rules"].copy()
-            bulk_locations_df, empty_bulk_locations_df = build_bulk_views()
-            st.success("Bulk zone capacity views rebuilt.")
-            _rerun()
-    st.markdown("— — —")
-    st.caption(f"Config file: `{CONFIG_FILE}`")
-    if os.path.isfile(CONFIG_FILE):
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            st.code(f.read(), language="json")
-    else:
-        st.info("No config file yet. Save once to create `config.json` in your logs folder.")
+            st.info("Trend log exists but is empty. Record a snapshot to begin.")
 
 elif selected_nav == "Self-Test":
     st.subheader("🧪 Self‑Test / Diagnostics")
