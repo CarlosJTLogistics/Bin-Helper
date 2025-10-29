@@ -1829,6 +1829,7 @@ elif selected_nav == "Trends":
     if not os.path.isfile(TRENDS_FILE):
         st.info("No trend snapshots yet. Upload a new inventory file or click 'Record snapshot now' in the sidebar.")
     else:
+        # Load history
         try:
             hist = pd.read_csv(TRENDS_FILE)
         except Exception as e:
@@ -1836,13 +1837,57 @@ elif selected_nav == "Trends":
             hist = pd.DataFrame()
 
         if not hist.empty:
+            # Parse time and sort
             try:
-                hist["Timestamp"] = pd.to_datetime(hist["Timestamp"])
+                hist["Timestamp"] = pd.to_datetime(hist["Timestamp"], errors="coerce")
             except Exception:
                 pass
-            hist = hist.sort_values("Timestamp")
+            hist = hist.dropna(subset=["Timestamp"]).sort_values("Timestamp")
+
             st.caption(f"Snapshots: **{len(hist)}** • File: {os.path.basename(TRENDS_FILE)}")
 
+            # ----- KPI Lines over time -----
+            kpi_cols = ["EmptyBins","EmptyPartialBins","PartialBins","FullPalletBins","Damages","Missing"]
+            ok_cols = [c for c in kpi_cols if c in hist.columns]
+            if ok_cols:
+                kpi_df = hist[["Timestamp"] + ok_cols].copy()
+                kpi_melt = kpi_df.melt(id_vars="Timestamp", value_vars=ok_cols,
+                                       var_name="Metric", value_name="Value")
+                try:
+                    kpi_melt["Value"] = pd.to_numeric(kpi_melt["Value"], errors="coerce").fillna(0)
+                except Exception:
+                    pass
+                fig_kpi = px.line(
+                    kpi_melt, x="Timestamp", y="Value", color="Metric",
+                    markers=True,
+                    color_discrete_map={
+                        "EmptyBins": "#1f77b4",
+                        "EmptyPartialBins": "#17becf",
+                        "PartialBins": "#9467bd",
+                        "FullPalletBins": "#2ca02c",
+                        "Damages": "#d62728",
+                        "Missing": "#ff7f0e",
+                    }
+                )
+                fig_kpi.update_layout(height=420, legend_title_text="KPI")
+                st.plotly_chart(fig_kpi, use_container_width=True)
+            else:
+                st.info("No KPI columns found in trend history yet.")
+
+            # ----- Snapshots per day (bar) -----
+            try:
+                per_day = hist.copy()
+                per_day["Day"] = per_day["Timestamp"].dt.date
+                snap_ct = per_day.groupby("Day").size().reset_index(name="Snapshots")
+                fig_ct = px.bar(snap_ct, x="Day", y="Snapshots", title="Snapshots per Day",
+                                labels={"Day":"Day","Snapshots":"Count"},
+                                color="Snapshots", color_continuous_scale="Blues")
+                fig_ct.update_layout(height=300, coloraxis_showscale=False)
+                st.plotly_chart(fig_ct, use_container_width=True)
+            except Exception as _e:
+                st.info("Could not render per-day snapshot count.")
+
+            # ----- Table & download -----
             with st.expander("Show trend table"):
                 render_lazy_df(hist, key="trend_table", page_size=400)
 
@@ -1854,7 +1899,6 @@ elif selected_nav == "Trends":
             )
         else:
             st.info("Trend log exists but is empty. Record a snapshot to begin.")
-
 elif selected_nav == "Self-Test":
     st.subheader("🧪 Self‑Test / Diagnostics")
     c1, c2 = st.columns([2, 3])
