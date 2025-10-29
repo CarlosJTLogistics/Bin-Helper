@@ -1812,6 +1812,7 @@ elif selected_nav == "Empty Bulk Locations":
     render_lazy_df(empty_bulk_locations_df, key="empty_bulk_locs")
 
 elif selected_nav == "Trends":
+st.subheader("📈 Trends Over Time")
     # >>> TRENDS-UI-BUTTON: BEGIN
     col_tr_a, col_tr_b = st.columns([1,3])
     with col_tr_a:
@@ -1822,10 +1823,7 @@ elif selected_nav == "Trends":
                 _rerun()
             else:
                 st.warning(f"Snapshot not recorded: {err}")
-    # >>> TRENDS-UI-BUTTON: END
-
-    st.subheader("📈 Trends Over Time")
-    if not os.path.isfile(TRENDS_FILE):
+    # >>> TRENDS-UI-BUTTON: END    if not os.path.isfile(TRENDS_FILE):
         st.info("No trend snapshots yet. Upload a new inventory file or click 'Record snapshot now' in the sidebar.")
     else:
         try:
