@@ -1840,6 +1840,104 @@ elif selected_nav == "Trends":
                 pass
             hist = hist.sort_values("Timestamp")
             st.caption(f"Snapshots: **{len(hist)}** • File: {os.path.basename(TRENDS_FILE)}")
+    # >>> TRENDS-GRAPHS: BEGIN
+    try:
+        df = hist.copy()
+        # Ensure Timestamp is datetime and sorted
+        if "Timestamp" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["Timestamp"]):
+            df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
+        df = df.dropna(subset=["Timestamp"]).sort_values("Timestamp")
+
+        # Available KPI columns (intersect with file)
+        all_metrics = ["EmptyBins","EmptyPartialBins","PartialBins","FullPalletBins","Damages","Missing"]
+        kpis = [c for c in all_metrics if c in df.columns]
+
+        if len(df) > 0 and len(kpis) > 0:
+            # ---- Controls
+            cA, cB, cC = st.columns([2,1,2])
+
+            with cA:
+                min_d = df["Timestamp"].min().date()
+                max_d = df["Timestamp"].max().date()
+                span_days = (max_d - min_d).days if (max_d and min_d) else 0
+                default_start = (max_d - timedelta(days=14)) if span_days > 14 else min_d
+                date_range = st.date_input("Date range", value=(default_start, max_d), min_value=min_d, max_value=max_d, key="tr_date_range")
+
+            with cB:
+                freq_choice = st.selectbox("Granularity", ["Auto","Hourly","Daily","Weekly"], index=0, key="tr_freq")
+
+            with cC:
+                default_metrics = kpis[:]  # start with all
+                show_metrics = st.multiselect("Metrics", kpis, default=default_metrics, key="tr_metrics")
+
+            # ---- Filter by date
+            if isinstance(date_range, tuple) and len(date_range) == 2:
+                start_d, end_d = date_range
+                start_ts = pd.to_datetime(start_d)
+                # include full end day
+                end_ts = pd.to_datetime(end_d) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+                df = df[(df["Timestamp"] >= start_ts) & (df["Timestamp"] <= end_ts)]
+
+            # ---- Granularity
+            def _auto_freq(_df: pd.DataFrame) -> str:
+                if _df.empty:
+                    return "D"
+                days = (_df["Timestamp"].max() - _df["Timestamp"].min()).days
+                if days > 90: return "W"   # weekly
+                if days > 14: return "D"   # daily
+                return None                 # as-is (no resample)
+
+            resample_map = {"Hourly":"H", "Daily":"D", "Weekly":"W"}
+            rule = None if freq_choice == "Auto" else resample_map.get(freq_choice)
+            if freq_choice == "Auto":
+                rule = _auto_freq(df)
+
+            if rule:
+                # Use last observation per bucket to avoid spurious averaging
+                tmp = df.set_index("Timestamp").sort_index()
+                # Keep only numeric and Reason separately
+                num_cols = [c for c in show_metrics if c in tmp.columns]
+                agg = tmp[num_cols].resample(rule).last().dropna(how="all").reset_index()
+                # For reason chart we still use original df grouped by date
+                df_rs = agg
+            else:
+                df_rs = df.copy()
+
+            # ---- KPI Trends (multi-line)
+            if show_metrics:
+                plot_df = df_rs[["Timestamp"] + show_metrics].melt(id_vars="Timestamp", var_name="Metric", value_name="Value")
+                st.markdown("#### KPI Trends")
+                fig_tr = px.line(plot_df, x="Timestamp", y="Value", color="Metric")
+                fig_tr.update_layout(height=360, legend_title_text="Metric", margin=dict(l=10,r=10,t=30,b=10))
+                st.plotly_chart(fig_tr, use_container_width=True)
+
+            # ---- Damages & Missing focused chart
+            dm = [m for m in ["Damages","Missing"] if m in df_rs.columns]
+            if dm:
+                st.markdown("#### Damages & Missing")
+                dm_df = df_rs[["Timestamp"] + dm].melt(id_vars="Timestamp", var_name="Metric", value_name="Value")
+                fig_dm = px.line(dm_df, x="Timestamp", y="Value", color="Metric")
+                fig_dm.update_layout(height=300, legend_title_text="", margin=dict(l=10,r=10,t=30,b=10))
+                st.plotly_chart(fig_dm, use_container_width=True)
+
+            # ---- Reasons by day (how snapshots were created)
+            if "Reason" in df.columns:
+                reason_df = df.copy()
+                reason_df["Day"] = reason_df["Timestamp"].dt.date
+                grp = reason_df.groupby(["Day","Reason"]).size().reset_index(name="Count")
+                if not grp.empty:
+                    st.markdown("#### Snapshots by Reason (per day)")
+                    fig_r = px.bar(grp, x="Day", y="Count", color="Reason", barmode="stack")
+                    fig_r.update_layout(height=320, xaxis_title="Day", yaxis_title="Snapshots", margin=dict(l=10,r=10,t=30,b=10))
+                    st.plotly_chart(fig_r, use_container_width=True)
+
+        else:
+            st.info("Trend history exists but no KPI columns were detected.")
+
+    except Exception as _tr_err:
+        st.info(f"Trends visualization unavailable: {_tr_err}")
+    # >>> TRENDS-GRAPHS: END
+
             with st.expander("Show trend table"):
                 render_lazy_df(hist, key="trend_table", page_size=400)
             st.download_button("Download trend_history.csv", hist.to_csv(index=False).encode("utf-8"),
